@@ -1,30 +1,226 @@
 # License: MIT (template code)
-name: Notify Discord on Push (AI_7-team)
+name: Notify Discord (push / PR / comments) - AI_7-team
 
 on:
   push:
     branches:
       - main
       - dev
-      - feature/yc
-      - feature/kt
-      - feature/jh
-      - feature/jw
-      - feature/sy
+      - "feature/**"
+
+  pull_request:
+    branches:
+      - main
+      - dev
+    types: [opened, reopened, synchronize, closed]
+
+  # PR에 달린 일반 코멘트는 issue_comment로도 들어옵니다(= PR도 issue 취급).
+  issue_comment:
+    types: [created]
+
+  # PR diff 라인에 다는 "코드 코멘트"
+  pull_request_review_comment:
+    types: [created]
 
 jobs:
   notify:
     runs-on: ubuntu-latest
     steps:
-      - name: Send Discord message
+      - name: Build payload (safe JSON)
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
           REPO: ${{ github.repository }}
-          BRANCH: ${{ github.ref_name }}
-          ACTOR: ${{ github.actor }}
-          COMMIT_MSG: ${{ github.event.head_commit.message }}
-          COMMIT_URL: ${{ github.event.head_commit.url }}
+          SERVER_URL: ${{ github.server_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          payload=$(printf '{"content":"✅ Push: %s\n🌿 Branch: %s\n👤 By: %s\n📝 %s\n🔗 %s"}' \
-            "$REPO" "$BRANCH" "$ACTOR" "$COMMIT_MSG" "$COMMIT_URL")
-          curl -H "Content-Type: application/json" -d "$payload" "$DISCORD_WEBHOOK_URL"
+          python - << 'PY' > payload.json
+          # License: MIT (template code)
+          import os, json, textwrap
+
+          event_name = os.environ["GITHUB_EVENT_NAME"]
+          event_path = os.environ["GITHUB_EVENT_PATH"]
+
+          with open(event_path, "r", encoding="utf-8") as f:
+              ev = json.load(f)
+
+          repo = os.environ.get("REPO", "")
+          run_url = os.environ.get("RUN_URL", "")
+
+          def clip(s: str, n: int = 280) -> str:
+              s = (s or "").strip()
+              if not s:
+                  return ""
+              return s if len(s) <= n else s[: n - 1] + "…"
+
+          def bullets(lines, max_items=10):
+              lines = [ln for ln in lines if ln]
+              if not lines:
+                  return ""
+              shown = lines[:max_items]
+              more = len(lines) - len(shown)
+              out = "\n".join(f"- {ln}" for ln in shown)
+              if more > 0:
+                  out += f"\n- … (+{more} more)"
+              return out
+
+          content_parts = []
+
+          # -------------------------
+          # 1) PUSH (여러 커밋 묶음)
+          # -------------------------
+          if event_name == "push":
+              branch_ref = ev.get("ref", "")              # refs/heads/dev
+              branch = branch_ref.replace("refs/heads/", "")
+              pusher = (ev.get("pusher") or {}).get("name") or (ev.get("sender") or {}).get("login", "unknown")
+              compare_url = ev.get("compare") or ""
+              commits = ev.get("commits") or []
+              head = ev.get("head_commit") or {}
+              head_url = head.get("url") or ""
+              head_msg = head.get("message") or ""
+              head_author = ((head.get("author") or {}).get("name") or "")
+
+              # 각 커밋 요약: "작성자: 메시지 (짧은 sha)"
+              items = []
+              for c in commits:
+                  sha = (c.get("id") or "")[:7]
+                  msg = (c.get("message") or "").splitlines()[0]
+                  author = ((c.get("author") or {}).get("name") or "unknown")
+                  items.append(f"{author}: {clip(msg, 90)} ({sha})")
+
+              content_parts.append(f"✅ **PUSH**  `{repo}`")
+              content_parts.append(f"🌿 Branch: `{branch}`")
+              content_parts.append(f"👤 Pusher: **{pusher}**")
+              content_parts.append(f"📦 Commits: **{len(commits)}**")
+
+              if items:
+                  content_parts.append(bullets(items, max_items=10))
+              else:
+                  # 단일 커밋인데 commits 배열이 비는 케이스 방어
+                  sha = (head.get("id") or "")[:7]
+                  msg = (head_msg.splitlines()[0] if head_msg else "")
+                  author = head_author or pusher
+                  if msg:
+                      content_parts.append(f"- {author}: {clip(msg, 90)} ({sha})")
+
+              # 링크들
+              if compare_url:
+                  content_parts.append(f"🔗 Compare: {compare_url}")
+              elif head_url:
+                  content_parts.append(f"🔗 Commit: {head_url}")
+
+              if run_url:
+                  content_parts.append(f"🧾 Actions: {run_url}")
+
+          # -------------------------
+          # 2) PULL REQUEST
+          # -------------------------
+          elif event_name == "pull_request":
+              action = ev.get("action", "")
+              pr = ev.get("pull_request") or {}
+              number = pr.get("number") or ev.get("number")
+              title = pr.get("title") or ""
+              user = (pr.get("user") or {}).get("login", "unknown")
+              base = ((pr.get("base") or {}).get("ref") or "")
+              head = ((pr.get("head") or {}).get("ref") or "")
+              url = pr.get("html_url") or ""
+              body = clip(pr.get("body") or "", 300)
+
+              merged = pr.get("merged", False)
+              state = pr.get("state", "")
+              label = "🔀 **PR**"
+
+              # closed + merged 케이스를 분리해서 더 직관적으로
+              if action == "closed" and merged:
+                  label = "✅ **MERGED PR**"
+              elif action == "closed" and not merged:
+                  label = "🚫 **CLOSED PR**"
+              elif action in ("opened", "reopened"):
+                  label = "🆕 **OPEN PR**"
+              elif action == "synchronize":
+                  label = "♻️ **UPDATE PR**"
+
+              content_parts.append(f"{label}  `{repo}`  #{number}")
+              content_parts.append(f"👤 Author: **{user}**")
+              content_parts.append(f"🌿 `{head}` → `{base}`")
+              content_parts.append(f"📝 Title: {clip(title, 200)}")
+              if body:
+                  content_parts.append(f"📄 Body: {body}")
+              if url:
+                  content_parts.append(f"🔗 PR: {url}")
+              if run_url:
+                  content_parts.append(f"🧾 Actions: {run_url}")
+
+          # -------------------------
+          # 3) ISSUE COMMENT (PR 코멘트 포함)
+          # -------------------------
+          elif event_name == "issue_comment":
+              action = ev.get("action", "")
+              if action != "created":
+                  pass
+              issue = ev.get("issue") or {}
+              comment = ev.get("comment") or {}
+              commenter = (comment.get("user") or {}).get("login", "unknown")
+              issue_title = issue.get("title") or ""
+              issue_url = issue.get("html_url") or ""
+              comment_url = comment.get("html_url") or ""
+              body = clip(comment.get("body") or "", 500)
+
+              # PR인지 구분 (issue payload에 pull_request 필드가 있으면 PR)
+              is_pr = "pull_request" in issue
+              label = "💬 **PR COMMENT**" if is_pr else "💬 **ISSUE COMMENT**"
+
+              content_parts.append(f"{label}  `{repo}`")
+              content_parts.append(f"👤 By: **{commenter}**")
+              content_parts.append(f"📝 On: {clip(issue_title, 200)}")
+              if body:
+                  content_parts.append(f"💭 {body}")
+              if comment_url:
+                  content_parts.append(f"🔗 Comment: {comment_url}")
+              elif issue_url:
+                  content_parts.append(f"🔗 Thread: {issue_url}")
+
+          # -------------------------
+          # 4) PR REVIEW COMMENT (코드 라인 코멘트)
+          # -------------------------
+          elif event_name == "pull_request_review_comment":
+              action = ev.get("action", "")
+              if action != "created":
+                  pass
+              pr = ev.get("pull_request") or {}
+              comment = ev.get("comment") or {}
+              commenter = (comment.get("user") or {}).get("login", "unknown")
+              pr_url = pr.get("html_url") or ""
+              comment_url = comment.get("html_url") or ""
+              path = comment.get("path") or ""
+              line = comment.get("line") or comment.get("original_line") or ""
+              body = clip(comment.get("body") or "", 500)
+
+              content_parts.append(f"🧩 **PR CODE COMMENT**  `{repo}`")
+              content_parts.append(f"👤 By: **{commenter}**")
+              if path:
+                  content_parts.append(f"📌 File: `{path}`  Line: `{line}`")
+              if body:
+                  content_parts.append(f"💭 {body}")
+              if comment_url:
+                  content_parts.append(f"🔗 Comment: {comment_url}")
+              elif pr_url:
+                  content_parts.append(f"🔗 PR: {pr_url}")
+
+          else:
+              # 기타 이벤트는 조용히 스킵(원하면 여기서 확장)
+              content_parts.append(f"ℹ️ Event `{event_name}` received for `{repo}` (no formatter)")
+
+          content = "\n".join([p for p in content_parts if p]).strip()
+
+          print(json.dumps({"content": content}, ensure_ascii=False))
+          PY
+
+      - name: Send Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          curl -f -sS -H "Content-Type: application/json" \
+            -d @payload.json \
+            "$DISCORD_WEBHOOK_URL"
