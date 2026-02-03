@@ -16,7 +16,7 @@ jobs:
   notify:
     runs-on: ubuntu-latest
     steps:
-      - name: Send Discord message
+      - name: Send Discord message (safe JSON)
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           REPO: ${{ github.repository }}
@@ -25,6 +25,18 @@ jobs:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
           COMMIT_URL: ${{ github.event.head_commit.url }}
         run: |
-          payload=$(printf '{"content":"✅ Push: %s\n🌿 Branch: %s\n👤 By: %s\n📝 %s\n🔗 %s"}' \
-            "$REPO" "$BRANCH" "$ACTOR" "$COMMIT_MSG" "$COMMIT_URL")
-          curl -H "Content-Type: application/json" -d "$payload" "$DISCORD_WEBHOOK_URL"
+          python - << 'PY' > payload.json
+          import os, json
+          content = (
+              f"✅ Push: {os.environ['REPO']}\n"
+              f"🌿 Branch: {os.environ['BRANCH']}\n"
+              f"👤 By: {os.environ['ACTOR']}\n"
+              f"📝 {os.environ.get('COMMIT_MSG','')}\n"
+              f"🔗 {os.environ.get('COMMIT_URL','')}"
+          )
+          print(json.dumps({"content": content}, ensure_ascii=False))
+          PY
+      
+          curl -f -sS -H "Content-Type: application/json" \
+            -d @payload.json \
+            "$DISCORD_WEBHOOK_URL"
