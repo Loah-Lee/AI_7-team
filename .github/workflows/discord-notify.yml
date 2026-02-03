@@ -4,7 +4,13 @@ name: Notify Discord on Push (AI_7-team)
 on:
   push:
     branches:
-      - AI_7-team
+      - main
+      - dev
+      - feature/yc
+      - feature/kt
+      - feature/jh
+      - feature/jw
+      - feature/sy
 
 jobs:
   notify:
