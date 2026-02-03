@@ -1,0 +1,24 @@
+# License: MIT (template code)
+name: Notify Discord on Push (AI_7-team)
+
+on:
+  push:
+    branches:
+      - AI_7-team
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Discord message
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          ACTOR: ${{ github.actor }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          COMMIT_URL: ${{ github.event.head_commit.url }}
+        run: |
+          payload=$(printf '{"content":"✅ Push: %s\n🌿 Branch: %s\n👤 By: %s\n📝 %s\n🔗 %s"}' \
+            "$REPO" "$BRANCH" "$ACTOR" "$COMMIT_MSG" "$COMMIT_URL")
+          curl -H "Content-Type: application/json" -d "$payload" "$DISCORD_WEBHOOK_URL"
