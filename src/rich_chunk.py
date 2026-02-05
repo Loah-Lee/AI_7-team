@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -55,6 +56,15 @@ def _extract_assets(text: str) -> List[str]:
     return assets
 
 
+def _normalize_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text.strip().lower())
+
+
+def _chunk_id(text: str) -> str:
+    normalized = _normalize_text(text)
+    return hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:12]
+
+
 def chunk_rich(
     input_dir: Path = Path("notebooks") / "data_rich",
     output_dir: Path = Path("notebooks") / "data_chunks_rich",
@@ -85,6 +95,7 @@ def chunk_rich(
                         "id": f"{rel_path.as_posix()}#{idx}",
                         "source_path": rel_path.as_posix(),
                         "chunk_index": idx,
+                        "chunk_id": _chunk_id(chunk),
                         "text": chunk,
                     }
                     assets = _extract_assets(chunk)

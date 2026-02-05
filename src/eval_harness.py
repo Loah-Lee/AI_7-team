@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import argparse
 import csv
+import hashlib
 import json
 import re
 import time
@@ -10,6 +12,8 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Sequence, Tuple
 
 from .langfuse_logger import get_langfuse_logger
+from .rerank_openai import rerank_openai
+from .rerank_rule import rerank_rule
 from .rich_tfidf_search import ChunkRecord as RichChunkRecord
 from .rich_tfidf_search import load_chunks_rich, search_tfidf, _build_tfidf
 
@@ -18,6 +22,7 @@ from .rich_tfidf_search import load_chunks_rich, search_tfidf, _build_tfidf
 class ChunkRecord:
     source_path: str
     chunk_index: int
+    chunk_id: str
     text: str
 
 
@@ -42,6 +47,65 @@ def _log_fail(stage: str, input_path: Path, exc: Exception) -> None:
 
 def _tokenize(text: str) -> List[str]:
     return re.findall(r"[0-9A-Za-z가-힣]+", text.lower())
+
+
+def _normalize_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text.strip().lower())
+
+
+def _chunk_id(text: str) -> str:
+    normalized = _normalize_text(text)
+    return hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:12]
+
+
+def _extract_sections(text: str) -> List[str]:
+    sections = []
+    section_map = {
+        "보증금": ["보증금", "입찰보증", "보증"],
+        "제출": ["제출", "마감", "접수"],
+        "기간": ["기간", "개월", "착수", "종료", "일정"],
+        "문의처": ["문의", "연락처", "전화", "이메일", "담당자"],
+        "과업범위": ["과업", "범위", "주요 업무", "수행 내용"],
+    }
+    for key, toks in section_map.items():
+        for tok in toks:
+            if tok in text:
+                sections.append(key)
+                break
+    return sections
+
+
+def _qual_score_top1(query: str, snippet: str) -> Tuple[int, str]:
+    q = query.strip()
+    s = snippet.strip()
+    if not q or not s:
+        return 0, "unrelated"
+
+    q_lower = q.lower()
+    s_lower = s.lower()
+
+    keyword_match = any(tok in s_lower for tok in _tokenize(q_lower))
+    has_value = bool(
+        re.search(r"\d{4}[./-]\d{1,2}[./-]\d{1,2}", s)
+        or re.search(r"\d{1,2}\s*월\s*\d{1,2}\s*일", s)
+        or re.search(r"\d+%|\d+\s*퍼센트", s)
+        or re.search(r"\d[\d,]*\s*(원|만원|천원|억원)", s)
+        or re.search(r"\d", s)
+    )
+
+    q_sections = _extract_sections(q)
+    s_sections = _extract_sections(s)
+    section_match = bool(set(q_sections) & set(s_sections)) if q_sections else False
+
+    if keyword_match and has_value and section_match:
+        return 2, "keyword+value+section"
+    if keyword_match:
+        if not has_value:
+            return 1, "value_missing"
+        if not section_match:
+            return 1, "section_ambiguous"
+        return 1, "keyword_partial"
+    return 0, "unrelated"
 
 
 def _score(query: str, chunk: ChunkRecord) -> float:
@@ -100,12 +164,14 @@ def load_chunks(chunks_dir: Path) -> List[ChunkRecord]:
                 chunk_index = int(row.get("chunk_index", -1))
             except Exception:
                 chunk_index = -1
+            chunk_id = str(row.get("chunk_id", "")).strip()
             text = str(row.get("text", ""))
             if source_path and chunk_index >= 0:
                 records.append(
                     ChunkRecord(
                         source_path=source_path,
                         chunk_index=chunk_index,
+                        chunk_id=chunk_id or _chunk_id(text),
                         text=text,
                     )
                 )
@@ -143,6 +209,7 @@ class RetrieverB(RetrieverBase):
             ChunkRecord(
                 source_path=item.source_path,
                 chunk_index=item.chunk_index,
+                chunk_id=_chunk_id(item.text),
                 text=item.text,
             )
             for item in rich_results
@@ -178,6 +245,9 @@ def run_eval(
     output_root: Path = Path("notebooks") / "runs",
     *,
     k: int = 10,
+    rerank_mode: str = "none",
+    llm_model: str = "gpt-5-nano",
+    variant: str = "AB",
 ) -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = output_root / timestamp
@@ -191,7 +261,12 @@ def run_eval(
         rich_chunks = load_chunks_rich(Path("notebooks") / "data_chunks_rich")
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        retrievers: List[RetrieverBase] = [RetrieverA(), RetrieverB(rich_chunks)]
+        retrievers: List[RetrieverBase] = []
+        variant = variant.upper()
+        if variant in {"A", "AB"}:
+            retrievers.append(RetrieverA())
+        if variant in {"B", "AB"}:
+            retrievers.append(RetrieverB(rich_chunks))
         logger = get_langfuse_logger()
 
         with output_path.open("w", encoding="utf-8", newline="") as f:
@@ -206,11 +281,17 @@ def run_eval(
                     "mrr",
                     "latency_ms",
                     "cost_usd",
+                    "rerank_mode",
                     "top1_source_path",
                     "top1_chunk_index",
+                    "top1_chunk_id",
+                    "qual_score_top1",
+                    "qual_reason_top1",
                 ],
             )
             writer.writeheader()
+
+            qual_scores: Dict[str, List[int]] = {}
 
             for query in queries:
                 for retriever in retrievers:
@@ -218,8 +299,34 @@ def run_eval(
                     results = retriever.retrieve(query.query, chunks, k=k)
                     latency_ms = (time.perf_counter() - start) * 1000.0
 
+                    cost_usd = 0.0
+                    if rerank_mode != "none" and retriever.name == "B":
+                        candidates = [
+                            {
+                                "text": item.text,
+                                "source_path": item.source_path,
+                                "chunk_id": item.chunk_id,
+                            }
+                            for item in results
+                        ]
+                        if rerank_mode == "rule":
+                            reranked = rerank_rule(query.query, candidates)
+                        else:
+                            reranked, cost_usd = rerank_openai(
+                                query.query, candidates, model=llm_model
+                            )
+                        id_map = {item.chunk_id: item for item in results}
+                        results = [
+                            id_map[item.get("chunk_id", "")]
+                            for item in reranked
+                            if item.get("chunk_id", "") in id_map
+                        ]
+
                     metrics = evaluate_query(query, results)
                     top1 = results[0] if results else None
+                    qual_score, qual_reason = _qual_score_top1(
+                        query.query, top1.text if top1 else ""
+                    )
 
                     row = {
                         "query_id": query.query_id,
@@ -229,9 +336,13 @@ def run_eval(
                         "hit@10": metrics["hit@10"],
                         "mrr": metrics["mrr"],
                         "latency_ms": round(latency_ms, 3),
-                        "cost_usd": 0.0,
+                        "cost_usd": cost_usd,
+                        "rerank_mode": rerank_mode,
                         "top1_source_path": top1.source_path if top1 else "",
                         "top1_chunk_index": top1.chunk_index if top1 else "",
+                        "top1_chunk_id": top1.chunk_id if top1 else "",
+                        "qual_score_top1": qual_score,
+                        "qual_reason_top1": qual_reason,
                     }
 
                     writer.writerow(row)
@@ -242,12 +353,24 @@ def run_eval(
                             "variant": retriever.name,
                             "latency_ms": row["latency_ms"],
                             "metrics": metrics,
+                            "rerank_mode": rerank_mode,
                             "top1": {
                                 "source_path": row["top1_source_path"],
                                 "chunk_index": row["top1_chunk_index"],
+                                "chunk_id": row["top1_chunk_id"],
                             },
+                            "qual_score_top1": row["qual_score_top1"],
+                            "qual_reason_top1": row["qual_reason_top1"],
                         },
                     )
+                    key = f"{retriever.name}:{rerank_mode}"
+                    qual_scores.setdefault(key, []).append(int(qual_score))
+
+        if qual_scores:
+            print("QUAL SUMMARY | variant:rerank | qual_score_top1_avg")
+            for key, scores in qual_scores.items():
+                avg = sum(scores) / max(len(scores), 1)
+                print(f"{key} | {avg:.3f}")
 
         _log_ok("eval", input_path, output_path)
         return output_path
@@ -257,4 +380,16 @@ def run_eval(
 
 
 if __name__ == "__main__":
-    run_eval()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--rerank", choices=["none", "rule", "llm"], default="none")
+    parser.add_argument("--llm-model", default="gpt-5-nano")
+    parser.add_argument("--topk", type=int, default=10)
+    parser.add_argument("--variant", choices=["A", "B", "AB"], default="AB")
+    args = parser.parse_args()
+
+    run_eval(
+        k=args.topk,
+        rerank_mode=args.rerank,
+        llm_model=args.llm_model,
+        variant=args.variant,
+    )

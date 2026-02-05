@@ -4,7 +4,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Iterable, List
 
@@ -38,6 +40,15 @@ def _iter_text_files(input_dir: Path) -> Iterable[Path]:
     )
 
 
+def _normalize_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text.strip().lower())
+
+
+def _chunk_id(text: str) -> str:
+    normalized = _normalize_text(text)
+    return hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:12]
+
+
 def chunk_all(
     input_dir: Path = Path("data_text"),
     output_dir: Path = Path("data_chunks"),
@@ -68,6 +79,7 @@ def chunk_all(
                         "id": f"{rel_path.as_posix()}#{idx}",
                         "source_path": rel_path.as_posix(),
                         "chunk_index": idx,
+                        "chunk_id": _chunk_id(chunk),
                         "text": chunk,
                     }
                     f.write(json.dumps(record, ensure_ascii=False) + "\n")
