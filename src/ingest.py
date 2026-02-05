@@ -1,3 +1,4 @@
+# src/ingest.py
 from pathlib import Path
 from typing import Dict
 
@@ -6,10 +7,12 @@ from .ingest_pdf import extract_pdf_text
 
 
 def _log_ok(stage: str, in_path: Path, out_path: Path) -> None:
+    # 성공 로그(스펙): INGEST OK | <stage> | <input_path> -> <output_path>
     print(f"INGEST OK | {stage} | {in_path} -> {out_path}")
 
 
 def _log_fail(stage: str, in_path: Path, exc: Exception) -> None:
+    # 실패 로그(스펙): INGEST FAIL | <stage> | <input_path> | <error_type>: <message>
     print(f"INGEST FAIL | {stage} | {in_path} | {type(exc).__name__}: {exc}")
 
 
@@ -66,10 +69,12 @@ def ingest_all(
     for path in files:
         summary["processed"] += 1
         try:
+            # scan 단계는 "발견됨" 의미로 OK 로그를 남김
             _log_ok("scan", path, output_dir)
             ingest_one(path, output_dir=output_dir)
             summary["succeeded"] += 1
         except Exception:
+            # 실패 상세 로그는 ingest_one 내부(extract/write)에서 이미 남김
             summary["failed"] += 1
 
     return summary
@@ -77,3 +82,4 @@ def ingest_all(
 
 if __name__ == "__main__":
     ingest_all()
+    print(ingest_all())
