@@ -1,0 +1,39 @@
+# BiddingMate 기본 설정
+
+llm:
+  model: "gpt-5-mini"
+  temperature: 0.0
+  max_tokens: 4096
+
+embedding:
+  model: "text-embedding-3-small"
+  dimensions: 1536
+
+vectorstore:
+  provider: "chroma"            # chroma | faiss
+  collection_name: "rfp_docs"
+  persist_directory: "./chroma_db"
+
+retriever:
+  search_type: "mmr"            # mmr | dense | bm25 | hybrid
+  top_k: 8
+  fetch_k: 20
+  lambda_mult: 0.5              # MMR 다양성 파라미터 (0=최대 다양성, 1=순수 유사도)
+  score_threshold: 0.3
+
+chunking:
+  strategy: "recursive"         # recursive | semantic
+  chunk_size: 1000
+  chunk_overlap: 200
+  separators:
+    - "\n\n"
+    - "\n"
+    - ". "
+    - " "
+
+data:
+  documents_dir: "./data/files"
+
+tracing:
+  langsmith_project: "biddingmate"
+  langfuse_enabled: true

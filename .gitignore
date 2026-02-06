@@ -211,6 +211,10 @@ __marimo__/
 data/
 !data/.gitkeep
 
+# ChromaDB (벡터스토어는 로컬에서 ingest.py로 생성)
+chroma_db/
+chroma_db_v3/
+
 # Model Weights (LLM 가중치는 HuggingFace 등에서 다운로드)
 *.pth
 *.bin
