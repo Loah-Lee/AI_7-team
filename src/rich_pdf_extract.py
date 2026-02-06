@@ -77,7 +77,7 @@ def extract_rich(
     output_root: Path = Path("notebooks") / "data_rich",
     assets_root: Path = Path("notebooks") / "data_assets",
     *,
-    max_docs: int = 3,
+    max_docs: int | None = None,
 ) -> Dict[str, int]:
     _log_start(input_dir, output_root)
 
@@ -87,7 +87,7 @@ def extract_rich(
         raise exc
 
     pdfs = [p for p in sorted(input_dir.rglob("*.pdf")) if p.is_file()]
-    targets = pdfs[:max_docs]
+    targets = pdfs if max_docs is None else pdfs[:max_docs]
 
     summary = {"processed": 0, "succeeded": 0, "failed": 0}
 

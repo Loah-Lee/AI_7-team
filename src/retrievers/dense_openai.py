@@ -79,7 +79,13 @@ def _l2_normalize(vecs: np.ndarray) -> np.ndarray:
 
 
 def _has_table_schema(text: str) -> bool:
-    # 자체 생성 코드: 표 JSON 스키마 존재 여부를 간단히 감지
+    # 자체 생성 코드: 표/테이블 여부를 가볍게 감지
+    if not text:
+        return False
+    if re.search(r"\b(열|행|컬럼|표)\b", text):
+        return True
+    if "|" in text and "-" in text:
+        return True
     return bool(re.search(r"\"type\"\\s*:\\s*\"table\"", text))
 
 
