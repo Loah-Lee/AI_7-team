@@ -213,22 +213,45 @@ class TfidfRetriever(RetrieverBase):
 class DenseRetriever(RetrieverBase):
     kind = "dense"
 
-    def __init__(self, variant: str, index: DenseIndex, embedder: DenseEmbedder) -> None:
+    def __init__(
+        self,
+        variant: str,
+        index: DenseIndex,
+        embedder: DenseEmbedder,
+        table_multiplier: float,
+    ) -> None:
         self.name = variant
         self._index = index
         self._embedder = embedder
+        # 자체 생성 코드: 표 캡션 가중치 적용을 위한 설정
+        self._table_multiplier = max(0.0, float(table_multiplier))
+        self._table_map = {meta.chunk_id: meta.is_table for meta in self._index.meta}
 
     def retrieve(self, query: str, chunks: Sequence[ChunkRecord], k: int) -> List[ChunkRecord]:
         query_vec = self._embedder.embed_query(query)
-        results = self._index.search(query_vec, k)
+        scores = self._index.score_all(query_vec)
+        if scores.size == 0:
+            return []
+        scored: List[Tuple[int, float]] = []
+        for idx, score in enumerate(scores.tolist()):
+            if self._table_multiplier != 1.0 and self._table_map.get(
+                self._index.meta[idx].chunk_id, False
+            ):
+                # 자체 생성 코드: 표 청크 점수 가중치
+                score *= self._table_multiplier
+            scored.append((idx, float(score)))
+        if k <= 0:
+            return []
+        scored.sort(key=lambda x: x[1], reverse=True)
+        top = scored[: min(int(k), len(scored))]
         return [
             ChunkRecord(
-                source_path=item.source_path,
-                chunk_index=item.chunk_index,
-                chunk_id=item.chunk_id,
-                text=item.text,
+                source_path=self._index.meta[i].source_path,
+                chunk_index=self._index.meta[i].chunk_index,
+                chunk_id=self._index.meta[i].chunk_id,
+                text=self._index.meta[i].text,
             )
-            for item, _ in results
+            for i, _ in top
         ]
 
 
@@ -242,6 +265,7 @@ class HybridRetriever(RetrieverBase):
         index: DenseIndex,
         embedder: DenseEmbedder,
         alpha: float,
+        table_multiplier: float,
     ) -> None:
         self.name = variant
         self._chunks = [
@@ -258,6 +282,9 @@ class HybridRetriever(RetrieverBase):
         self._index = index
         self._embedder = embedder
         self._alpha = max(0.0, min(1.0, float(alpha)))
+        # 자체 생성 코드: 표 캡션 가중치 적용을 위한 설정
+        self._table_multiplier = max(0.0, float(table_multiplier))
+        self._table_map = {meta.chunk_id: meta.is_table for meta in self._index.meta}
 
     def retrieve(self, query: str, chunks: Sequence[ChunkRecord], k: int) -> List[ChunkRecord]:
         if not self._chunks:
@@ -273,6 +300,9 @@ class HybridRetriever(RetrieverBase):
         for idx, chunk in enumerate(self._chunks):
             dense_score = dense_map.get(chunk.chunk_id, 0.0)
             score = self._alpha * tfidf[idx] + (1.0 - self._alpha) * dense_score
+            if self._table_multiplier != 1.0 and self._table_map.get(chunk.chunk_id, False):
+                # 자체 생성 코드: 표 청크 점수 가중치
+                score *= self._table_multiplier
             scored.append((idx, score))
         scored.sort(key=lambda x: x[1], reverse=True)
         top = scored[:k]
@@ -310,6 +340,105 @@ def evaluate_query(
     }
 
 
+def _rerank_if_needed(
+    query: QueryRecord,
+    retriever: RetrieverBase,
+    results: List[ChunkRecord],
+    rerank_mode: str,
+    llm_model: str,
+) -> Tuple[List[ChunkRecord], float]:
+    # 자체 생성 코드: 공통 재랭크 로직
+    cost_usd = 0.0
+    if rerank_mode != "none" and retriever.name == "B":
+        candidates = [
+            {
+                "text": item.text,
+                "source_path": item.source_path,
+                "chunk_id": item.chunk_id,
+            }
+            for item in results
+        ]
+        if rerank_mode == "rule":
+            reranked = rerank_rule(query.query, candidates)
+        else:
+            reranked, cost_usd = rerank_openai(query.query, candidates, model=llm_model)
+        id_map = {item.chunk_id: item for item in results}
+        results = [
+            id_map[item.get("chunk_id", "")]
+            for item in reranked
+            if item.get("chunk_id", "") in id_map
+        ]
+    return results, cost_usd
+
+
+def _tune_hybrid_alpha(
+    queries: Sequence[QueryRecord],
+    *,
+    variant: str,
+    chunks_a: Sequence[ChunkRecord],
+    chunks_b: Sequence[ChunkRecord],
+    dense_a: DenseIndex | None,
+    dense_b: DenseIndex | None,
+    embedder: DenseEmbedder | None,
+    k: int,
+    rerank_mode: str,
+    llm_model: str,
+    table_multiplier: float,
+) -> float:
+    # 자체 생성 코드: 하이브리드 alpha 자동 튜닝
+    candidates = [0.2, 0.4, 0.6, 0.8]
+    best_alpha = candidates[0]
+    best_score = (-1.0, -1.0, -1.0)
+
+    for alpha in candidates:
+        retrievers: List[RetrieverBase] = []
+        if variant in {"A", "AB"}:
+            if dense_a is None or embedder is None:
+                raise RuntimeError("hybrid 인덱스(A)가 필요합니다.")
+            retrievers.append(
+                HybridRetriever("A", chunks_a, dense_a, embedder, alpha, table_multiplier)
+            )
+        if variant in {"B", "AB"}:
+            if dense_b is None or embedder is None:
+                raise RuntimeError("hybrid 인덱스(B)가 필요합니다.")
+            retrievers.append(
+                HybridRetriever("B", chunks_b, dense_b, embedder, alpha, table_multiplier)
+            )
+
+        total_hit5 = 0.0
+        total_hit10 = 0.0
+        total_mrr = 0.0
+        count = 0
+        for query in queries:
+            for retriever in retrievers:
+                chunks = chunks_a if retriever.name == "A" else chunks_b
+                results = retriever.retrieve(query.query, chunks, k=k)
+                results, _ = _rerank_if_needed(
+                    query, retriever, results, rerank_mode=rerank_mode, llm_model=llm_model
+                )
+                metrics = evaluate_query(query, results)
+                total_hit5 += metrics["hit@5"]
+                total_hit10 += metrics["hit@10"]
+                total_mrr += metrics["mrr"]
+                count += 1
+
+        denom = max(count, 1)
+        avg_hit5 = total_hit5 / denom
+        avg_hit10 = total_hit10 / denom
+        avg_mrr = total_mrr / denom
+        score = (avg_mrr, avg_hit10, avg_hit5)
+        if score > best_score:
+            best_score = score
+            best_alpha = alpha
+
+    print(
+        "TUNE ALPHA | candidates="
+        + ",".join(f"{c:.2f}" for c in candidates)
+        + f" | best_alpha={best_alpha:.2f}"
+    )
+    return best_alpha
+
+
 def run_eval(
     input_path: Path = Path("configs/eval_queries.jsonl"),
     chunks_dir: Path = Path("data_chunks"),
@@ -321,6 +450,8 @@ def run_eval(
     variant: str = "AB",
     retriever: str = "tfidf",
     hybrid_alpha: float = 0.5,
+    tune_alpha: bool = False,
+    table_multiplier: float = 1.2,
     dense_index_a: Path = Path("data_index") / "dense_A",
     dense_index_b: Path = Path("data_index") / "dense_B",
 ) -> Path:
@@ -358,17 +489,45 @@ def run_eval(
             if variant in {"B", "AB"}:
                 dense_b = DenseIndex.load(dense_index_b / "index.npz", dense_index_b / "meta.json")
 
+        best_alpha: float | None = None
+        if tune_alpha and retriever == "hybrid":
+            best_alpha = _tune_hybrid_alpha(
+                queries,
+                variant=variant,
+                chunks_a=chunks_a,
+                chunks_b=chunks_b,
+                dense_a=dense_a,
+                dense_b=dense_b,
+                embedder=embedder,
+                k=k,
+                rerank_mode=rerank_mode,
+                llm_model=llm_model,
+                table_multiplier=table_multiplier,
+            )
+            hybrid_alpha = best_alpha
+        elif tune_alpha:
+            print("TUNE ALPHA | retriever가 hybrid가 아니어서 건너뜁니다.")
+
         if variant in {"A", "AB"}:
             if retriever == "tfidf":
                 retrievers.append(TfidfRetriever("A", chunks_a))
             elif retriever == "dense":
                 if dense_a is None or embedder is None:
                     raise RuntimeError("dense 인덱스(A)가 필요합니다.")
-                retrievers.append(DenseRetriever("A", dense_a, embedder))
+                retrievers.append(DenseRetriever("A", dense_a, embedder, table_multiplier))
             elif retriever == "hybrid":
                 if dense_a is None or embedder is None:
                     raise RuntimeError("hybrid 인덱스(A)가 필요합니다.")
-                retrievers.append(HybridRetriever("A", chunks_a, dense_a, embedder, hybrid_alpha))
+                retrievers.append(
+                    HybridRetriever(
+                        "A",
+                        chunks_a,
+                        dense_a,
+                        embedder,
+                        hybrid_alpha,
+                        table_multiplier,
+                    )
+                )
             else:
                 raise RuntimeError(f"지원하지 않는 retriever: {retriever}")
         if variant in {"B", "AB"}:
@@ -377,11 +536,20 @@ def run_eval(
             elif retriever == "dense":
                 if dense_b is None or embedder is None:
                     raise RuntimeError("dense 인덱스(B)가 필요합니다.")
-                retrievers.append(DenseRetriever("B", dense_b, embedder))
+                retrievers.append(DenseRetriever("B", dense_b, embedder, table_multiplier))
             elif retriever == "hybrid":
                 if dense_b is None or embedder is None:
                     raise RuntimeError("hybrid 인덱스(B)가 필요합니다.")
-                retrievers.append(HybridRetriever("B", chunks_b, dense_b, embedder, hybrid_alpha))
+                retrievers.append(
+                    HybridRetriever(
+                        "B",
+                        chunks_b,
+                        dense_b,
+                        embedder,
+                        hybrid_alpha,
+                        table_multiplier,
+                    )
+                )
             else:
                 raise RuntimeError(f"지원하지 않는 retriever: {retriever}")
         logger = get_langfuse_logger()
@@ -400,6 +568,7 @@ def run_eval(
                     "latency_ms",
                     "cost_usd",
                     "rerank_mode",
+                    "best_alpha",
                     "top1_source_path",
                     "top1_chunk_index",
                     "top1_chunk_id",
@@ -421,28 +590,9 @@ def run_eval(
                     results = retriever.retrieve(query.query, chunks, k=k)
                     latency_ms = (time.perf_counter() - start) * 1000.0
 
-                    cost_usd = 0.0
-                    if rerank_mode != "none" and retriever.name == "B":
-                        candidates = [
-                            {
-                                "text": item.text,
-                                "source_path": item.source_path,
-                                "chunk_id": item.chunk_id,
-                            }
-                            for item in results
-                        ]
-                        if rerank_mode == "rule":
-                            reranked = rerank_rule(query.query, candidates)
-                        else:
-                            reranked, cost_usd = rerank_openai(
-                                query.query, candidates, model=llm_model
-                            )
-                        id_map = {item.chunk_id: item for item in results}
-                        results = [
-                            id_map[item.get("chunk_id", "")]
-                            for item in reranked
-                            if item.get("chunk_id", "") in id_map
-                        ]
+                    results, cost_usd = _rerank_if_needed(
+                        query, retriever, results, rerank_mode=rerank_mode, llm_model=llm_model
+                    )
 
                     metrics = evaluate_query(query, results)
                     top1 = results[0] if results else None
@@ -461,6 +611,7 @@ def run_eval(
                         "latency_ms": round(latency_ms, 3),
                         "cost_usd": cost_usd,
                         "rerank_mode": rerank_mode,
+                        "best_alpha": f"{best_alpha:.2f}" if best_alpha is not None else "",
                         "top1_source_path": top1.source_path if top1 else "",
                         "top1_chunk_index": top1.chunk_index if top1 else "",
                         "top1_chunk_id": top1.chunk_id if top1 else "",
@@ -511,6 +662,8 @@ if __name__ == "__main__":
     parser.add_argument("--variant", choices=["A", "B", "AB"], default="AB")
     parser.add_argument("--retriever", choices=["tfidf", "dense", "hybrid"], default="tfidf")
     parser.add_argument("--hybrid-alpha", type=float, default=0.5)
+    parser.add_argument("--tune-alpha", action="store_true")
+    parser.add_argument("--table-multiplier", type=float, default=1.2)
     parser.add_argument("--dense-index-a", default=str(Path("data_index") / "dense_A"))
     parser.add_argument("--dense-index-b", default=str(Path("data_index") / "dense_B"))
     args = parser.parse_args()
@@ -522,6 +675,8 @@ if __name__ == "__main__":
         variant=args.variant,
         retriever=args.retriever,
         hybrid_alpha=args.hybrid_alpha,
+        tune_alpha=args.tune_alpha,
+        table_multiplier=args.table_multiplier,
         dense_index_a=Path(args.dense_index_a),
         dense_index_b=Path(args.dense_index_b),
     )

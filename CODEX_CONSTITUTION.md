@@ -16,7 +16,7 @@ SCOPE — FORBIDDEN (ABSOLUTE)
 - You MUST NOT modify:
   - .env or any secrets
   - .github/workflows/
-  - data/ (this is for later full-scale work, NEVER use in MVP)
+  - data/ (기본적으로 MVP에서는 사용 금지. 단, 전체 원본 데이터를 data/에 두고 활용해야 할 때는 아래 "DATA RULES (FULL DATA)"를 따른다.)
 - Do NOT restructure the repository unless explicitly asked.
 
 DATA RULES (MVP)
@@ -29,6 +29,14 @@ DATA RULES (MVP)
 - Preserve ORIGINAL filenames exactly (including Korean).
 - Never rename, romanize, or normalize filenames.
 - Always use pathlib.Path for filesystem handling.
+
+DATA RULES (FULL DATA)
+- 전체 원본 데이터를 data/ 아래에 두고 활용할 수 있다. 단, 아래 조건을 모두 만족해야 한다.
+  - data/는 로컬 전용이며 **절대 커밋하지 않는다**.
+  - 전체 데이터 사용 시에도 가능한 한 기존 출력 경로는 유지한다:
+    - data_text/, data_chunks/, data_index/는 그대로 사용(로컬 전용, gitignored).
+  - data/의 입력 경로는 명시적으로 설정해야 하며, 기본값으로 data/를 사용하지 않는다.
+  - data/ 아래 원본 파일의 **원본 파일명 보존** 규칙은 동일하게 적용한다.
 
 MVP PIPELINE — DEFINITION OF DONE
 MVP is complete when the following runs locally end-to-end:

@@ -1,0 +1,6 @@
+{"query_id":"q001","query":"입찰 보증금 비율은 얼마인가?","gold":[{"source_path":"입찰공고.hwp.txt","chunk_index":3}]}
+{"query_id":"q002","query":"제안서 제출 마감일은 언제인가?","gold":[{"source_path":"제안요청서.pdf.txt","chunk_index":5}]}
+{"query_id":"q003","query":"계약 기간은 몇 개월인가?","gold":[{"source_path":"계약조건.pdf.txt","chunk_index":2}]}
+{"query_id":"q004","query":"평가 기준 중 기술평가 비중은?","gold":[{"source_path":"평가기준.pdf.txt","chunk_index":4}]}
+{"query_id":"q005","query":"문의처 연락처는 무엇인가?","gold":[{"source_path":"입찰공고.hwp.txt","chunk_index":7},{"source_path":"제안요청서.pdf.txt","chunk_index":9}]}
+{"query_id":"q006","query":"과업 범위에 포함되는 주요 업무는?","gold":[{"source_path":"과업지시서.pdf.txt","chunk_index":1}]}

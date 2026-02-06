@@ -6,6 +6,19 @@ from .ingest_hwp import extract_hwp_text
 from .ingest_pdf import extract_pdf_text
 
 
+def extract_docx_text(path: Path) -> str:
+    try:
+        import docx  # type: ignore
+    except Exception as exc:
+        raise RuntimeError(
+            "python-docx가 설치되지 않았습니다. pip install python-docx 로 설치하세요."
+        ) from exc
+
+    document = docx.Document(path.as_posix())
+    parts = [p.text.strip() for p in document.paragraphs if p.text and p.text.strip()]
+    return "\n".join(parts).strip()
+
+
 def _log_ok(stage: str, in_path: Path, out_path: Path) -> None:
     # 성공 로그(스펙): INGEST OK | <stage> | <input_path> -> <output_path>
     print(f"INGEST OK | {stage} | {in_path} -> {out_path}")
@@ -30,6 +43,8 @@ def ingest_one(path: Path, output_dir: Path = Path("data_text")) -> Path:
             text = extract_pdf_text(path)
         elif suffix == ".hwp":
             text = extract_hwp_text(path)
+        elif suffix == ".docx":
+            text = extract_docx_text(path)
         else:
             raise ValueError(f"Unsupported file type: {suffix}")
         _log_ok("extract", path, out_path)

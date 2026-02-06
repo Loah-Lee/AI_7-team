@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -77,12 +78,18 @@ def _l2_normalize(vecs: np.ndarray) -> np.ndarray:
     return vecs / denom
 
 
+def _has_table_schema(text: str) -> bool:
+    # 자체 생성 코드: 표 JSON 스키마 존재 여부를 간단히 감지
+    return bool(re.search(r"\"type\"\\s*:\\s*\"table\"", text))
+
+
 @dataclass(frozen=True)
 class DenseMeta:
     chunk_id: str
     source_path: str
     chunk_index: int
     text: str
+    is_table: bool = False
 
 
 @dataclass(frozen=True)
@@ -121,6 +128,7 @@ class DenseIndex:
                 source_path=str(item.get("source_path", "")),
                 chunk_index=int(item.get("chunk_index", -1)),
                 text=str(item.get("text", "")),
+                is_table=bool(item.get("is_table", False)),
             )
             for item in meta_raw.get("items", [])
         ]
@@ -138,6 +146,7 @@ class DenseIndex:
                     "source_path": item.source_path,
                     "chunk_index": item.chunk_index,
                     "text": item.text,
+                    "is_table": item.is_table,
                 }
                 for item in self.meta
             ],
@@ -188,6 +197,7 @@ def build_dense_index(
                 chunk_index = -1
             text = str(row.get("text", ""))
             chunk_id = str(row.get("chunk_id", "")).strip() or _chunk_id(text)
+            is_table = _has_table_schema(text)
             if source_path and chunk_index >= 0 and text:
                 items.append(
                     DenseMeta(
@@ -195,6 +205,7 @@ def build_dense_index(
                         source_path=source_path,
                         chunk_index=chunk_index,
                         text=text,
+                        is_table=is_table,
                     )
                 )
                 texts.append(text)

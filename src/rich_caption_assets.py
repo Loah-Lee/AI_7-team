@@ -84,8 +84,9 @@ def _caption_prompt(is_table: bool) -> str:
     if is_table:
         return (
             "다음 이미지는 표로 추정됩니다. 표의 셀 텍스트를 최대한 정확히 추출해 주세요. "
-            "반환은 반드시 JSON 형식으로 하세요. 키는 caption, table_text 입니다. "
-            "caption은 표의 제목/요약, table_text는 표 내용입니다."
+            "반환은 반드시 JSON 형식으로 하세요. "
+            "키는 type, title, headers, rows, summary 입니다. "
+            "type은 table로 고정, headers는 문자열 배열, rows는 문자열 배열의 배열입니다."
         )
     return (
         "다음 이미지를 보고 한국어로 간결한 캡션을 작성하세요. "
@@ -131,6 +132,16 @@ def _is_table_like(client, image_path: Path) -> bool:
         return False
 
 
+def _table_to_text(headers: List[str], rows: List[List[str]]) -> str:
+    # 자체 생성 코드: 표 구조를 텍스트 블록으로 직렬화
+    lines: List[str] = []
+    if headers:
+        lines.append("\t".join(headers))
+    for row in rows:
+        lines.append("\t".join(str(cell) for cell in row))
+    return "\n".join(lines).strip()
+
+
 def _request_caption(client, image_path: Path) -> Tuple[str, str]:
     max_attempts = 2
     is_table = _is_table_like(client, image_path)
@@ -171,6 +182,29 @@ def _request_caption(client, image_path: Path) -> Tuple[str, str]:
 
     try:
         data = json.loads(text)
+        if is_table and isinstance(data, dict) and str(data.get("type", "")).strip() == "table":
+            # 자체 생성 코드: 표 캡션은 JSON 스키마 형태로 고정
+            title = str(data.get("title", "")).strip()
+            headers = data.get("headers", [])
+            rows = data.get("rows", [])
+            summary = str(data.get("summary", "")).strip()
+            if not isinstance(headers, list):
+                headers = []
+            if not isinstance(rows, list):
+                rows = []
+            headers = [str(item).strip() for item in headers]
+            norm_rows: List[List[str]] = []
+            for row in rows:
+                if isinstance(row, list):
+                    norm_rows.append([str(cell).strip() for cell in row])
+            table_payload = {
+                "type": "table",
+                "title": title,
+                "headers": headers,
+                "rows": norm_rows,
+                "summary": summary,
+            }
+            return json.dumps(table_payload, ensure_ascii=False), _table_to_text(headers, norm_rows)
         caption = str(data.get("caption", "")).strip()
         table_text = str(data.get("table_text", "")).strip()
         return caption, table_text
