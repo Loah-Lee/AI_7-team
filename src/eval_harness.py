@@ -14,8 +14,9 @@ from typing import Dict, Iterable, List, Sequence, Tuple
 from .langfuse_logger import get_langfuse_logger
 from .rerank_openai import rerank_openai
 from .rerank_rule import rerank_rule
+from .retrievers.dense_openai import DenseEmbedder, DenseIndex
 from .rich_tfidf_search import ChunkRecord as RichChunkRecord
-from .rich_tfidf_search import load_chunks_rich, search_tfidf, _build_tfidf
+from .rich_tfidf_search import load_chunks_rich, search_tfidf, tfidf_scores, _build_tfidf
 
 
 @dataclass(frozen=True)
@@ -108,15 +109,6 @@ def _qual_score_top1(query: str, snippet: str) -> Tuple[int, str]:
     return 0, "unrelated"
 
 
-def _score(query: str, chunk: ChunkRecord) -> float:
-    q_tokens = set(_tokenize(query))
-    if not q_tokens:
-        return 0.0
-    c_tokens = set(_tokenize(chunk.text))
-    overlap = len(q_tokens & c_tokens)
-    return overlap / max(len(q_tokens), 1)
-
-
 def _iter_jsonl(path: Path) -> Iterable[Dict[str, object]]:
     with path.open("r", encoding="utf-8") as f:
         for line in f:
@@ -180,25 +172,27 @@ def load_chunks(chunks_dir: Path) -> List[ChunkRecord]:
 
 class RetrieverBase:
     name = "base"
+    kind = "base"
 
     def retrieve(self, query: str, chunks: Sequence[ChunkRecord], k: int) -> List[ChunkRecord]:
         raise NotImplementedError
 
 
-class RetrieverA(RetrieverBase):
-    name = "A"
+class TfidfRetriever(RetrieverBase):
+    kind = "tfidf"
 
-    def retrieve(self, query: str, chunks: Sequence[ChunkRecord], k: int) -> List[ChunkRecord]:
-        scored = [(chunk, _score(query, chunk)) for chunk in chunks]
-        scored.sort(key=lambda x: x[1], reverse=True)
-        return [chunk for chunk, _ in scored[:k]]
-
-
-class RetrieverB(RetrieverBase):
-    name = "B"
-
-    def __init__(self, chunks: Sequence[RichChunkRecord]) -> None:
-        self._chunks = list(chunks)
+    def __init__(self, variant: str, chunks: Sequence[ChunkRecord]) -> None:
+        self.name = variant
+        self._chunks = [
+            RichChunkRecord(
+                source_path=chunk.source_path,
+                chunk_index=chunk.chunk_index,
+                chunk_id=chunk.chunk_id,
+                text=chunk.text,
+                metadata=None,
+            )
+            for chunk in chunks
+        ]
         self._vectors, self._idf = _build_tfidf(self._chunks) if self._chunks else ([], {})
 
     def retrieve(self, query: str, chunks: Sequence[ChunkRecord], k: int) -> List[ChunkRecord]:
@@ -209,10 +203,87 @@ class RetrieverB(RetrieverBase):
             ChunkRecord(
                 source_path=item.source_path,
                 chunk_index=item.chunk_index,
-                chunk_id=_chunk_id(item.text),
+                chunk_id=item.chunk_id,
                 text=item.text,
             )
             for item in rich_results
+        ]
+
+
+class DenseRetriever(RetrieverBase):
+    kind = "dense"
+
+    def __init__(self, variant: str, index: DenseIndex, embedder: DenseEmbedder) -> None:
+        self.name = variant
+        self._index = index
+        self._embedder = embedder
+
+    def retrieve(self, query: str, chunks: Sequence[ChunkRecord], k: int) -> List[ChunkRecord]:
+        query_vec = self._embedder.embed_query(query)
+        results = self._index.search(query_vec, k)
+        return [
+            ChunkRecord(
+                source_path=item.source_path,
+                chunk_index=item.chunk_index,
+                chunk_id=item.chunk_id,
+                text=item.text,
+            )
+            for item, _ in results
+        ]
+
+
+class HybridRetriever(RetrieverBase):
+    kind = "hybrid"
+
+    def __init__(
+        self,
+        variant: str,
+        chunks: Sequence[ChunkRecord],
+        index: DenseIndex,
+        embedder: DenseEmbedder,
+        alpha: float,
+    ) -> None:
+        self.name = variant
+        self._chunks = [
+            RichChunkRecord(
+                source_path=chunk.source_path,
+                chunk_index=chunk.chunk_index,
+                chunk_id=chunk.chunk_id,
+                text=chunk.text,
+                metadata=None,
+            )
+            for chunk in chunks
+        ]
+        self._vectors, self._idf = _build_tfidf(self._chunks) if self._chunks else ([], {})
+        self._index = index
+        self._embedder = embedder
+        self._alpha = max(0.0, min(1.0, float(alpha)))
+
+    def retrieve(self, query: str, chunks: Sequence[ChunkRecord], k: int) -> List[ChunkRecord]:
+        if not self._chunks:
+            return []
+        tfidf = tfidf_scores(query, self._chunks, self._vectors, self._idf)
+        query_vec = self._embedder.embed_query(query)
+        dense_scores = self._index.score_all(query_vec)
+        dense_map = {
+            meta.chunk_id: float(score)
+            for meta, score in zip(self._index.meta, dense_scores, strict=False)
+        }
+        scored = []
+        for idx, chunk in enumerate(self._chunks):
+            dense_score = dense_map.get(chunk.chunk_id, 0.0)
+            score = self._alpha * tfidf[idx] + (1.0 - self._alpha) * dense_score
+            scored.append((idx, score))
+        scored.sort(key=lambda x: x[1], reverse=True)
+        top = scored[:k]
+        return [
+            ChunkRecord(
+                source_path=self._chunks[i].source_path,
+                chunk_index=self._chunks[i].chunk_index,
+                chunk_id=self._chunks[i].chunk_id,
+                text=self._chunks[i].text,
+            )
+            for i, _ in top
         ]
 
 
@@ -248,6 +319,10 @@ def run_eval(
     rerank_mode: str = "none",
     llm_model: str = "gpt-5-nano",
     variant: str = "AB",
+    retriever: str = "tfidf",
+    hybrid_alpha: float = 0.5,
+    dense_index_a: Path = Path("data_index") / "dense_A",
+    dense_index_b: Path = Path("data_index") / "dense_B",
 ) -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = output_root / timestamp
@@ -257,16 +332,58 @@ def run_eval(
 
     try:
         queries = load_queries(input_path)
-        chunks = load_chunks(chunks_dir)
-        rich_chunks = load_chunks_rich(Path("notebooks") / "data_chunks_rich")
+        chunks_a = load_chunks(chunks_dir)
+        rich_chunks_b = load_chunks_rich(Path("notebooks") / "data_chunks_rich")
+        chunks_b = [
+            ChunkRecord(
+                source_path=item.source_path,
+                chunk_index=item.chunk_index,
+                chunk_id=item.chunk_id,
+                text=item.text,
+            )
+            for item in rich_chunks_b
+        ]
         output_dir.mkdir(parents=True, exist_ok=True)
 
         retrievers: List[RetrieverBase] = []
         variant = variant.upper()
+        retriever = retriever.lower()
+        embedder: DenseEmbedder | None = None
+        dense_a: DenseIndex | None = None
+        dense_b: DenseIndex | None = None
+        if retriever in {"dense", "hybrid"}:
+            embedder = DenseEmbedder()
+            if variant in {"A", "AB"}:
+                dense_a = DenseIndex.load(dense_index_a / "index.npz", dense_index_a / "meta.json")
+            if variant in {"B", "AB"}:
+                dense_b = DenseIndex.load(dense_index_b / "index.npz", dense_index_b / "meta.json")
+
         if variant in {"A", "AB"}:
-            retrievers.append(RetrieverA())
+            if retriever == "tfidf":
+                retrievers.append(TfidfRetriever("A", chunks_a))
+            elif retriever == "dense":
+                if dense_a is None or embedder is None:
+                    raise RuntimeError("dense 인덱스(A)가 필요합니다.")
+                retrievers.append(DenseRetriever("A", dense_a, embedder))
+            elif retriever == "hybrid":
+                if dense_a is None or embedder is None:
+                    raise RuntimeError("hybrid 인덱스(A)가 필요합니다.")
+                retrievers.append(HybridRetriever("A", chunks_a, dense_a, embedder, hybrid_alpha))
+            else:
+                raise RuntimeError(f"지원하지 않는 retriever: {retriever}")
         if variant in {"B", "AB"}:
-            retrievers.append(RetrieverB(rich_chunks))
+            if retriever == "tfidf":
+                retrievers.append(TfidfRetriever("B", chunks_b))
+            elif retriever == "dense":
+                if dense_b is None or embedder is None:
+                    raise RuntimeError("dense 인덱스(B)가 필요합니다.")
+                retrievers.append(DenseRetriever("B", dense_b, embedder))
+            elif retriever == "hybrid":
+                if dense_b is None or embedder is None:
+                    raise RuntimeError("hybrid 인덱스(B)가 필요합니다.")
+                retrievers.append(HybridRetriever("B", chunks_b, dense_b, embedder, hybrid_alpha))
+            else:
+                raise RuntimeError(f"지원하지 않는 retriever: {retriever}")
         logger = get_langfuse_logger()
 
         with output_path.open("w", encoding="utf-8", newline="") as f:
@@ -276,6 +393,7 @@ def run_eval(
                     "query_id",
                     "query",
                     "variant",
+                    "retriever",
                     "hit@5",
                     "hit@10",
                     "mrr",
@@ -295,6 +413,10 @@ def run_eval(
 
             for query in queries:
                 for retriever in retrievers:
+                    if retriever.name == "A":
+                        chunks = chunks_a
+                    else:
+                        chunks = chunks_b
                     start = time.perf_counter()
                     results = retriever.retrieve(query.query, chunks, k=k)
                     latency_ms = (time.perf_counter() - start) * 1000.0
@@ -332,6 +454,7 @@ def run_eval(
                         "query_id": query.query_id,
                         "query": query.query,
                         "variant": retriever.name,
+                        "retriever": retriever.kind,
                         "hit@5": metrics["hit@5"],
                         "hit@10": metrics["hit@10"],
                         "mrr": metrics["mrr"],
@@ -351,6 +474,7 @@ def run_eval(
                         payload={
                             "query_id": query.query_id,
                             "variant": retriever.name,
+                            "retriever": retriever.kind,
                             "latency_ms": row["latency_ms"],
                             "metrics": metrics,
                             "rerank_mode": rerank_mode,
@@ -363,7 +487,7 @@ def run_eval(
                             "qual_reason_top1": row["qual_reason_top1"],
                         },
                     )
-                    key = f"{retriever.name}:{rerank_mode}"
+                    key = f"{retriever.name}:{retriever.kind}:{rerank_mode}"
                     qual_scores.setdefault(key, []).append(int(qual_score))
 
         if qual_scores:
@@ -385,6 +509,10 @@ if __name__ == "__main__":
     parser.add_argument("--llm-model", default="gpt-5-nano")
     parser.add_argument("--topk", type=int, default=10)
     parser.add_argument("--variant", choices=["A", "B", "AB"], default="AB")
+    parser.add_argument("--retriever", choices=["tfidf", "dense", "hybrid"], default="tfidf")
+    parser.add_argument("--hybrid-alpha", type=float, default=0.5)
+    parser.add_argument("--dense-index-a", default=str(Path("data_index") / "dense_A"))
+    parser.add_argument("--dense-index-b", default=str(Path("data_index") / "dense_B"))
     args = parser.parse_args()
 
     run_eval(
@@ -392,4 +520,8 @@ if __name__ == "__main__":
         rerank_mode=args.rerank,
         llm_model=args.llm_model,
         variant=args.variant,
+        retriever=args.retriever,
+        hybrid_alpha=args.hybrid_alpha,
+        dense_index_a=Path(args.dense_index_a),
+        dense_index_b=Path(args.dense_index_b),
     )

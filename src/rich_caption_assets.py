@@ -80,20 +80,67 @@ def _extract_text(response) -> str:
     return "\n".join(p.strip() for p in text_parts if p.strip()).strip()
 
 
-def _request_caption(client, image_path: Path) -> Tuple[str, str]:
-    max_attempts = 2
+def _caption_prompt(is_table: bool) -> str:
+    if is_table:
+        return (
+            "다음 이미지는 표로 추정됩니다. 표의 셀 텍스트를 최대한 정확히 추출해 주세요. "
+            "반환은 반드시 JSON 형식으로 하세요. 키는 caption, table_text 입니다. "
+            "caption은 표의 제목/요약, table_text는 표 내용입니다."
+        )
+    return (
+        "다음 이미지를 보고 한국어로 간결한 캡션을 작성하세요. "
+        "표가 아니면 table_text는 빈 문자열로 해주세요. "
+        "반환은 반드시 JSON 형식으로 하세요. 키는 caption, table_text 입니다."
+    )
+
+
+def _is_table_like_heuristic(image_path: Path) -> bool | None:
+    name = image_path.name.lower()
+    if any(token in name for token in ["table", "tbl", "표", "sheet", "grid"]):
+        return True
+    if any(token in name for token in ["chart", "graph", "plot", "fig"]):
+        return False
+    return None
+
+
+def _classify_table_llm(client, image_path: Path) -> bool:
     payload = [
         {
             "role": "user",
             "content": [
                 {
                     "type": "input_text",
-                    "text": (
-                        "다음 이미지를 보고 한국어로 간결한 캡션을 작성하세요. "
-                        "표로 보이면 표의 셀 텍스트를 최대한 정확히 추출해 주세요. "
-                        "반환은 반드시 JSON 형식으로 하세요. 키는 caption, table_text 입니다. "
-                        "표가 아니면 table_text는 빈 문자열로 해주세요."
-                    ),
+                    "text": "이 이미지는 표인가요? 표면 table, 아니면 other 로만 답하세요.",
+                },
+                {"type": "input_image", "image_url": _encode_image(image_path)},
+            ],
+        }
+    ]
+    response = client.responses.create(model="gpt-5-nano", input=payload)
+    text = _extract_text(response).strip().lower()
+    return "table" in text and "other" not in text
+
+
+def _is_table_like(client, image_path: Path) -> bool:
+    guess = _is_table_like_heuristic(image_path)
+    if guess is not None:
+        return guess
+    try:
+        return _classify_table_llm(client, image_path)
+    except Exception:
+        return False
+
+
+def _request_caption(client, image_path: Path) -> Tuple[str, str]:
+    max_attempts = 2
+    is_table = _is_table_like(client, image_path)
+    payload = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "input_text",
+                    "text": _caption_prompt(is_table),
                 },
                 {"type": "input_image", "image_url": _encode_image(image_path)},
             ],

@@ -12,6 +12,7 @@ from typing import Dict, Iterable, List, Sequence, Tuple
 class ChunkRecord:
     source_path: str
     chunk_index: int
+    chunk_id: str
     text: str
     metadata: Dict[str, object] | None = None
 
@@ -41,6 +42,7 @@ def load_chunks_rich(chunks_dir: Path) -> List[ChunkRecord]:
                 chunk_index = int(row.get("chunk_index", -1))
             except Exception:
                 chunk_index = -1
+            chunk_id = str(row.get("chunk_id", "")).strip()
             text = str(row.get("text", ""))
             metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else None
             if source_path and chunk_index >= 0:
@@ -48,6 +50,7 @@ def load_chunks_rich(chunks_dir: Path) -> List[ChunkRecord]:
                     ChunkRecord(
                         source_path=source_path,
                         chunk_index=chunk_index,
+                        chunk_id=chunk_id or _chunk_id(text),
                         text=text,
                         metadata=metadata,
                     )
@@ -96,6 +99,30 @@ def _cosine(a: Dict[str, float], b: Dict[str, float]) -> float:
     return dot / (norm_a * norm_b)
 
 
+def tfidf_scores(
+    query: str,
+    chunks: Sequence[ChunkRecord],
+    vectors: Sequence[Dict[str, float]],
+    idf: Dict[str, float],
+) -> List[float]:
+    q_tokens = _tokenize(query)
+    if not q_tokens:
+        return [0.0 for _ in chunks]
+
+    q_tf: Dict[str, int] = {}
+    for tok in q_tokens:
+        q_tf[tok] = q_tf.get(tok, 0) + 1
+    max_tf = max(q_tf.values())
+    q_vec = {tok: (cnt / max_tf) * idf.get(tok, 0.0) for tok, cnt in q_tf.items()}
+
+    scores: List[float] = []
+    for vec in vectors:
+        scores.append(_cosine(q_vec, vec))
+    if len(scores) < len(chunks):
+        scores.extend([0.0] * (len(chunks) - len(scores)))
+    return scores
+
+
 def search_tfidf(
     query: str,
     chunks: Sequence[ChunkRecord],
@@ -120,3 +147,14 @@ def search_tfidf(
 
     scored.sort(key=lambda x: x[1], reverse=True)
     return [chunk for chunk, _ in scored[:k]]
+
+
+def _normalize_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text.strip().lower())
+
+
+def _chunk_id(text: str) -> str:
+    import hashlib
+
+    normalized = _normalize_text(text)
+    return hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:12]
