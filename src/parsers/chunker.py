@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import re
+from typing import Iterator
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from src.utils.config import load_config
+
+# 마크다운 테이블 행 패턴 (| 로 시작하고 | 로 끝나는 행)
+_TABLE_ROW_RE = re.compile(r"^\|.+\|$")
+# 테이블 구분선 (|---|---|)
+_TABLE_SEP_RE = re.compile(r"^\|[-:\s|]+\|$")
 
 # 섹션 제목 패턴: 숫자/로마자 등으로 시작하는 제목 라인
 _SECTION_PATTERNS = [
@@ -45,6 +51,88 @@ def _is_toc_chunk(text: str, page: int | None = None) -> bool:
         return True
 
     return False
+
+
+def _split_table_and_text(text: str) -> Iterator[tuple[str, bool]]:
+    """텍스트를 테이블 블록과 일반 텍스트 블록으로 분리한다.
+
+    Yields:
+        (block_text, is_table) 튜플.
+    """
+    lines = text.split("\n")
+    current_block: list[str] = []
+    in_table = False
+
+    for line in lines:
+        is_table_line = bool(_TABLE_ROW_RE.match(line.strip()))
+        if is_table_line and not in_table:
+            # 테이블 시작: 이전 텍스트 블록 출력
+            if current_block:
+                yield "\n".join(current_block), False
+                current_block = []
+            in_table = True
+            current_block.append(line)
+        elif is_table_line and in_table:
+            current_block.append(line)
+        elif not is_table_line and in_table:
+            # 테이블 끝: 테이블 블록 출력
+            if current_block:
+                yield "\n".join(current_block), True
+                current_block = []
+            in_table = False
+            current_block.append(line)
+        else:
+            current_block.append(line)
+
+    if current_block:
+        yield "\n".join(current_block), in_table
+
+
+def _split_table_by_rows(
+    table_text: str, chunk_size: int, header: str = "",
+) -> list[str]:
+    """마크다운 테이블을 행 경계에서 분할한다.
+
+    테이블이 chunk_size 이하이면 그대로 반환.
+    초과 시 헤더(첫 2행)를 유지하면서 행 단위로 분할.
+    """
+    if len(table_text) <= chunk_size:
+        return [table_text]
+
+    lines = table_text.split("\n")
+    # 헤더 추출 (첫 행 + 구분선)
+    table_header_lines: list[str] = []
+    data_lines: list[str] = []
+    for i, line in enumerate(lines):
+        if i < 2 and (i == 0 or _TABLE_SEP_RE.match(line.strip())):
+            table_header_lines.append(line)
+        else:
+            data_lines.append(line)
+
+    table_header = "\n".join(table_header_lines)
+    if header:
+        table_header = f"{header}\n{table_header}"
+
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = len(table_header) + 1  # +1 for newline
+
+    for line in data_lines:
+        line_len = len(line) + 1
+        if current_len + line_len > chunk_size and current:
+            chunk_text = f"{table_header}\n" + "\n".join(current) if table_header else "\n".join(current)
+            chunks.append(chunk_text)
+            current = []
+            current_len = len(table_header) + 1
+
+        current.append(line)
+        current_len += line_len
+
+    if current:
+        chunk_text = f"{table_header}\n" + "\n".join(current) if table_header else "\n".join(current)
+        chunks.append(chunk_text)
+
+    return chunks
 
 
 def _extract_section_title(text: str) -> str:
@@ -111,7 +199,37 @@ def chunk_documents(
         separators=separators,
     )
 
-    chunks = splitter.split_documents(documents)
+    # PDF 문서는 테이블 인식 청킹 적용
+    plain_docs: list[Document] = []
+    table_chunks: list[Document] = []
+
+    for doc in documents:
+        if doc.metadata.get("file_type") == "pdf":
+            for block_text, is_table in _split_table_and_text(doc.page_content):
+                block_text = block_text.strip()
+                if not block_text:
+                    continue
+                if is_table:
+                    # 테이블 블록: 행 경계에서 분할
+                    for table_chunk in _split_table_by_rows(block_text, chunk_size):
+                        table_chunks.append(
+                            Document(
+                                page_content=table_chunk,
+                                metadata=dict(doc.metadata),
+                            )
+                        )
+                else:
+                    # 일반 텍스트: 기존 splitter 사용
+                    plain_docs.append(
+                        Document(
+                            page_content=block_text,
+                            metadata=dict(doc.metadata),
+                        )
+                    )
+        else:
+            plain_docs.append(doc)
+
+    chunks = splitter.split_documents(plain_docs) + table_chunks
 
     # 파일명 → 기관명/사업명 매핑 캐시
     filename_meta_cache: dict[str, dict[str, str]] = {}
