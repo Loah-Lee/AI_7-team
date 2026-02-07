@@ -32,23 +32,16 @@ def _is_toc_text(text: str, page: int | None = None) -> bool:
     return False
 
 
-def _build_where_filter(
-    metadata_filter: MetadataFilter,
-    include_project_name: bool = True,
-) -> dict | None:
+def _build_where_filter(metadata_filter: MetadataFilter) -> dict | None:
     """Chroma where 필터를 구성한다.
 
-    institution/year는 $eq(정확매칭), project_name은 $contains(부분매칭).
-    include_project_name=False로 단계적 폴백 시 project_name 필터를 제외할 수 있다.
+    institution/year만 $eq(정확매칭)으로 적용한다.
+    project_name은 Chroma $contains 미지원이므로 query enrichment로 처리한다.
     """
     conditions = []
 
     if "institution" in metadata_filter:
         conditions.append({"institution": {"$eq": str(metadata_filter["institution"])}})
-    if include_project_name and "project_name" in metadata_filter:
-        conditions.append(
-            {"project_name": {"$contains": str(metadata_filter["project_name"])}}
-        )
     if "year" in metadata_filter:
         conditions.append({"year": {"$eq": str(metadata_filter["year"])}})
 
@@ -63,17 +56,21 @@ _MAX_ENRICHMENT_KEYWORDS = 5
 
 
 def _enrich_query(query: str, metadata_filter: MetadataFilter | None) -> str:
-    """keywords를 query에 포함시켜 시맨틱 검색을 보강한다.
+    """project_name과 keywords를 query에 포함시켜 시맨틱 검색을 보강한다.
 
-    project_name은 Chroma where 필터로 처리하므로 여기서는 제외한다.
+    project_name은 Chroma $contains 미지원으로 where 필터가 아닌 query enrichment로 처리.
     keywords는 최대 _MAX_ENRICHMENT_KEYWORDS개까지만 사용하여 쿼리 희석을 방지한다.
     """
     if not metadata_filter:
         return query
+    parts: list[str] = []
+    if "project_name" in metadata_filter:
+        parts.append(str(metadata_filter["project_name"]))
     keywords = metadata_filter.get("keywords", [])
     if keywords:
-        limited = [str(k) for k in keywords[:_MAX_ENRICHMENT_KEYWORDS]]
-        return f"{query} {' '.join(limited)}"
+        parts.extend(str(k) for k in keywords[:_MAX_ENRICHMENT_KEYWORDS])
+    if parts:
+        return f"{query} {' '.join(parts)}"
     return query
 
 
@@ -100,9 +97,8 @@ def _mmr_search(
     try:
         results = vectorstore._collection.query(**query_kwargs)
     except Exception:
-        # 필터 매칭 실패 시 필터 없이 재시도
-        query_kwargs.pop("where", None)
-        results = vectorstore._collection.query(**query_kwargs)
+        # 필터 실패 시 빈 결과 반환 (상위 graduated fallback이 처리)
+        return []
 
     ids = results.get("ids", [[]])[0]
     if not ids:
@@ -202,20 +198,12 @@ def search_with_metadata(
     vectorstore = get_vectorstore()
     enriched_query = _enrich_query(query, metadata_filter)
 
-    # 단계적 폴백 필터 목록 구성
-    has_project = metadata_filter and "project_name" in metadata_filter
+    # 단계적 폴백: where 필터 → 필터 없음
+    where_filter = _build_where_filter(metadata_filter) if metadata_filter else None
     filter_stages: list[dict | None] = []
-
-    if metadata_filter:
-        # 1단계: 전체 필터 (institution + project_name + year)
-        filter_stages.append(_build_where_filter(metadata_filter))
-        # 2단계: project_name 제외 (institution + year만)
-        if has_project:
-            filter_stages.append(
-                _build_where_filter(metadata_filter, include_project_name=False)
-            )
-    # 최종 폴백: 필터 없음
-    filter_stages.append(None)
+    if where_filter:
+        filter_stages.append(where_filter)
+    filter_stages.append(None)  # 최종 폴백: 필터 없음
 
     def _search(where_filter: dict | None) -> list[Document]:
         if search_type == "mmr":
