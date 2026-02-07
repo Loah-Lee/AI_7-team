@@ -180,11 +180,20 @@ def extract_evidence(state: RFPState) -> RFPState:
     )
 
     chain = EVIDENCE_EXTRACTION_PROMPT | llm
-    result = chain.invoke({"query": query, "retrieved_docs": docs_text})
+    try:
+        result = chain.invoke({"query": query, "retrieved_docs": docs_text})
+        evidence = result.content.strip()
+    except Exception as e:
+        print(f"[extract_evidence] LLM 호출 실패: {e}")
+        evidence = ""
+
+    # 빈 응답이면 원본 청크를 출처 포함하여 폴백
+    if not evidence:
+        evidence = docs_text
 
     elapsed = time.time() - start
     return {
-        "evidence": result.content,
+        "evidence": evidence,
         "latencies": {"extract_evidence": elapsed},
     }
 
