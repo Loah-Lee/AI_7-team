@@ -52,14 +52,44 @@ def _build_where_filter(metadata_filter: MetadataFilter) -> dict | None:
     return None
 
 
-_MAX_ENRICHMENT_KEYWORDS = 5
+_MAX_ENRICHMENT_KEYWORDS = 3
+
+
+def _deduplicate_keywords(query: str, keywords: list[str]) -> list[str]:
+    """쿼리와 중복되는 키워드를 제거하고, 키워드 간 부분문자열 중복도 제거한다."""
+    query_normalized = query.replace(" ", "").lower()
+
+    # 1단계: 쿼리에 이미 포함된 키워드 제거
+    filtered = []
+    for kw in keywords:
+        kw_normalized = kw.replace(" ", "").lower()
+        if kw_normalized in query_normalized:
+            continue
+        filtered.append(kw)
+
+    # 2단계: 키워드 간 부분문자열 중복 제거 (짧은 것이 긴 것에 포함되면 짧은 것 제거)
+    result = []
+    for i, kw in enumerate(filtered):
+        kw_norm = kw.replace(" ", "").lower()
+        is_substring = False
+        for j, other in enumerate(filtered):
+            if i == j:
+                continue
+            other_norm = other.replace(" ", "").lower()
+            if kw_norm in other_norm and len(kw_norm) < len(other_norm):
+                is_substring = True
+                break
+        if not is_substring:
+            result.append(kw)
+
+    return result
 
 
 def _enrich_query(query: str, metadata_filter: MetadataFilter | None) -> str:
     """project_name과 keywords를 query에 포함시켜 시맨틱 검색을 보강한다.
 
     project_name은 Chroma $contains 미지원으로 where 필터가 아닌 query enrichment로 처리.
-    keywords는 최대 _MAX_ENRICHMENT_KEYWORDS개까지만 사용하여 쿼리 희석을 방지한다.
+    keywords는 중복제거 후 최대 _MAX_ENRICHMENT_KEYWORDS개까지만 사용하여 쿼리 희석을 방지한다.
     """
     if not metadata_filter:
         return query
@@ -68,7 +98,8 @@ def _enrich_query(query: str, metadata_filter: MetadataFilter | None) -> str:
         parts.append(str(metadata_filter["project_name"]))
     keywords = metadata_filter.get("keywords", [])
     if keywords:
-        parts.extend(str(k) for k in keywords[:_MAX_ENRICHMENT_KEYWORDS])
+        deduped = _deduplicate_keywords(query, [str(k) for k in keywords])
+        parts.extend(deduped[:_MAX_ENRICHMENT_KEYWORDS])
     if parts:
         return f"{query} {' '.join(parts)}"
     return query

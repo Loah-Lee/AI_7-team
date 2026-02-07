@@ -175,12 +175,32 @@ def retrieve(state: RFPState) -> RFPState:
     }
 
 
+def _filter_docs_by_score(
+    docs: list[RetrievedDoc],
+    score_threshold: float,
+    max_docs: int = 5,
+    fallback_top_n: int = 3,
+) -> list[RetrievedDoc]:
+    """점수 기반으로 저품질 청크를 사전 필터링한다."""
+    filtered = [d for d in docs if d.get("score", 0.0) >= score_threshold]
+    if not filtered:
+        # 전부 필터링되면 점수 상위 N개 폴백
+        sorted_docs = sorted(docs, key=lambda d: d.get("score", 0.0), reverse=True)
+        return sorted_docs[:fallback_top_n]
+    return filtered[:max_docs]
+
+
 def extract_evidence(state: RFPState) -> RFPState:
     """검색된 문서에서 핵심 근거를 추출한다."""
     start = time.time()
 
     if state.get("is_out_of_scope") or not state.get("retrieved_docs"):
         return {"evidence": "", "latencies": {"extract_evidence": 0.0}}
+
+    # 점수 기반 사전 필터링
+    config = load_config()
+    score_threshold = config.get("retriever", {}).get("score_threshold", 0.3)
+    quality_docs = _filter_docs_by_score(state["retrieved_docs"], score_threshold)
 
     llm = _get_llm(
         model=state.get("llm_model"),
@@ -190,7 +210,7 @@ def extract_evidence(state: RFPState) -> RFPState:
 
     docs_text = "\n\n---\n\n".join(
         f"[출처: {doc['source']}, 페이지: {doc.get('page', 'N/A')}]\n{doc['content']}"
-        for doc in state["retrieved_docs"]
+        for doc in quality_docs
     )
 
     chain = EVIDENCE_EXTRACTION_PROMPT | llm
