@@ -32,14 +32,23 @@ def _is_toc_text(text: str, page: int | None = None) -> bool:
     return False
 
 
-def _build_where_filter(metadata_filter: MetadataFilter) -> dict | None:
-    """Chroma where 필터를 구성한다. $eq만 사용 (Chroma 지원 연산자)."""
+def _build_where_filter(
+    metadata_filter: MetadataFilter,
+    include_project_name: bool = True,
+) -> dict | None:
+    """Chroma where 필터를 구성한다.
+
+    institution/year는 $eq(정확매칭), project_name은 $contains(부분매칭).
+    include_project_name=False로 단계적 폴백 시 project_name 필터를 제외할 수 있다.
+    """
     conditions = []
 
     if "institution" in metadata_filter:
         conditions.append({"institution": {"$eq": str(metadata_filter["institution"])}})
-    if "project_name" in metadata_filter:
-        conditions.append({"project_name": {"$eq": str(metadata_filter["project_name"])}})
+    if include_project_name and "project_name" in metadata_filter:
+        conditions.append(
+            {"project_name": {"$contains": str(metadata_filter["project_name"])}}
+        )
     if "year" in metadata_filter:
         conditions.append({"year": {"$eq": str(metadata_filter["year"])}})
 
@@ -176,36 +185,48 @@ def search_with_metadata(
     """메타데이터 필터를 적용한 벡터 검색.
 
     전략:
-    1. year/institution 등 정확 매칭이 가능한 필드만 Chroma where 필터로 적용
-    2. project_name/keywords는 query에 포함시켜 시맨틱 검색으로 처리
+    1. institution/year는 $eq, project_name은 $contains로 Chroma where 필터 적용
+    2. keywords는 query에 포함시켜 시맨틱 검색으로 처리
     3. search_type에 따라 MMR 또는 similarity 검색 수행
-    4. 필터 결과가 없으면 필터 없이 재검색 (폴백)
+    4. 단계적 폴백: 전체 필터 → project_name 제외 → 필터 없음
     """
     config = load_config()
     retriever_cfg = config.get("retriever", {})
 
     if top_k is None:
         top_k = retriever_cfg.get("top_k", 8)
-    fetch_k = retriever_cfg.get("fetch_k", 20)
-    lambda_mult = retriever_cfg.get("lambda_mult", 0.5)
+    fetch_k = retriever_cfg.get("fetch_k", 50)
+    lambda_mult = retriever_cfg.get("lambda_mult", 0.7)
     search_type = retriever_cfg.get("search_type", "mmr")
 
     vectorstore = get_vectorstore()
     enriched_query = _enrich_query(query, metadata_filter)
-    where_filter = _build_where_filter(metadata_filter) if metadata_filter else None
 
-    if search_type == "mmr":
-        results = _mmr_search(
-            vectorstore, enriched_query, top_k, fetch_k, lambda_mult, where_filter
-        )
-        # 필터로 결과 없으면 필터 제거 후 재검색
-        if not results and where_filter is not None:
-            results = _mmr_search(
-                vectorstore, enriched_query, top_k, fetch_k, lambda_mult, None
+    # 단계적 폴백 필터 목록 구성
+    has_project = metadata_filter and "project_name" in metadata_filter
+    filter_stages: list[dict | None] = []
+
+    if metadata_filter:
+        # 1단계: 전체 필터 (institution + project_name + year)
+        filter_stages.append(_build_where_filter(metadata_filter))
+        # 2단계: project_name 제외 (institution + year만)
+        if has_project:
+            filter_stages.append(
+                _build_where_filter(metadata_filter, include_project_name=False)
             )
-    else:
-        results = _similarity_search(vectorstore, enriched_query, top_k, where_filter)
-        if not results and where_filter is not None:
-            results = _similarity_search(vectorstore, enriched_query, top_k, None)
+    # 최종 폴백: 필터 없음
+    filter_stages.append(None)
 
-    return results
+    def _search(where_filter: dict | None) -> list[Document]:
+        if search_type == "mmr":
+            return _mmr_search(
+                vectorstore, enriched_query, top_k, fetch_k, lambda_mult, where_filter
+            )
+        return _similarity_search(vectorstore, enriched_query, top_k, where_filter)
+
+    for where_filter in filter_stages:
+        results = _search(where_filter)
+        if results:
+            return results
+
+    return []
