@@ -51,6 +51,10 @@ def load_pdf(file_path: str | Path) -> list[Document]:
         # pymupdf4llm 아티팩트 정리: 연속 빈 줄 축소
         text = re.sub(r"\n{3,}", "\n\n", text)
 
+        # 독립 페이지 번호 제거 (예: "-5", "- 5 -", "-5-", "5")
+        text = re.sub(r"^\s*-?\s*\d{1,3}\s*-?\s*$", "", text, flags=re.MULTILINE)
+        text = text.strip()
+
         documents.append(
             Document(
                 page_content=text,

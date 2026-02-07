@@ -53,31 +53,37 @@ def _is_toc_chunk(text: str, page: int | None = None) -> bool:
     return False
 
 
+_MIN_CHUNK_LENGTH = 50  # 이 길이 미만의 청크는 필터링
+
+
 def _split_table_and_text(text: str) -> Iterator[tuple[str, bool]]:
     """텍스트를 테이블 블록과 일반 텍스트 블록으로 분리한다.
+
+    소형 텍스트 블록(테이블 앞의 제목 등)은 다음 테이블 블록에 병합하여
+    의미 없는 초소형 청크 생성을 방지한다.
 
     Yields:
         (block_text, is_table) 튜플.
     """
     lines = text.split("\n")
+    # 1단계: 원시 블록으로 분리
+    raw_blocks: list[tuple[str, bool]] = []
     current_block: list[str] = []
     in_table = False
 
     for line in lines:
         is_table_line = bool(_TABLE_ROW_RE.match(line.strip()))
         if is_table_line and not in_table:
-            # 테이블 시작: 이전 텍스트 블록 출력
             if current_block:
-                yield "\n".join(current_block), False
+                raw_blocks.append(("\n".join(current_block), False))
                 current_block = []
             in_table = True
             current_block.append(line)
         elif is_table_line and in_table:
             current_block.append(line)
         elif not is_table_line and in_table:
-            # 테이블 끝: 테이블 블록 출력
             if current_block:
-                yield "\n".join(current_block), True
+                raw_blocks.append(("\n".join(current_block), True))
                 current_block = []
             in_table = False
             current_block.append(line)
@@ -85,7 +91,28 @@ def _split_table_and_text(text: str) -> Iterator[tuple[str, bool]]:
             current_block.append(line)
 
     if current_block:
-        yield "\n".join(current_block), in_table
+        raw_blocks.append(("\n".join(current_block), in_table))
+
+    # 2단계: 소형 텍스트 블록을 인접 테이블에 병합
+    merged: list[tuple[str, bool]] = []
+    for i, (block_text, is_table) in enumerate(raw_blocks):
+        stripped = block_text.strip()
+        if not stripped:
+            continue
+        if not is_table and len(stripped) < _MIN_CHUNK_LENGTH:
+            # 다음 블록이 테이블이면 헤더로 병합
+            if i + 1 < len(raw_blocks) and raw_blocks[i + 1][1]:
+                next_text = raw_blocks[i + 1][0]
+                raw_blocks[i + 1] = (f"{stripped}\n\n{next_text}", True)
+                continue
+            # 이전 블록이 테이블이면 끝에 추가
+            if merged and merged[-1][1]:
+                prev_text = merged[-1][0]
+                merged[-1] = (f"{prev_text}\n\n{stripped}", True)
+                continue
+        merged.append((block_text, is_table))
+
+    yield from merged
 
 
 def _split_table_by_rows(
@@ -230,6 +257,9 @@ def chunk_documents(
             plain_docs.append(doc)
 
     chunks = splitter.split_documents(plain_docs) + table_chunks
+
+    # 최소 길이 미만의 청크 제거 (페이지 번호 잔여물, 빈 줄 등)
+    chunks = [c for c in chunks if len(c.page_content.strip()) >= _MIN_CHUNK_LENGTH]
 
     # 파일명 → 기관명/사업명 매핑 캐시
     filename_meta_cache: dict[str, dict[str, str]] = {}
