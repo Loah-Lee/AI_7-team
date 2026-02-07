@@ -221,5 +221,11 @@ chroma_db_v3/
 *.h5
 checkpoint/
 
+# Claude Code agents
+.agents/
+
+# Local test data
+project_codeit_7team/
+
 # OS specific
 .DS_Store
