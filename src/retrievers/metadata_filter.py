@@ -177,14 +177,15 @@ def search_with_metadata(
     query: str,
     metadata_filter: MetadataFilter | None = None,
     top_k: int | None = None,
+    search_type: str | None = None,
 ) -> list[Document]:
     """메타데이터 필터를 적용한 벡터 검색.
 
     전략:
-    1. institution/year는 $eq, project_name은 $contains로 Chroma where 필터 적용
-    2. keywords는 query에 포함시켜 시맨틱 검색으로 처리
+    1. institution/year는 $eq로 Chroma where 필터 적용
+    2. project_name과 keywords는 query에 포함시켜 시맨틱 검색으로 처리
     3. search_type에 따라 MMR 또는 similarity 검색 수행
-    4. 단계적 폴백: 전체 필터 → project_name 제외 → 필터 없음
+    4. 단계적 폴백: 전체 필터 → 필터 없음
     """
     config = load_config()
     retriever_cfg = config.get("retriever", {})
@@ -193,7 +194,8 @@ def search_with_metadata(
         top_k = retriever_cfg.get("top_k", 8)
     fetch_k = retriever_cfg.get("fetch_k", 50)
     lambda_mult = retriever_cfg.get("lambda_mult", 0.7)
-    search_type = retriever_cfg.get("search_type", "mmr")
+    if search_type is None:
+        search_type = retriever_cfg.get("search_type", "mmr")
 
     vectorstore = get_vectorstore()
     enriched_query = _enrich_query(query, metadata_filter)

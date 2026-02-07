@@ -93,17 +93,18 @@ with st.sidebar:
 
     st.subheader("검색 설정")
     retriever_type = st.selectbox(
-        "Retriever 타입",
-        ["dense", "bm25", "hybrid"],
-        index=2,
+        "검색 타입",
+        ["mmr", "similarity"],
+        index=0,
+        help="MMR: 관련성+다양성 균형, similarity: 순수 유사도 검색",
     )
-    top_k = st.slider("Top-K", min_value=1, max_value=20, value=5)
+    top_k = st.slider("Top-K", min_value=1, max_value=20, value=8)
 
     st.subheader("LLM 설정")
     llm_model = st.selectbox(
         "모델",
-        ["gpt-5", "gpt-5-mini", "gpt-5-nano"],
-        index=1,
+        ["gpt-5-mini", "gpt-5", "gpt-5-nano"],
+        index=0,
     )
     temperature = st.slider("Temperature", 0.0, 1.0, 0.0, 0.1)
 
@@ -186,6 +187,10 @@ if user_input := st.chat_input("RFP 문서에 대해 질문하세요..."):
                 "query": user_input,
                 "messages": [HumanMessage(content=user_input)],
                 "metadata_filter": metadata_filter if metadata_filter else {},
+                "llm_model": llm_model,
+                "llm_temperature": temperature,
+                "retriever_top_k": top_k,
+                "retriever_search_type": retriever_type,
             })
 
         answer = result.get("answer", "답변을 생성하지 못했습니다.")

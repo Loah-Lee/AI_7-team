@@ -52,6 +52,10 @@ class RFPState(TypedDict, total=False):
         answer: 최종 생성 답변
         is_out_of_scope: 범위 밖 질문 여부
         latencies: 노드별 레이턴시 (merge_dicts로 누적)
+        llm_model: UI에서 선택한 LLM 모델 (기본값: config)
+        llm_temperature: UI에서 설정한 temperature (기본값: config)
+        retriever_top_k: UI에서 설정한 top_k (기본값: config)
+        retriever_search_type: UI에서 선택한 검색 타입 (기본값: config)
     """
 
     messages: Annotated[list[BaseMessage], add_messages]
@@ -63,3 +67,7 @@ class RFPState(TypedDict, total=False):
     answer: str
     is_out_of_scope: bool
     latencies: Annotated[dict, merge_dicts]
+    llm_model: str
+    llm_temperature: float
+    retriever_top_k: int
+    retriever_search_type: str

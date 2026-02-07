@@ -40,7 +40,10 @@ def _get_langfuse_callback():
         return None
 
 
-def _get_llm() -> ChatOpenAI:
+def _get_llm(
+    model: str | None = None,
+    temperature: float | None = None,
+) -> ChatOpenAI:
     config = load_config()
     llm_cfg = config.get("llm", {})
 
@@ -50,8 +53,8 @@ def _get_llm() -> ChatOpenAI:
         callbacks.append(langfuse_cb)
 
     return ChatOpenAI(
-        model=llm_cfg.get("model", "gpt-5-mini"),
-        temperature=llm_cfg.get("temperature", 0.0),
+        model=model or llm_cfg.get("model", "gpt-5-mini"),
+        temperature=temperature if temperature is not None else llm_cfg.get("temperature", 0.0),
         max_tokens=llm_cfg.get("max_tokens", 4096),
         api_key=get_openai_api_key(),
         callbacks=callbacks if callbacks else None,
@@ -61,7 +64,10 @@ def _get_llm() -> ChatOpenAI:
 def analyze_query(state: RFPState) -> RFPState:
     """사용자 질의를 분석하여 query_type, metadata_filter를 추출한다."""
     start = time.time()
-    llm = _get_llm()
+    llm = _get_llm(
+        model=state.get("llm_model"),
+        temperature=state.get("llm_temperature"),
+    )
     query = state["query"]
 
     chain = QUERY_ANALYSIS_PROMPT | llm
@@ -125,7 +131,12 @@ def retrieve(state: RFPState) -> RFPState:
     query = state["query"]
     metadata_filter = state.get("metadata_filter")
 
-    docs = search_with_metadata(query, metadata_filter=metadata_filter)
+    docs = search_with_metadata(
+        query,
+        metadata_filter=metadata_filter,
+        top_k=state.get("retriever_top_k"),
+        search_type=state.get("retriever_search_type"),
+    )
 
     # --- Verbose logging ---
     print(f"\n{'='*70}")
@@ -171,7 +182,10 @@ def extract_evidence(state: RFPState) -> RFPState:
     if state.get("is_out_of_scope") or not state.get("retrieved_docs"):
         return {"evidence": "", "latencies": {"extract_evidence": 0.0}}
 
-    llm = _get_llm()
+    llm = _get_llm(
+        model=state.get("llm_model"),
+        temperature=state.get("llm_temperature"),
+    )
     query = state["query"]
 
     docs_text = "\n\n---\n\n".join(
@@ -201,7 +215,10 @@ def extract_evidence(state: RFPState) -> RFPState:
 def generate(state: RFPState) -> RFPState:
     """최종 답변을 생성한다."""
     start = time.time()
-    llm = _get_llm()
+    llm = _get_llm(
+        model=state.get("llm_model"),
+        temperature=state.get("llm_temperature"),
+    )
     query = state["query"]
 
     if state.get("is_out_of_scope"):
