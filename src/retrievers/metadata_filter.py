@@ -38,6 +38,8 @@ def _build_where_filter(metadata_filter: MetadataFilter) -> dict | None:
 
     if "institution" in metadata_filter:
         conditions.append({"institution": {"$eq": str(metadata_filter["institution"])}})
+    if "project_name" in metadata_filter:
+        conditions.append({"project_name": {"$eq": str(metadata_filter["project_name"])}})
     if "year" in metadata_filter:
         conditions.append({"year": {"$eq": str(metadata_filter["year"])}})
 
@@ -48,17 +50,21 @@ def _build_where_filter(metadata_filter: MetadataFilter) -> dict | None:
     return None
 
 
+_MAX_ENRICHMENT_KEYWORDS = 5
+
+
 def _enrich_query(query: str, metadata_filter: MetadataFilter | None) -> str:
-    """project_name, keywords를 query에 포함시켜 시맨틱 검색을 보강한다."""
+    """keywords를 query에 포함시켜 시맨틱 검색을 보강한다.
+
+    project_name은 Chroma where 필터로 처리하므로 여기서는 제외한다.
+    keywords는 최대 _MAX_ENRICHMENT_KEYWORDS개까지만 사용하여 쿼리 희석을 방지한다.
+    """
     if not metadata_filter:
         return query
-    parts = []
-    if "project_name" in metadata_filter:
-        parts.append(str(metadata_filter["project_name"]))
-    if "keywords" in metadata_filter:
-        parts.extend(str(k) for k in metadata_filter["keywords"])
-    if parts:
-        return f"{query} {' '.join(parts)}"
+    keywords = metadata_filter.get("keywords", [])
+    if keywords:
+        limited = [str(k) for k in keywords[:_MAX_ENRICHMENT_KEYWORDS]]
+        return f"{query} {' '.join(limited)}"
     return query
 
 
