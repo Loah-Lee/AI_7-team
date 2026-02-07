@@ -18,3 +18,7 @@
 │   └── outputs/         # 최종 요약 결과 샘플 및 리포트
 └── src/                 # 실제 구동되는 소스 코드 모듈
 ```
+## 브랜치 코드 사용법
+---
+본 브랜치는 RAG 시스템 구축을 위한 데이터셋 준비를 위한 pipeline을 구축하였습니다.
+[사용 설명서](https://github.com/Loah-Lee/AI_7-team/blob/feature/kt2/RAG_pipeline_manual.md)를 참조하십시오.
