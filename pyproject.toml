@@ -1,0 +1,65 @@
+[project]
+name = "biddingmate"
+version = "0.1.0"
+description = "B2G 입찰 컨설팅을 위한 RFP 분석 RAG 시스템"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # LangChain / LangGraph
+    "langchain>=0.3",
+    "langgraph>=0.2",
+    "langchain-openai>=0.2",
+    "langchain-community>=0.3",
+    "langchain-chroma>=0.2",
+    "langchain-text-splitters>=0.3",
+    # LLM / Embedding
+    "openai>=1.0",
+    # Vector DB
+    "chromadb>=0.5",
+    "faiss-cpu>=1.9",
+    # UI
+    "streamlit>=1.38",
+    # 문서 처리
+    "pymupdf4llm>=0.2.9",
+    "pyhwpx>=0.5; sys_platform == 'win32'",
+    # 검색
+    "rank-bm25>=0.2",
+    "kiwipiepy>=0.18",
+    # 평가 / 추적
+    "langfuse>=2.0",
+    "langsmith>=0.1",
+    # 유틸
+    "python-dotenv>=1.0",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "olefile>=0.47",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.7",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
