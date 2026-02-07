@@ -1,32 +1,25 @@
 # License: MIT (template code)
-name: Notify Discord (push / PR / comments) - AI_7-team
+name: Discord Notify (clean embeds) - AI_7-team
 
 on:
+  # feature/**, dev 에서 push 알림 (main push 알림 없음)
   push:
     branches:
-      - main
       - dev
       - "feature/**"
 
+  # main은 PR merge(=closed + merged=true)만 알림
   pull_request:
     branches:
       - main
-      - dev
-    types: [opened, reopened, synchronize, closed]
-
-  # PR에 달린 일반 코멘트는 issue_comment로도 들어옵니다(= PR도 issue 취급).
-  issue_comment:
-    types: [created]
-
-  # PR diff 라인에 다는 "코드 코멘트"
-  pull_request_review_comment:
-    types: [created]
+    types: [closed]
 
 jobs:
   notify:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Build payload (safe JSON)
+      - name: Build Discord payload (clean embeds)
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
@@ -37,7 +30,7 @@ jobs:
         run: |
           python - << 'PY' > payload.json
           # License: MIT (template code)
-          import os, json, textwrap
+          import os, json, re, datetime
 
           event_name = os.environ["GITHUB_EVENT_NAME"]
           event_path = os.environ["GITHUB_EVENT_PATH"]
@@ -46,181 +39,155 @@ jobs:
               ev = json.load(f)
 
           repo = os.environ.get("REPO", "")
+          server_url = os.environ.get("SERVER_URL", "https://github.com")
           run_url = os.environ.get("RUN_URL", "")
 
-          def clip(s: str, n: int = 280) -> str:
+          def clip(s: str, n: int = 160) -> str:
               s = (s or "").strip()
               if not s:
                   return ""
               return s if len(s) <= n else s[: n - 1] + "…"
 
-          def bullets(lines, max_items=10):
-              lines = [ln for ln in lines if ln]
-              if not lines:
-                  return ""
-              shown = lines[:max_items]
-              more = len(lines) - len(shown)
-              out = "\n".join(f"- {ln}" for ln in shown)
-              if more > 0:
-                  out += f"\n- … (+{more} more)"
-              return out
+          def is_merge_commit_message(msg: str) -> bool:
+              msg = (msg or "").lstrip()
+              return msg.startswith("Merge pull request #") or msg.startswith("Merge branch ")
 
-          content_parts = []
+          def sha7(sha: str) -> str:
+              return (sha or "")[:7]
+
+          def md_link(text: str, url: str) -> str:
+              if not url:
+                  return text
+              return f"[{text}]({url})"
+
+          # Discord embed limits: title 256, description 4096, field value 1024
+          # 깔끔하게: title 1줄 + fields 3~5개 + description(커밋 1~3개) 정도로 제한
+          def build_payload(embed: dict) -> dict:
+              # webhook 기본 username/avatar는 디스코드에서 설정 가능하지만,
+              # 필요하면 여기서도 지정 가능:
+              # return {"username": "GitHub", "embeds": [embed]}
+              return {"embeds": [embed]}
+
+          # ISO timestamp for embed footer
+          now_iso = datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
 
           # -------------------------
-          # 1) PUSH (여러 커밋 묶음)
+          # PUSH: dev / feature/**
+          # - merge commit 제외
+          # - 전부 merge commit이면 알림 스킵
           # -------------------------
           if event_name == "push":
-              branch_ref = ev.get("ref", "")              # refs/heads/dev
+              branch_ref = ev.get("ref", "")
               branch = branch_ref.replace("refs/heads/", "")
-              pusher = (ev.get("pusher") or {}).get("name") or (ev.get("sender") or {}).get("login", "unknown")
+              sender = (ev.get("sender") or {}).get("login") or "unknown"
               compare_url = ev.get("compare") or ""
+
               commits = ev.get("commits") or []
-              head = ev.get("head_commit") or {}
-              head_url = head.get("url") or ""
-              head_msg = head.get("message") or ""
-              head_author = ((head.get("author") or {}).get("name") or "")
 
-              # 각 커밋 요약: "작성자: 메시지 (짧은 sha)"
-              items = []
+              kept_commits = []
               for c in commits:
-                  sha = (c.get("id") or "")[:7]
-                  msg = (c.get("message") or "").splitlines()[0]
-                  author = ((c.get("author") or {}).get("name") or "unknown")
-                  items.append(f"{author}: {clip(msg, 90)} ({sha})")
+                  msg_full = c.get("message") or ""
+                  msg_first = msg_full.splitlines()[0] if msg_full else ""
+                  if is_merge_commit_message(msg_first):
+                      continue
+                  kept_commits.append(c)
 
-              content_parts.append(f"✅ **PUSH**  `{repo}`")
-              content_parts.append(f"🌿 Branch: `{branch}`")
-              content_parts.append(f"👤 Pusher: **{pusher}**")
-              content_parts.append(f"📦 Commits: **{len(commits)}**")
+              if len(kept_commits) == 0:
+                  print(json.dumps({"__skip__": True}, ensure_ascii=False))
+                  raise SystemExit(0)
 
-              if items:
-                  content_parts.append(bullets(items, max_items=10))
-              else:
-                  # 단일 커밋인데 commits 배열이 비는 케이스 방어
-                  sha = (head.get("id") or "")[:7]
-                  msg = (head_msg.splitlines()[0] if head_msg else "")
-                  author = head_author or pusher
-                  if msg:
-                      content_parts.append(f"- {author}: {clip(msg, 90)} ({sha})")
+              # 커밋 요약: 최대 3개만 표시 (나머지는 +N)
+              lines = []
+              max_show = 3
+              for c in kept_commits[:max_show]:
+                  author = ((c.get("author") or {}).get("name") or sender)
+                  msg_first = (c.get("message") or "").splitlines()[0]
+                  url = c.get("url") or ""
+                  lines.append(f"• {author}: {md_link(clip(msg_first, 80), url)} `{sha7(c.get('id') or '')}`")
 
-              # 링크들
-              if compare_url:
-                  content_parts.append(f"🔗 Compare: {compare_url}")
-              elif head_url:
-                  content_parts.append(f"🔗 Commit: {head_url}")
+              more = len(kept_commits) - len(kept_commits[:max_show])
+              if more > 0:
+                  lines.append(f"• … (+{more} more)")
 
-              if run_url:
-                  content_parts.append(f"🧾 Actions: {run_url}")
+              title = f"{repo} · push"
+              desc = "\n".join(lines)
+
+              embed = {
+                  "title": title,
+                  "url": compare_url or f"{server_url}/{repo}",
+                  "description": desc,
+                  "fields": [
+                      {"name": "Branch", "value": f"`{branch}`", "inline": True},
+                      {"name": "By", "value": f"`{sender}`", "inline": True},
+                      {"name": "Commits", "value": f"`{len(kept_commits)}`", "inline": True},
+                  ],
+                  "footer": {"text": f"Actions · {run_url}" if run_url else "GitHub Actions"},
+                  "timestamp": now_iso,
+              }
+
+              print(json.dumps(build_payload(embed), ensure_ascii=False))
+              raise SystemExit(0)
 
           # -------------------------
-          # 2) PULL REQUEST
+          # PR MERGE into main only
           # -------------------------
-          elif event_name == "pull_request":
+          if event_name == "pull_request":
               action = ev.get("action", "")
               pr = ev.get("pull_request") or {}
-              number = pr.get("number") or ev.get("number")
-              title = pr.get("title") or ""
-              user = (pr.get("user") or {}).get("login", "unknown")
+              merged = bool(pr.get("merged", False))
               base = ((pr.get("base") or {}).get("ref") or "")
+
+              # main merge만 알림
+              if action != "closed" or (not merged) or base != "main":
+                  print(json.dumps({"__skip__": True}, ensure_ascii=False))
+                  raise SystemExit(0)
+
+              number = pr.get("number") or ev.get("number")
+              title_txt = pr.get("title") or ""
+              author = (pr.get("user") or {}).get("login") or "unknown"
+              merged_by = (pr.get("merged_by") or {}).get("login") or "unknown"
               head = ((pr.get("head") or {}).get("ref") or "")
               url = pr.get("html_url") or ""
-              body = clip(pr.get("body") or "", 300)
+              body = clip(pr.get("body") or "", 180)
 
-              merged = pr.get("merged", False)
-              state = pr.get("state", "")
-              label = "🔀 **PR**"
-
-              # closed + merged 케이스를 분리해서 더 직관적으로
-              if action == "closed" and merged:
-                  label = "✅ **MERGED PR**"
-              elif action == "closed" and not merged:
-                  label = "🚫 **CLOSED PR**"
-              elif action in ("opened", "reopened"):
-                  label = "🆕 **OPEN PR**"
-              elif action == "synchronize":
-                  label = "♻️ **UPDATE PR**"
-
-              content_parts.append(f"{label}  `{repo}`  #{number}")
-              content_parts.append(f"👤 Author: **{user}**")
-              content_parts.append(f"🌿 `{head}` → `{base}`")
-              content_parts.append(f"📝 Title: {clip(title, 200)}")
+              # 너무 길면 지저분해지니까: body는 한 줄만(있을 때만)
+              description = f"**#{number}** {clip(title_txt, 120)}"
               if body:
-                  content_parts.append(f"📄 Body: {body}")
-              if url:
-                  content_parts.append(f"🔗 PR: {url}")
-              if run_url:
-                  content_parts.append(f"🧾 Actions: {run_url}")
+                  description += f"\n{body}"
 
-          # -------------------------
-          # 3) ISSUE COMMENT (PR 코멘트 포함)
-          # -------------------------
-          elif event_name == "issue_comment":
-              action = ev.get("action", "")
-              if action != "created":
-                  pass
-              issue = ev.get("issue") or {}
-              comment = ev.get("comment") or {}
-              commenter = (comment.get("user") or {}).get("login", "unknown")
-              issue_title = issue.get("title") or ""
-              issue_url = issue.get("html_url") or ""
-              comment_url = comment.get("html_url") or ""
-              body = clip(comment.get("body") or "", 500)
+              embed = {
+                  "title": f"{repo} · merged into main",
+                  "url": url or f"{server_url}/{repo}",
+                  "description": description,
+                  "fields": [
+                      {"name": "From", "value": f"`{head}`", "inline": True},
+                      {"name": "To", "value": "`main`", "inline": True},
+                      {"name": "Author", "value": f"`{author}`", "inline": True},
+                      {"name": "Merged by", "value": f"`{merged_by}`", "inline": True},
+                  ],
+                  "footer": {"text": f"Actions · {run_url}" if run_url else "GitHub Actions"},
+                  "timestamp": now_iso,
+              }
 
-              # PR인지 구분 (issue payload에 pull_request 필드가 있으면 PR)
-              is_pr = "pull_request" in issue
-              label = "💬 **PR COMMENT**" if is_pr else "💬 **ISSUE COMMENT**"
+              print(json.dumps(build_payload(embed), ensure_ascii=False))
+              raise SystemExit(0)
 
-              content_parts.append(f"{label}  `{repo}`")
-              content_parts.append(f"👤 By: **{commenter}**")
-              content_parts.append(f"📝 On: {clip(issue_title, 200)}")
-              if body:
-                  content_parts.append(f"💭 {body}")
-              if comment_url:
-                  content_parts.append(f"🔗 Comment: {comment_url}")
-              elif issue_url:
-                  content_parts.append(f"🔗 Thread: {issue_url}")
-
-          # -------------------------
-          # 4) PR REVIEW COMMENT (코드 라인 코멘트)
-          # -------------------------
-          elif event_name == "pull_request_review_comment":
-              action = ev.get("action", "")
-              if action != "created":
-                  pass
-              pr = ev.get("pull_request") or {}
-              comment = ev.get("comment") or {}
-              commenter = (comment.get("user") or {}).get("login", "unknown")
-              pr_url = pr.get("html_url") or ""
-              comment_url = comment.get("html_url") or ""
-              path = comment.get("path") or ""
-              line = comment.get("line") or comment.get("original_line") or ""
-              body = clip(comment.get("body") or "", 500)
-
-              content_parts.append(f"🧩 **PR CODE COMMENT**  `{repo}`")
-              content_parts.append(f"👤 By: **{commenter}**")
-              if path:
-                  content_parts.append(f"📌 File: `{path}`  Line: `{line}`")
-              if body:
-                  content_parts.append(f"💭 {body}")
-              if comment_url:
-                  content_parts.append(f"🔗 Comment: {comment_url}")
-              elif pr_url:
-                  content_parts.append(f"🔗 PR: {pr_url}")
-
-          else:
-              # 기타 이벤트는 조용히 스킵(원하면 여기서 확장)
-              content_parts.append(f"ℹ️ Event `{event_name}` received for `{repo}` (no formatter)")
-
-          content = "\n".join([p for p in content_parts if p]).strip()
-
-          print(json.dumps({"content": content}, ensure_ascii=False))
+          # fallback: skip
+          print(json.dumps({"__skip__": True}, ensure_ascii=False))
           PY
 
-      - name: Send Discord
+      - name: Send Discord (skip if needed)
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
+          python - << 'PY'
+          import json
+          with open("payload.json","r",encoding="utf-8") as f:
+              data = json.load(f)
+          if data.get("__skip__"):
+              raise SystemExit(0)
+          PY
+
           curl -f -sS -H "Content-Type: application/json" \
             -d @payload.json \
             "$DISCORD_WEBHOOK_URL"
