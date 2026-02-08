@@ -28,3 +28,4 @@ sentence-transformers
 sqlite-vec
 PyMuPDF
 sentence-transformers
+pysqlite3-binary

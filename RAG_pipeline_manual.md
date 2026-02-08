@@ -29,6 +29,13 @@
     - sparse: 문서에 대한 sparse DB입니다.
     - hierarchy: 계층 구조들에 대한 벡터 DB입니다.
 
+**주의**
+
+최종 DB를 활용하기 위해서는 `pysqlite3-binary`를 활용해야 합니다. `requirements.txt` 파일에 이미 추가했으므로 별도의 설치는 필요 없습니다.
+`storage_step5.py` 파일 최상단을 참고하여 기존의 `sqlite3`를 override하시기 바랍니다.
+
+검색 시에도 마찬가지로 `pysqlite3-binary`를 써야 합니다.
+
 ---
 
 ## 1. [1단계] 문서 준비 및 HWP 변환
