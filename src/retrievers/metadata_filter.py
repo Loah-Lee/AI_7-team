@@ -146,7 +146,7 @@ def _mmr_search(
     distances_raw = results["distances"][0]
     embeddings_raw = results["embeddings"][0]
 
-    # TOC/표지 후보를 MMR 전에 제거
+    # TOC/표지/서식 후보를 MMR 전에 제거
     valid_indices = []
     for i in range(len(ids)):
         meta = metadatas_raw[i] or {}
@@ -154,6 +154,9 @@ def _mmr_search(
         if meta.get("is_toc"):
             continue
         if _is_toc_text(documents_raw[i], meta.get("page")):
+            continue
+        # 서식/양식 필터링
+        if meta.get("is_form"):
             continue
         valid_indices.append(i)
 
@@ -202,6 +205,9 @@ def _similarity_search(
         if doc.metadata.get("is_toc"):
             continue
         if _is_toc_text(doc.page_content, doc.metadata.get("page")):
+            continue
+        # 서식/양식 필터링
+        if doc.metadata.get("is_form"):
             continue
         doc.metadata["score"] = round(score, 4)
         docs.append(doc)

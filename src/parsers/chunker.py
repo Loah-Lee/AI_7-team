@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Iterator
 
@@ -53,7 +54,51 @@ def _is_toc_chunk(text: str, page: int | None = None) -> bool:
     return False
 
 
-_MIN_CHUNK_LENGTH = 50  # 이 길이 미만의 청크는 필터링
+# 서식/양식 탐지 패턴
+_FORM_KW_RE = re.compile(
+    r"서약서|동의서|확약서|위임장|신청서|이행각서|보증서|인감증명|사용인감계"
+    r"|자필서명|본인확인|날인|주민등록번호|법인등록번호",
+)
+_BLANK_FIELD_RE = re.compile(r"\(\s{3,}\)|_{5,}|□\s*□\s*□")
+
+
+def _is_form_chunk(text: str) -> bool:
+    """청크가 서식/양식(서약서, 동의서 등)인지 판별한다."""
+    head = text.strip()[:200]
+    if _FORM_KW_RE.search(head):
+        return True
+    # 빈 필드 패턴이 3회 이상
+    if len(_BLANK_FIELD_RE.findall(text)) >= 3:
+        return True
+    return False
+
+
+def _deduplicate_chunks(chunks: list[Document]) -> list[Document]:
+    """같은 source 파일 내에서 첫 200자 해시가 동일한 청크를 제거한다.
+
+    cross-document 중복은 의도적일 수 있으므로 source 단위로만 적용.
+    """
+    seen: dict[str, set[str]] = {}  # source → set of hashes
+    result: list[Document] = []
+
+    for chunk in chunks:
+        source = chunk.metadata.get("source", "")
+        prefix = chunk.page_content.strip()[:200]
+        h = hashlib.md5(prefix.encode()).hexdigest()
+
+        if source not in seen:
+            seen[source] = set()
+
+        if h in seen[source]:
+            continue
+
+        seen[source].add(h)
+        result.append(chunk)
+
+    return result
+
+
+_MIN_CHUNK_LENGTH = 120  # 이 길이 미만의 청크는 필터링 (한국어 2~3문장)
 
 
 def _split_table_and_text(text: str) -> Iterator[tuple[str, bool]]:
@@ -285,9 +330,16 @@ def chunk_documents(
         if _is_toc_chunk(chunk.page_content, page):
             chunk.metadata["is_toc"] = True
 
+        # 서식/양식 탐지
+        if _is_form_chunk(chunk.page_content):
+            chunk.metadata["is_form"] = True
+
         # 섹션 제목 추출
         section = _extract_section_title(chunk.page_content)
         if section:
             chunk.metadata["section"] = section
+
+    # 같은 source 내 중복 청크 제거
+    chunks = _deduplicate_chunks(chunks)
 
     return chunks
