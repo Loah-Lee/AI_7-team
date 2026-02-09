@@ -91,26 +91,9 @@ with st.sidebar:
     st.caption("B2G 입찰 RFP 분석 시스템")
     st.divider()
 
-    st.subheader("검색 설정")
-    retriever_type = st.selectbox(
-        "검색 타입",
-        ["mmr", "similarity"],
-        index=0,
-        help="MMR: 관련성+다양성 균형, similarity: 순수 유사도 검색",
-    )
-    top_k = st.slider("Top-K", min_value=1, max_value=20, value=8)
+    st.subheader("문서 필터")
 
-    st.subheader("LLM 설정")
-    llm_model = st.selectbox(
-        "모델",
-        ["gpt-5-mini", "gpt-5", "gpt-5-nano"],
-        index=0,
-    )
-    temperature = st.slider("Temperature", 0.0, 1.0, 0.0, 0.1)
-
-    st.subheader("메타데이터 필터")
-
-    # 기관명: DB에서 가져온 리스트 + 직접 입력 지원
+    # 기관명: DB에서 가져온 리스트로 드롭다운 선택
     if "institution_list" not in st.session_state:
         st.session_state.institution_list = get_unique_institutions()
 
@@ -118,27 +101,35 @@ with st.sidebar:
     institution_options = ["(전체)"] + institutions
 
     selected_institution = st.selectbox(
-        "기관명 선택",
+        "기관명",
         institution_options,
         index=0,
-        help="DB에 저장된 기관 목록에서 선택하거나, 아래에 직접 입력하세요.",
-    )
-    custom_institution = st.text_input(
-        "기관명 직접 입력",
-        placeholder="예: 국민연금공단",
-        help="선택 목록에 없는 기관은 직접 입력하세요.",
+        help="DB에 저장된 기관 목록에서 선택합니다.",
     )
 
-    # 직접 입력 우선, 없으면 선택값 사용
-    if custom_institution:
-        filter_institution = custom_institution
-    elif selected_institution != "(전체)":
-        filter_institution = selected_institution
-    else:
-        filter_institution = ""
+    filter_institution = (
+        selected_institution if selected_institution != "(전체)" else ""
+    )
 
-    filter_project = st.text_input("사업명", placeholder="예: 이러닝시스템")
-    filter_year = st.text_input("연도", placeholder="예: 2024")
+    # 고급 설정 (기본 접혀있음)
+    with st.expander("고급 설정"):
+        filter_project = st.text_input("사업명", placeholder="예: 이러닝시스템")
+        filter_year = st.text_input("연도", placeholder="예: 2024")
+
+        retriever_type = st.selectbox(
+            "검색 타입",
+            ["mmr", "similarity"],
+            index=0,
+            help="MMR: 관련성+다양성 균형, similarity: 순수 유사도 검색",
+        )
+        top_k = st.slider("Top-K", min_value=1, max_value=20, value=8)
+
+        llm_model = st.selectbox(
+            "LLM 모델",
+            ["gpt-5-mini", "gpt-5", "gpt-5-nano"],
+            index=0,
+        )
+        temperature = st.slider("Temperature", 0.0, 1.0, 0.0, 0.1)
 
     st.divider()
     if st.button("대화 초기화", use_container_width=True):

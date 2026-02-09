@@ -86,14 +86,20 @@ def _deduplicate_keywords(query: str, keywords: list[str]) -> list[str]:
 
 
 def _enrich_query(query: str, metadata_filter: MetadataFilter | None) -> str:
-    """project_name과 keywords를 query에 포함시켜 시맨틱 검색을 보강한다.
+    """institution, project_name, keywords를 query에 포함시켜 시맨틱 검색을 보강한다.
 
+    institution은 $eq where 필터로도 사용되지만, 임베딩 유사도에도 반영하기 위해 쿼리에 추가.
     project_name은 Chroma $contains 미지원으로 where 필터가 아닌 query enrichment로 처리.
     keywords는 중복제거 후 최대 _MAX_ENRICHMENT_KEYWORDS개까지만 사용하여 쿼리 희석을 방지한다.
     """
     if not metadata_filter:
         return query
     parts: list[str] = []
+    # institution도 쿼리에 포함 (임베딩 유사도에 기관명 반영)
+    if "institution" in metadata_filter:
+        inst = str(metadata_filter["institution"])
+        if inst.replace(" ", "").lower() not in query.replace(" ", "").lower():
+            parts.append(inst)
     if "project_name" in metadata_filter:
         parts.append(str(metadata_filter["project_name"]))
     keywords = metadata_filter.get("keywords", [])
