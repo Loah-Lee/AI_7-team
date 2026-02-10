@@ -15,7 +15,7 @@ LLM-as-Judge 기반 End-to-End 평가 체계.
 
 - **관점**: 답변의 정확성 (맞는 정보인가)
 - **판단 기준**: 기대 답변의 핵심 사실과 생성 답변의 사실이 일치하는 정도
-- **Recall과의 차이**: Correctness는 "틀린 정보가 있는가"에 초점, Recall은 "빠진 정보가 있는가"에 초점
+- **Coverage와의 차이**: Correctness는 "틀린 정보가 있는가"에 초점, Coverage는 "빠진 정보가 있는가"에 초점
 
 | 점수 | 기준 |
 |------|------|
@@ -28,13 +28,14 @@ LLM-as-Judge 기반 End-to-End 평가 체계.
 
 ---
 
-### 2. Answer Recall (답변 커버리지)
+### 2. Answer Coverage (답변 커버리지)
 
 > 기대 답변의 핵심 정보가 생성 답변에 **얼마나 누락 없이** 포함되었는가?
 
 - **관점**: 답변의 완전성/커버리지 (빠진 정보가 없는가)
 - **판단 기준**: 기대 답변의 핵심 포인트 목록 대비 생성 답변이 커버한 비율
-- **Correctness와의 차이**: Correctness=5이지만 Recall=3일 수 있음 (포함된 부분은 정확하나 절반이 누락)
+- **Correctness와의 차이**: Correctness=5이지만 Coverage=3일 수 있음 (포함된 부분은 정확하나 절반이 누락)
+- **Retrieval Recall@K와의 차이**: Recall@K는 검색 단계의 문서 매칭, Answer Coverage는 최종 답변의 정보 커버리지
 
 | 점수 | 기준 |
 |------|------|
@@ -65,7 +66,7 @@ LLM-as-Judge 기반 End-to-End 평가 체계.
 
 ---
 
-### 4. Relevance (관련성)
+### 4. Context Relevance (검색 관련성)
 
 > 검색된 context가 질문에 **실제로 관련 있는가**?
 
@@ -85,48 +86,65 @@ LLM-as-Judge 기반 End-to-End 평가 체계.
 
 ## Retrieval 보조 지표
 
-### Hit Rate@K
+### Recall@K (Source)
 
-> top-K 검색 결과에 정답 문서(source 기준)가 **포함된** 질문의 비율
+> top-K 검색 결과에 정답 문서(**source 기준**)가 **포함된** 질문의 비율
 
 - 범위: 0.0 ~ 1.0
-- 계산: `(Recall@K > 0인 질문 수) / 전체 질문 수`
+- 계산: `(per-query Recall@K > 0인 질문 수) / 전체 질문 수`
+- 매칭: 파일명(source)만 일치하면 hit
 
-### MRR (Mean Reciprocal Rank)
+### Recall@K (Page)
 
-> 정답 문서가 검색 결과에서 **몇 번째**에 위치하는지의 역수 평균
+> top-K 검색 결과에 정답 문서의 **정확한 페이지**가 **포함된** 질문의 비율
+
+- 범위: 0.0 ~ 1.0
+- 계산: `(per-query Recall@K_page > 0인 질문 수) / 전체 질문 수`
+- 매칭: source + page 모두 일치해야 hit
+- Source-level보다 엄격하며, 실제 검색 정밀도를 더 정확히 반영
+
+### MRR (Source)
+
+> 정답 문서(source 기준)가 검색 결과에서 **몇 번째**에 위치하는지의 역수 평균
 
 - 범위: 0.0 ~ 1.0
 - 계산: `mean(1/rank)` (정답 없으면 0)
 
+### MRR (Page)
+
+> 정답 문서의 **정확한 페이지**가 검색 결과에서 **몇 번째**에 위치하는지의 역수 평균
+
+- 범위: 0.0 ~ 1.0
+- 계산: `mean(1/rank_page)` (source + page 모두 일치해야 hit)
+
 ### Recall@K (per-query)
 
-> 개별 질문에서 top-K에 정답 source가 포함되면 1.0, 아니면 0.0
+> 개별 질문에서 top-K에 정답이 포함되면 1.0, 아니면 0.0
 
-- 이진 지표 (source 레벨 매칭)
-- 한계: 정답 "페이지"가 아닌 같은 문서의 다른 페이지가 검색돼도 1.0
+- **Source level**: 파일명만 매칭 → 같은 PDF의 다른 페이지가 검색돼도 1.0
+- **Page level**: source + page 모두 매칭 → 정확한 페이지가 검색돼야 1.0
 
 ---
 
 ## 지표 간 관계
 
 ```
-                    ┌─────────────────────────────┐
-  Retrieval 품질 ──→│  Relevance (검색 관련성)     │
-                    │  Hit Rate@K, MRR, Recall@K   │
-                    └──────────────┬──────────────┘
-                                   │
-                                   ▼
-                    ┌─────────────────────────────┐
-  답변 품질 ───────→│  Correctness (정확성)        │
-                    │  Answer Recall (커버리지)     │
-                    │  Faithfulness (충실성)        │
-                    └─────────────────────────────┘
+                    ┌──────────────────────────────────┐
+  Retrieval 품질 ──→│  Context Relevance (검색 관련성)  │
+                    │  Recall@K, MRR                    │
+                    └───────────────┬──────────────────┘
+                                    │
+                                    ▼
+                    ┌──────────────────────────────────┐
+  답변 품질 ───────→│  Correctness (정확성)             │
+                    │  Answer Coverage (커버리지)        │
+                    │  Faithfulness (충실성)             │
+                    └──────────────────────────────────┘
 ```
 
-- **Relevance 낮음** → Correctness/Recall 모두 낮아질 가능성 (쓰레기 input → 쓰레기 output)
-- **Relevance 높음 + Correctness 낮음** → LLM 생성 품질 문제
-- **Correctness 높음 + Recall 낮음** → 맞는 말만 하되 빠진 정보 많음 (부분 답변)
+- **Context Relevance 낮음** → Correctness/Coverage 모두 낮아질 가능성 (쓰레기 input → 쓰레기 output)
+- **Context Relevance 높음 + Correctness 낮음** → LLM 생성 품질 문제
+- **Correctness 높음 + Coverage 낮음** → 맞는 말만 하되 빠진 정보 많음 (부분 답변)
 - **Faithfulness 낮음** → 환각 문제 (context 무시하고 지어냄)
 
 ---

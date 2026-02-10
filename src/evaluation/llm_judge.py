@@ -1,6 +1,6 @@
 """LLM-as-Judge 평가 모듈.
 
-RAG 응답을 4가지 기준(Correctness, Answer Recall, Faithfulness, Relevance)으로 채점한다.
+RAG 응답을 4가지 기준(Correctness, Answer Coverage, Faithfulness, Context Relevance)으로 채점한다.
 단일 LLM 호출로 JSON 형태의 점수(0~5) + 근거를 반환.
 """
 
@@ -29,7 +29,7 @@ JUDGE_SYSTEM_PROMPT = """\
 - 1: 거의 관련 없는 답변
 - 0: 완전히 틀리거나 답변 거부
 
-### Answer Recall (답변 커버리지)
+### Answer Coverage (답변 커버리지)
 기대 답변의 핵심 정보가 생성 답변에 얼마나 누락 없이 포함되었는가. Correctness와 달리 빠진 정보가 있는가에 초점.
 - 5: 기대 답변의 모든 핵심 포인트를 빠짐없이 포함
 - 4: 대부분 포함하나 사소한 항목 1~2개 누락
@@ -47,7 +47,7 @@ JUDGE_SYSTEM_PROMPT = """\
 - 1: 대부분 환각이거나 context와 무관
 - 0: 완전한 환각 또는 context 무시
 
-### Relevance (관련성)
+### Context Relevance (검색 관련성)
 검색된 context가 질문에 실제로 관련 있는 정도.
 - 5: context가 질문에 완벽히 관련, 답변에 필요한 정보를 충분히 포함
 - 4: 대부분 관련 있으나 일부 불필요한 내용 포함
@@ -60,7 +60,7 @@ JUDGE_SYSTEM_PROMPT = """\
 반드시 아래 JSON 형식으로만 응답하세요. 마크다운 코드블록(```)이나 다른 텍스트 없이 순수 JSON만 출력하세요.
 reason은 반드시 한 문장으로 작성하세요.
 
-{"correctness": {"score": 0, "reason": "..."}, "answer_recall": {"score": 0, "reason": "..."}, "faithfulness": {"score": 0, "reason": "..."}, "relevance": {"score": 0, "reason": "..."}}"""
+{"correctness": {"score": 0, "reason": "..."}, "answer_coverage": {"score": 0, "reason": "..."}, "faithfulness": {"score": 0, "reason": "..."}, "context_relevance": {"score": 0, "reason": "..."}}"""
 
 JUDGE_USER_TEMPLATE = """\
 ## 질문
@@ -99,7 +99,7 @@ def _parse_judge_response(content: str) -> dict:
 
     # 유효성 검증
     result = {}
-    for key in ("correctness", "answer_recall", "faithfulness", "relevance"):
+    for key in ("correctness", "answer_coverage", "faithfulness", "context_relevance"):
         entry = parsed.get(key, {})
         score = int(entry.get("score", 0))
         score = max(0, min(5, score))
@@ -128,9 +128,9 @@ def judge_rag_response(
     Returns:
         {
             "correctness": {"score": 0~5, "reason": str},
-            "answer_recall": {"score": 0~5, "reason": str},
+            "answer_coverage": {"score": 0~5, "reason": str},
             "faithfulness": {"score": 0~5, "reason": str},
-            "relevance": {"score": 0~5, "reason": str},
+            "context_relevance": {"score": 0~5, "reason": str},
         }
     """
     load_env()
@@ -175,9 +175,9 @@ def judge_rag_response(
             print(f"[LLM Judge] 응답 파싱 최종 실패: {e}")
             return {
                 "correctness": {"score": 0, "reason": f"파싱 실패: {e}"},
-                "answer_recall": {"score": 0, "reason": f"파싱 실패: {e}"},
+                "answer_coverage": {"score": 0, "reason": f"파싱 실패: {e}"},
                 "faithfulness": {"score": 0, "reason": f"파싱 실패: {e}"},
-                "relevance": {"score": 0, "reason": f"파싱 실패: {e}"},
+                "context_relevance": {"score": 0, "reason": f"파싱 실패: {e}"},
             }
         except Exception as e:
             if attempt < max_retries - 1:
@@ -186,7 +186,7 @@ def judge_rag_response(
             print(f"[LLM Judge] LLM 호출 최종 실패: {e}")
             return {
                 "correctness": {"score": 0, "reason": f"LLM 에러: {type(e).__name__}"},
-                "answer_recall": {"score": 0, "reason": f"LLM 에러: {type(e).__name__}"},
+                "answer_coverage": {"score": 0, "reason": f"LLM 에러: {type(e).__name__}"},
                 "faithfulness": {"score": 0, "reason": f"LLM 에러: {type(e).__name__}"},
-                "relevance": {"score": 0, "reason": f"LLM 에러: {type(e).__name__}"},
+                "context_relevance": {"score": 0, "reason": f"LLM 에러: {type(e).__name__}"},
             }

@@ -170,11 +170,13 @@ const S = SUMMARY;
 const cardsEl = document.getElementById('cards');
 const cardDefs = [
   {{label:'Correctness',value:S.avg_correctness.toFixed(2),max:'/5',color:'var(--accent)'}},
-  {{label:'Answer Recall',value:(S.avg_answer_recall||0).toFixed(2),max:'/5',color:'#f97316'}},
+  {{label:'Answer Coverage',value:(S.avg_answer_coverage||0).toFixed(2),max:'/5',color:'#f97316'}},
   {{label:'Faithfulness',value:S.avg_faithfulness.toFixed(2),max:'/5',color:'var(--green)'}},
-  {{label:'Relevance',value:S.avg_relevance.toFixed(2),max:'/5',color:'var(--purple)'}},
-  {{label:'Hit Rate@5',value:(S.hit_rate_at_k*100).toFixed(0)+'%',max:'',color:'var(--cyan)'}},
-  {{label:'MRR',value:S.mrr.toFixed(2),max:'',color:'var(--yellow)'}},
+  {{label:'Context Relevance',value:(S.avg_context_relevance||0).toFixed(2),max:'/5',color:'var(--purple)'}},
+  {{label:'Recall@5 (Source)',value:((S.recall_at_k_source||0)*100).toFixed(0)+'%',max:'',color:'var(--cyan)'}},
+  {{label:'MRR (Source)',value:(S.mrr_source||0).toFixed(2),max:'',color:'var(--yellow)'}},
+  {{label:'Recall@5 (Page)',value:((S.recall_at_k_page||0)*100).toFixed(0)+'%',max:'',color:'var(--cyan)'}},
+  {{label:'MRR (Page)',value:(S.mrr_page||0).toFixed(2),max:'',color:'var(--yellow)'}},
   {{label:'평가 건수',value:S.num_evaluated+'/'+S.num_queries,max:'',color:'var(--text)'}},
 ];
 cardsEl.innerHTML = cardDefs.map(c=>`
@@ -189,10 +191,10 @@ cardsEl.innerHTML = cardDefs.map(c=>`
 new Chart(document.getElementById('radarChart'), {{
   type: 'radar',
   data: {{
-    labels: ['Correctness', 'Answer Recall', 'Faithfulness', 'Relevance', 'Hit Rate (x5)', 'MRR (x5)'],
+    labels: ['Correctness', 'Answer Coverage', 'Faithfulness', 'Context Relevance', 'Recall@K (x5)', 'MRR (x5)'],
     datasets: [{{
       label: '현재 성능',
-      data: [S.avg_correctness, S.avg_answer_recall||0, S.avg_faithfulness, S.avg_relevance, S.hit_rate_at_k*5, S.mrr*5],
+      data: [S.avg_correctness, S.avg_answer_coverage||0, S.avg_faithfulness, S.avg_context_relevance||0, (S.recall_at_k_source||0)*5, (S.mrr_source||0)*5],
       backgroundColor: 'rgba(59,130,246,0.15)',
       borderColor: 'rgba(59,130,246,0.8)',
       pointBackgroundColor: 'rgba(59,130,246,1)',
@@ -211,11 +213,11 @@ const typeLabels = ['Single Doc','Multi Doc','Comparison'];
 const byType = {{}};
 PQ.forEach(q => {{
   const t = q.query_type || 'unknown';
-  if (!byType[t]) byType[t] = {{c:[],ar:[],f:[],r:[]}};
+  if (!byType[t]) byType[t] = {{c:[],ac:[],f:[],cr:[]}};
   byType[t].c.push(q.correctness?.score??0);
-  byType[t].ar.push(q.answer_recall?.score??0);
+  byType[t].ac.push(q.answer_coverage?.score??0);
   byType[t].f.push(q.faithfulness?.score??0);
-  byType[t].r.push(q.relevance?.score??0);
+  byType[t].cr.push(q.context_relevance?.score??0);
 }});
 const avg = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 0;
 
@@ -225,9 +227,9 @@ new Chart(document.getElementById('barChart'), {{
     labels: typeLabels,
     datasets: [
       {{label:'Correctness', data:types.map(t=>avg(byType[t]?.c||[])), backgroundColor:'rgba(59,130,246,0.7)'}},
-      {{label:'Answer Recall', data:types.map(t=>avg(byType[t]?.ar||[])), backgroundColor:'rgba(249,115,22,0.7)'}},
+      {{label:'Answer Coverage', data:types.map(t=>avg(byType[t]?.ac||[])), backgroundColor:'rgba(249,115,22,0.7)'}},
       {{label:'Faithfulness', data:types.map(t=>avg(byType[t]?.f||[])), backgroundColor:'rgba(34,197,94,0.7)'}},
-      {{label:'Relevance', data:types.map(t=>avg(byType[t]?.r||[])), backgroundColor:'rgba(168,85,247,0.7)'}},
+      {{label:'Context Relevance', data:types.map(t=>avg(byType[t]?.cr||[])), backgroundColor:'rgba(168,85,247,0.7)'}},
     ]
   }},
   options: {{
@@ -243,9 +245,9 @@ new Chart(document.getElementById('heatChart'), {{
     labels: PQ.map(q => q.id?.replace('eval_','')),
     datasets: [
       {{label:'C', data:PQ.map(q=>q.correctness?.score??0), backgroundColor:PQ.map(q=>{{const s=q.correctness?.score??0; return s>=4?'rgba(34,197,94,0.6)':s>=3?'rgba(234,179,8,0.6)':'rgba(239,68,68,0.6)';}})}},
-      {{label:'AR', data:PQ.map(q=>q.answer_recall?.score??0), backgroundColor:'rgba(249,115,22,0.4)'}},
+      {{label:'AC', data:PQ.map(q=>q.answer_coverage?.score??0), backgroundColor:'rgba(249,115,22,0.4)'}},
       {{label:'F', data:PQ.map(q=>q.faithfulness?.score??0), backgroundColor:'rgba(34,197,94,0.3)'}},
-      {{label:'R', data:PQ.map(q=>q.relevance?.score??0), backgroundColor:'rgba(168,85,247,0.3)'}},
+      {{label:'CR', data:PQ.map(q=>q.context_relevance?.score??0), backgroundColor:'rgba(168,85,247,0.3)'}},
     ]
   }},
   options: {{
@@ -289,8 +291,8 @@ const typeName = t => t==='single_doc'?'Single':t==='multi_doc'?'Multi':'Compare
 
 const cardsContainer = document.getElementById('queryCards');
 PQ.forEach(q => {{
-  const cs = q.correctness?.score??0, ars = q.answer_recall?.score??0, fs = q.faithfulness?.score??0, rs = q.relevance?.score??0;
-  const cr = q.correctness?.reason??'', arr = q.answer_recall?.reason??'', fr = q.faithfulness?.reason??'', rr = q.relevance?.reason??'';
+  const cs = q.correctness?.score??0, acs = q.answer_coverage?.score??0, fs = q.faithfulness?.score??0, crs = q.context_relevance?.score??0;
+  const cReason = q.correctness?.reason??'', acReason = q.answer_coverage?.reason??'', fReason = q.faithfulness?.reason??'', crReason = q.context_relevance?.reason??'';
   const gen = q.generated_answer || '(답변 없음)';
   const exp = q.expected_answer || '(정답 없음)';
   const hit = q.hit_position;
@@ -305,9 +307,9 @@ PQ.forEach(q => {{
       <span class="query-q">${{q.question||''}}</span>
       <span class="query-scores">
         <span class="score-pill ${{scoreClass(cs)}}" title="Correctness">C:${{cs}}</span>
-        <span class="score-pill ${{scoreClass(ars)}}" title="Answer Recall">AR:${{ars}}</span>
+        <span class="score-pill ${{scoreClass(acs)}}" title="Answer Coverage">AC:${{acs}}</span>
         <span class="score-pill ${{scoreClass(fs)}}" title="Faithfulness">F:${{fs}}</span>
-        <span class="score-pill ${{scoreClass(rs)}}" title="Relevance">R:${{rs}}</span>
+        <span class="score-pill ${{scoreClass(crs)}}" title="Context Relevance">CR:${{crs}}</span>
         <span class="hit-badge ${{hit?'hit-yes':'hit-no'}}">${{hit?'Hit@'+hit:'MISS'}}</span>
       </span>
       <span class="query-chevron">▶</span>
@@ -316,8 +318,10 @@ PQ.forEach(q => {{
       <div class="meta-row">
         <span><strong>유형:</strong> ${{qt}}</span>
         <span><strong>검색 문서:</strong> ${{q.num_retrieved||0}}개</span>
-        <span><strong>Hit 위치:</strong> ${{hit||'없음'}}</span>
+        <span><strong>Hit 위치 (source):</strong> ${{hit||'없음'}}</span>
+        <span><strong>Hit 위치 (page):</strong> ${{q.hit_position_page||'없음'}}</span>
         <span><strong>정답 문서:</strong> ${{q.ground_truth_source||'N/A'}}</span>
+        <span><strong>정답 페이지:</strong> ${{q.ground_truth_page!=null?q.ground_truth_page:'N/A'}}</span>
       </div>
       <div class="answer-grid">
         <div class="answer-box expected">
@@ -335,28 +339,28 @@ PQ.forEach(q => {{
             <span class="j-label">Correctness</span>
             <span class="score-pill ${{scoreClass(cs)}}">${{cs}}/5</span>
           </div>
-          <div class="j-reason">${{escapeHtml(cr)}}</div>
+          <div class="j-reason">${{escapeHtml(cReason)}}</div>
         </div>
         <div class="judge-item">
           <div class="j-header">
-            <span class="j-label">Answer Recall</span>
-            <span class="score-pill ${{scoreClass(ars)}}">${{ars}}/5</span>
+            <span class="j-label">Answer Coverage</span>
+            <span class="score-pill ${{scoreClass(acs)}}">${{acs}}/5</span>
           </div>
-          <div class="j-reason">${{escapeHtml(arr)}}</div>
+          <div class="j-reason">${{escapeHtml(acReason)}}</div>
         </div>
         <div class="judge-item">
           <div class="j-header">
             <span class="j-label">Faithfulness</span>
             <span class="score-pill ${{scoreClass(fs)}}">${{fs}}/5</span>
           </div>
-          <div class="j-reason">${{escapeHtml(fr)}}</div>
+          <div class="j-reason">${{escapeHtml(fReason)}}</div>
         </div>
         <div class="judge-item">
           <div class="j-header">
-            <span class="j-label">Relevance</span>
-            <span class="score-pill ${{scoreClass(rs)}}">${{rs}}/5</span>
+            <span class="j-label">Context Relevance</span>
+            <span class="score-pill ${{scoreClass(crs)}}">${{crs}}/5</span>
           </div>
-          <div class="j-reason">${{escapeHtml(rr)}}</div>
+          <div class="j-reason">${{escapeHtml(crReason)}}</div>
         </div>
       </div>
     </div>

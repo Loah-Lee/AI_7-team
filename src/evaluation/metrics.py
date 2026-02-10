@@ -51,19 +51,24 @@ def calculate_hallucination_rate(answer: str, context: str) -> float:
 def calculate_hit_position(
     retrieved_docs: list[dict],
     ground_truth_source: str,
+    ground_truth_page: int | None = None,
 ) -> int | None:
     """정답 문서가 검색 결과에서 몇 번째에 위치하는지 반환한다.
 
     Args:
         retrieved_docs: 검색된 문서 리스트 (RetrievedDoc 딕셔너리).
         ground_truth_source: 정답 문서의 source 값.
+        ground_truth_page: 정답 페이지. 지정 시 source + page 모두 일치해야 hit.
 
     Returns:
         1-based 위치. 없으면 None.
     """
     for idx, doc in enumerate(retrieved_docs, start=1):
-        if doc.get("source") == ground_truth_source:
-            return idx
+        if doc.get("source") != ground_truth_source:
+            continue
+        if ground_truth_page is not None and doc.get("page") != ground_truth_page:
+            continue
+        return idx
     return None
 
 
@@ -104,10 +109,10 @@ def calculate_recall_at_k(
     return 0.0
 
 
-def calculate_hit_rate_at_k(
+def calculate_recall_at_k_summary(
     query_recalls: list[float],
 ) -> float:
-    """Hit Rate@K — Recall@K가 1인 쿼리의 비율."""
+    """Recall@K (summary) — per-query Recall@K의 평균 (= Hit Rate@K)."""
     if not query_recalls:
         return 0.0
     return sum(1 for r in query_recalls if r > 0) / len(query_recalls)
