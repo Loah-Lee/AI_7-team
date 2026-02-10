@@ -52,3 +52,30 @@ def log_score(
         value=value,
         comment=comment,
     )
+
+
+def log_retrieval_metrics(
+    trace_id: str,
+    retrieved_docs: list[dict],
+) -> None:
+    """검색 결과의 요약 지표를 Langfuse에 기록한다.
+
+    기록 항목:
+    - retrieval_count: 검색된 청크 수
+    - retrieval_avg_score: 평균 유사도 점수
+    - retrieval_max_score: 최고 유사도 점수
+
+    Args:
+        trace_id: 트레이스 ID.
+        retrieved_docs: RetrievedDoc 딕셔너리 리스트.
+    """
+    if not trace_id:
+        return
+
+    count = len(retrieved_docs)
+    log_score(trace_id, "retrieval_count", float(count))
+
+    scores = [doc.get("score", 0.0) for doc in retrieved_docs if doc.get("score")]
+    if scores:
+        log_score(trace_id, "retrieval_avg_score", round(sum(scores) / len(scores), 4))
+        log_score(trace_id, "retrieval_max_score", round(max(scores), 4))

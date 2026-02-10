@@ -18,6 +18,8 @@ from src.prompts.templates import (
     QUERY_ANALYSIS_PROMPT,
     RAG_GENERATION_PROMPT,
 )
+from src.evaluation.langfuse_tracer import log_retrieval_metrics, log_score
+from src.evaluation.metrics import calculate_aicr
 from src.retrievers.metadata_filter import search_with_metadata
 from src.utils.config import load_config
 from src.utils.env import get_langfuse_keys, get_openai_api_key, load_env
@@ -235,6 +237,10 @@ def extract_evidence(state: RFPState) -> RFPState:
 def generate(state: RFPState) -> RFPState:
     """최종 답변을 생성한다."""
     start = time.time()
+
+    langfuse_cb = _get_langfuse_callback()
+    callbacks = [langfuse_cb] if langfuse_cb else None
+
     llm = _get_llm(
         model=state.get("llm_model"),
         temperature=state.get("llm_temperature"),
@@ -259,9 +265,34 @@ def generate(state: RFPState) -> RFPState:
             "chat_history": chat_history,
         })
 
+    answer = result.content
     elapsed = time.time() - start
+
+    # --- Langfuse 평가 점수 기록 ---
+    trace_id = None
+    if langfuse_cb:
+        try:
+            trace_id = langfuse_cb.get_trace_id()
+        except Exception:
+            pass
+
+    if trace_id:
+        try:
+            # AICR 기록
+            evidence = state.get("evidence", "")
+            if evidence and not state.get("is_out_of_scope"):
+                aicr = calculate_aicr(answer, evidence)
+                log_score(trace_id, "aicr", aicr)
+
+            # 검색 결과 지표 기록
+            retrieved_docs = state.get("retrieved_docs", [])
+            if retrieved_docs:
+                log_retrieval_metrics(trace_id, retrieved_docs)
+        except Exception as e:
+            print(f"[generate] Langfuse 점수 기록 실패 (무시): {e}")
+
     return {
-        "answer": result.content,
-        "messages": [AIMessage(content=result.content)],
+        "answer": answer,
+        "messages": [AIMessage(content=answer)],
         "latencies": {"generate": elapsed},
     }

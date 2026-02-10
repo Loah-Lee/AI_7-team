@@ -83,3 +83,61 @@ def calculate_empty_retrieval_rate(
 
     empty_count = sum(1 for results in query_results if not results)
     return empty_count / len(query_results)
+
+
+def calculate_recall_at_k(
+    retrieved_docs: list[dict],
+    ground_truth_source: str,
+    ground_truth_page: int | None = None,
+    k: int = 5,
+) -> float:
+    """Recall@K — 정답 source가 top-K 내에 존재하면 1.0, 아니면 0.0.
+
+    page가 지정되면 source + page 모두 일치해야 정답으로 판정한다.
+    """
+    for doc in retrieved_docs[:k]:
+        if doc.get("source") != ground_truth_source:
+            continue
+        if ground_truth_page is not None and doc.get("page") != ground_truth_page:
+            continue
+        return 1.0
+    return 0.0
+
+
+def calculate_hit_rate_at_k(
+    query_recalls: list[float],
+) -> float:
+    """Hit Rate@K — Recall@K가 1인 쿼리의 비율."""
+    if not query_recalls:
+        return 0.0
+    return sum(1 for r in query_recalls if r > 0) / len(query_recalls)
+
+
+def calculate_mrr(
+    hit_positions: list[int | None],
+) -> float:
+    """Mean Reciprocal Rank — 첫 정답 순위의 역수 평균.
+
+    Args:
+        hit_positions: 각 쿼리별 정답의 1-based 위치. None이면 정답 없음.
+    """
+    if not hit_positions:
+        return 0.0
+    reciprocals = [1.0 / pos if pos is not None else 0.0 for pos in hit_positions]
+    return sum(reciprocals) / len(reciprocals)
+
+
+def calculate_avg_score(
+    retrieved_docs: list[dict],
+    ground_truth_source: str,
+    ground_truth_page: int | None = None,
+) -> float | None:
+    """정답 청크의 평균 유사도 점수를 반환한다. 정답이 없으면 None."""
+    scores = []
+    for doc in retrieved_docs:
+        if doc.get("source") != ground_truth_source:
+            continue
+        if ground_truth_page is not None and doc.get("page") != ground_truth_page:
+            continue
+        scores.append(doc.get("score", 0.0))
+    return sum(scores) / len(scores) if scores else None
