@@ -25,6 +25,37 @@ def _load_latest_results() -> Path | None:
 
 
 @st.cache_data(show_spinner=False)
+def _list_md_files() -> list[Path]:
+    return sorted(RICH_MD_DIR.glob("*.md"))
+
+
+@st.cache_data(show_spinner=False)
+def _load_doc_chunks(md_name: str) -> list[dict]:
+    chunk_path = RICH_CHUNKS_DIR / f"{md_name}.jsonl"
+    if not chunk_path.exists():
+        return []
+    items = []
+    with chunk_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            items.append(json.loads(line))
+    return items
+
+
+@st.cache_data(show_spinner=False)
+def _load_chunk_counts() -> pd.DataFrame:
+    rows = []
+    for path in sorted(RICH_CHUNKS_DIR.rglob("*.jsonl")):
+        try:
+            count = sum(1 for _ in path.open("r", encoding="utf-8"))
+        except Exception:
+            count = 0
+        rows.append({"doc": path.stem.replace(".md", ""), "chunks": count})
+    return pd.DataFrame(rows)
+
+
+@st.cache_data(show_spinner=False)
 def _load_chunks() -> dict:
     chunks = {}
     for path in RICH_CHUNKS_DIR.rglob("*.jsonl"):
@@ -46,12 +77,13 @@ def _load_md_assets() -> dict:
         text = path.read_text(encoding="utf-8")
         imgs = []
         for line in text.splitlines():
-            if "data_assets" in line and "(" in line and ")" in line:
-                start = line.find("(") + 1
-                end = line.find(")")
-                ref = line[start:end].strip()
-                if ref:
-                    imgs.append(ref)
+            if "data_assets" in line and "](" in line and ")" in line:
+                start = line.find("](") + 2
+                end = line.rfind(")")
+                if start > 1 and end > start:
+                    ref = line[start:end]
+                    if ref:
+                        imgs.append(ref)
         assets[path.name] = imgs
     return assets
 
@@ -87,7 +119,36 @@ def _load_gold_map() -> dict:
 
 
 def _resolve_image(md_path: Path, ref: str) -> Path:
-    return (md_path.parent / ref).resolve()
+    candidate = (md_path.parent / ref).resolve()
+    if candidate.exists():
+        return candidate
+
+    # fallback: try to resolve by matching data_assets dir name (handles trailing spaces)
+    try:
+        ref_path = Path(ref)
+        parts = ref_path.parts
+        if "data_assets" in parts:
+            idx = parts.index("data_assets")
+            rel_parts = parts[idx + 1 :]
+            if len(rel_parts) >= 2:
+                doc_id = rel_parts[0]
+                rest = rel_parts[1:]
+                assets_root = (RICH_MD_DIR.parent / "data_assets").resolve()
+                target_dir = None
+                for d in assets_root.iterdir():
+                    if not d.is_dir():
+                        continue
+                    if d.name == doc_id or d.name.strip() == doc_id.strip():
+                        target_dir = d
+                        break
+                if target_dir:
+                    alt = target_dir.joinpath(*rest)
+                    if alt.exists():
+                        return alt
+    except Exception:
+        pass
+
+    return candidate
 
 
 st.set_page_config(page_title="RAG Eval Inspector", layout="wide")
@@ -109,7 +170,68 @@ st.title("RAG 평가 점검 대시보드")
 
 results_path = _load_latest_results()
 if not results_path:
-    st.error("results.csv를 찾을 수 없습니다.")
+    st.warning("results.csv를 찾을 수 없습니다. 데이터 탐색 모드로 전환합니다.")
+    st.subheader("데이터 탐색")
+    md_files = _list_md_files()
+    if not md_files:
+        st.error("data_rich에 md 파일이 없습니다.")
+        st.stop()
+
+    st.markdown("**문서별 청크 수**")
+    counts = _load_chunk_counts()
+    page_size = 20
+    max_page = max((len(counts) - 1) // page_size, 0)
+    page = st.number_input("페이지", min_value=0, max_value=max_page, value=0, step=1)
+    start = page * page_size
+    end = start + page_size
+    st.dataframe(counts.iloc[start:end], use_container_width=True, height=460)
+
+    md_names = [p.name for p in md_files]
+    selected_md = st.selectbox("문서 선택", md_names, index=0)
+    md_path = RICH_MD_DIR / selected_md
+
+    st.markdown("**본문 미리보기**")
+    try:
+        md_text = md_path.read_text(encoding="utf-8")
+        st.text_area(
+            "본문",
+            md_text[:1500] or "(본문 없음)",
+            height=200,
+            label_visibility="collapsed",
+        )
+    except Exception as exc:
+        st.error(f"md 읽기 실패: {exc}")
+
+    table_snippet = _extract_table_snippet(md_path)
+    if table_snippet:
+        st.markdown("**표 샘플**")
+        st.code(table_snippet)
+
+    st.markdown("**이미지 썸네일**")
+    assets = _load_md_assets()
+    imgs = assets.get(selected_md, [])
+    if imgs:
+        cols = st.columns(3)
+        for i, img in enumerate(imgs[:6]):
+            img_path = _resolve_image(md_path, img)
+            cols[i % 3].image(str(img_path), width=220)
+    else:
+        st.caption("이미지 없음")
+
+    st.markdown("**청크 미리보기**")
+    chunks = _load_doc_chunks(selected_md)
+    st.caption(f"총 청크 수: {len(chunks)}")
+    if chunks:
+        idx = st.number_input("청크 인덱스", min_value=0, max_value=len(chunks) - 1, value=0)
+        st.text_area(
+            "청크",
+            chunks[idx].get("text", "")[:1500] or "(청크 텍스트 없음)",
+            height=220,
+            label_visibility="collapsed",
+        )
+        meta = chunks[idx].get("metadata", {})
+        if meta:
+            st.json(meta)
     st.stop()
 
 with st.sidebar:
@@ -171,7 +293,12 @@ for _, row in df.iterrows():
         with left:
             st.markdown("**Top1**")
             st.write(f"source: {top1_source} (chunk {top1_idx})")
-            st.code(top1_text or "(top1 텍스트 없음)")
+            st.text_area(
+                "Top1",
+                top1_text or "(top1 텍스트 없음)",
+                height=220,
+                label_visibility="collapsed",
+            )
 
             gold_list = gold_map.get(qid, [])
             if gold_list:
@@ -182,7 +309,12 @@ for _, row in df.iterrows():
                 gold_text = (gold_row.get("text") or "")[:800]
                 st.markdown("**Top2 (gold 기반 대체)**")
                 st.write(f"source: {gold_source} (chunk {g.get('chunk_index')})")
-                st.code(gold_text or "(gold 텍스트 없음)")
+                st.text_area(
+                    "Top2 (gold)",
+                    gold_text or "(gold 텍스트 없음)",
+                    height=220,
+                    label_visibility="collapsed",
+                )
             else:
                 st.markdown("**Top2 (gold 기반 대체)**")
                 st.caption("gold 없음")
@@ -205,8 +337,9 @@ for _, row in df.iterrows():
                     st.code(table_snippet)
             st.markdown("**이미지 썸네일**")
             if top1_source and top1_source in assets:
-                for img in assets[top1_source][:2]:
+                cols = st.columns(3)
+                for i, img in enumerate(assets[top1_source][:6]):
                     img_path = _resolve_image(RICH_MD_DIR / top1_source, img)
-                    st.image(str(img_path), use_column_width=True)
+                    cols[i % 3].image(str(img_path), width=220)
             else:
                 st.caption("이미지 없음")

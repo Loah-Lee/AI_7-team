@@ -40,6 +40,125 @@ def _chunk_text(text: str, chunk_size: int, overlap: int) -> List[str]:
     return chunks
 
 
+_TOC_RE = re.compile(r"목\s*차")
+_SECTION_RE = re.compile(
+    r"^\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\.?|제?\s*\d+\s*(장|절|항)\b|\d+[.)]\s+)"
+)
+_TOC_ITEM_RE = re.compile(
+    r"^\s*(?:[0-9]+[.)]|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\.)\s+.+(?:[-·\.]{3,}\s*\d+|\s+\d+)$"
+)
+_MD_HEADER_RE = re.compile(r"^\s*#{1,6}\s+")
+
+
+def _split_toc_block(text: str) -> tuple[str | None, str]:
+    lines = text.splitlines()
+    toc_lines: List[str] = []
+    rest_lines: List[str] = []
+    in_toc = False
+    for line in lines:
+        norm = line.replace("\u00a0", " ")
+        if not in_toc and _TOC_RE.search(norm):
+            in_toc = True
+            toc_lines.append("목차")
+            continue
+        if in_toc:
+            if _TOC_ITEM_RE.match(norm):
+                toc_lines.append(line)
+                continue
+            if _MD_HEADER_RE.match(norm) or _SECTION_RE.match(norm):
+                in_toc = False
+                rest_lines.append(line)
+                continue
+            toc_lines.append(line)
+            continue
+        rest_lines.append(line)
+    toc = "\n".join(toc_lines).strip() if toc_lines else None
+    rest = "\n".join(rest_lines).strip()
+    return toc, rest
+
+
+_LIST_ITEM_RE = re.compile(
+    r"^\s*(?:[-*•○●■·]|[0-9]+[.)]|[가-하]\.)\s+"
+)
+
+
+def _separate_list_items(text: str) -> str:
+    lines = text.splitlines()
+    out: List[str] = []
+    for line in lines:
+        if _LIST_ITEM_RE.match(line):
+            if out and out[-1].strip():
+                out.append("")
+        out.append(line)
+    return "\n".join(out)
+
+
+def _split_by_sections(text: str) -> List[str]:
+    lines = text.splitlines()
+    sections: List[str] = []
+    buf: List[str] = []
+    for line in lines:
+        norm = line.replace("\u00a0", " ")
+        if _MD_HEADER_RE.match(norm) or _SECTION_RE.match(norm):
+            if buf:
+                sections.append("\n".join(buf).strip())
+                buf = []
+        buf.append(line)
+    if buf:
+        sections.append("\n".join(buf).strip())
+    return [s for s in sections if s]
+
+
+def _pack_paragraphs(text: str, chunk_size: int, overlap: int) -> List[str]:
+    paras = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    chunks: List[str] = []
+    buf = ""
+    for para in paras:
+        if len(para) > chunk_size:
+            if buf:
+                chunks.append(buf.strip())
+                buf = ""
+            chunks.extend(_chunk_text(para, chunk_size, overlap))
+            continue
+        if not buf:
+            buf = para
+            continue
+        if len(buf) + 2 + len(para) <= chunk_size:
+            buf = f"{buf}\n\n{para}"
+        else:
+            chunks.append(buf.strip())
+            if overlap > 0 and chunks[-1]:
+                tail = chunks[-1][-overlap:]
+                buf = f"{tail}\n\n{para}"
+            else:
+                buf = para
+    if buf:
+        chunks.append(buf.strip())
+    return chunks
+
+
+def _chunk_by_structure(text: str, chunk_size: int, overlap: int) -> List[str]:
+    text = _separate_list_items(text)
+    toc, rest = _split_toc_block(text)
+    body = rest or text
+
+    sections = _split_by_sections(body)
+    if toc:
+        if sections:
+            sections[0] = f"{toc}\n\n{sections[0]}".strip()
+        else:
+            sections = [toc]
+
+    chunks: List[str] = []
+    for section in sections:
+        if len(section) <= chunk_size:
+            chunks.append(section)
+            continue
+        chunks.extend(_pack_paragraphs(section, chunk_size, overlap))
+
+    return [c for c in chunks if c]
+
+
 def _iter_md_files(input_dir: Path) -> Iterable[Path]:
     return (
         p
@@ -86,7 +205,7 @@ def chunk_rich(
 
         try:
             text = path.read_text(encoding="utf-8")
-            chunks = _chunk_text(text, chunk_size=chunk_size, overlap=overlap)
+            chunks = _chunk_by_structure(text, chunk_size=chunk_size, overlap=overlap)
 
             out_path.parent.mkdir(parents=True, exist_ok=True)
             with out_path.open("w", encoding="utf-8") as f:
