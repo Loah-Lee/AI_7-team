@@ -24,6 +24,7 @@ sys.path.insert(0, str(project_root))
 from src.parsers.chunker import chunk_documents
 from src.parsers.hwp_loader import load_hwp
 from src.parsers.pdf_loader import load_pdf
+from src.parsers.text_cleaner import clean_documents
 from src.retrievers.embeddings import get_embeddings
 from src.utils.config import load_config
 
@@ -102,6 +103,11 @@ def main() -> None:
     if not all_documents:
         print("[ERROR] 로드된 문서가 없습니다. 종료합니다.")
         return
+
+    # 1.5) 텍스트 클리닝
+    print("[1.5/4] 텍스트 클리닝 중...")
+    all_documents = clean_documents(all_documents)
+    print(f"       → {len(all_documents)}개 문서 클리닝 완료")
 
     # 2) 청킹
     print("[2/4] 청킹 중...")
