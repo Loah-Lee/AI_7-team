@@ -4,7 +4,7 @@ Storage & Indexing Step 5: Hybrid RAG DB (Python Bigram Solution)
 - 해결: 띄어쓰기 없는 한국어('서울시청년')와 2글자 키워드('제안') 검색 동시 지원
 - 방법: Python에서 텍스트를 2글자씩(Bigram) 잘라서 FTS에 저장
 """
-
+import os
 import json
 import sqlite3
 from pathlib import Path
@@ -21,6 +21,8 @@ except ImportError:
 DB_PATH = "DB/document.db"
 CHUNK_DIR = "output/chunks"
 EMBEDDING_MODEL = 'all-MiniLM-L6-v2'
+
+os.makedirs('DB', exist_ok=True)
 
 # --- [추가된 함수] Bigram 생성기 ---
 def make_bigrams(text: str) -> str:
@@ -54,7 +56,7 @@ def initialize_database(db_path: str, chunks: List[Dict]) -> None:
         cursor.execute('''
             CREATE VIRTUAL TABLE sparse USING fts5(
                 bigrams,               -- 검색용 (2글자씩 잘린 텍스트)
-                original_text UNINDEXED, -- 결과 표시용 (원본 텍스트)
+                text UNINDEXED, -- 결과 표시용 (원본 텍스트)
                 tokenize='unicode61'
             )
         ''')
@@ -65,9 +67,9 @@ def initialize_database(db_path: str, chunks: List[Dict]) -> None:
         for chunk in chunks:
             raw = chunk['content']
             bigram_text = make_bigrams(raw)
-            data_to_insert.append((bigram_text, raw))
+            data_to_insert.append((chunk['chunk_id'], bigram_text, raw))
         
-        cursor.executemany("INSERT INTO sparse(bigrams, original_text) VALUES (?, ?)", data_to_insert)
+        cursor.executemany("INSERT INTO sparse(rowid, bigrams, text) VALUES (?, ?, ?)", data_to_insert)
         conn.commit()
 
     print("   ✅ Database initialized with Python Bigram Indexing.")
@@ -79,7 +81,9 @@ def load_chunks_from_disk(chunk_dir: str) -> List[Dict]:
         return []
     for chunk_file in sorted(chunk_path.glob('chunk_*.json')):
         with open(chunk_file, 'r', encoding='utf-8') as f:
-            chunks.append(json.load(f))
+            c = json.load(f)
+            c['metadata']['chunk_id'] = c['chunk_id']
+            chunks.append(c)
     return chunks
 
 def extract_hierarchy_data(chunks: List[Dict]) -> List[Tuple[str, Dict]]:
@@ -149,7 +153,7 @@ def main():
     
     query_keyword = "제안"
     
-    # [중요] 검색어 전처리: 검색어도 Bigram으로 변환해야 매칭됨
+    # [중요] 쿼리 전처리: 쿼리도 Bigram으로 변환해야 매칭됨
     if len(query_keyword) >= 2:
         query_bigram_str = make_bigrams(query_keyword)
         # 공백으로 분리된 토큰들을 AND 조건으로 연결 (예: "서울" AND "울시")

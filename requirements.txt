@@ -29,3 +29,5 @@ sqlite-vec
 PyMuPDF
 sentence-transformers
 pysqlite3-binary
+langgraph
+sqlite-utils
