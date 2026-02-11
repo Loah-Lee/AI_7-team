@@ -22,6 +22,27 @@ from src.prompts.templates import MARKDOWN_TEMPLATE
 load_dotenv()
 
 # ============================================================================
+# LangSmith 트레이싱 활성화
+# ============================================================================
+import os
+from src.utils.config import (
+    LANGSMITH_API_KEY,
+    LANGSMITH_TRACING,
+    LANGSMITH_ENDPOINT,
+    LANGSMITH_PROJECT
+)
+
+if LANGSMITH_TRACING and LANGSMITH_API_KEY:
+    # LangChain 트레이싱을 위한 환경 변수 설정
+    os.environ["LANGCHAIN_TRACING_V2"] = "true"
+    os.environ["LANGCHAIN_API_KEY"] = LANGSMITH_API_KEY
+    os.environ["LANGCHAIN_ENDPOINT"] = LANGSMITH_ENDPOINT
+    os.environ["LANGCHAIN_PROJECT"] = LANGSMITH_PROJECT
+    print(f"🔍 LangSmith 트레이싱 활성화: {LANGSMITH_PROJECT}")
+else:
+    print("ℹ️ LangSmith 트레이싱 비활성화")
+
+# ============================================================================
 # RAG 챗봇 (RAG Chatbot)
 # ============================================================================
 

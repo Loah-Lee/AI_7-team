@@ -3,16 +3,34 @@
 입찰메이트 RFP 챗봇 v17 - Streamlit 웹 인터페이스
 """
 
+import os
 import sys
 import time
 from typing import TYPE_CHECKING
 
 import streamlit as st
+from dotenv import load_dotenv
 
 # 경로 설정
 sys.path.insert(0, 'src')
 
 # 설정 로드
+load_dotenv()
+
+# LangSmith 트레이싱 활성화
+from src.utils.config import (
+    LANGSMITH_API_KEY,
+    LANGSMITH_TRACING,
+    LANGSMITH_ENDPOINT,
+    LANGSMITH_PROJECT
+)
+
+if LANGSMITH_TRACING and LANGSMITH_API_KEY:
+    os.environ["LANGCHAIN_TRACING_V2"] = "true"
+    os.environ["LANGCHAIN_API_KEY"] = LANGSMITH_API_KEY
+    os.environ["LANGCHAIN_ENDPOINT"] = LANGSMITH_ENDPOINT
+    os.environ["LANGCHAIN_PROJECT"] = LANGSMITH_PROJECT
+
 from src.utils.config import *
 
 # Streamlit 페이지 설정

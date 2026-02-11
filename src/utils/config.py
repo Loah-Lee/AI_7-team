@@ -10,10 +10,25 @@ from pathlib import Path
 # 환경 변수
 # ============================================================================
 
+# OpenAI
 OPENAI_API_KEY: str | None = os.environ.get("OPENAI_API_KEY")
-EMBEDDING_MODEL: str = "text-embedding-3-small"
-DEFAULT_MODEL: str = "gpt-4o-mini"
-REASONING_MODEL: str = "gpt-5-mini"
+EMBEDDING_MODEL: str = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
+DEFAULT_MODEL: str = os.environ.get("DEFAULT_MODEL", "gpt-4o-mini")
+REASONING_MODEL: str = os.environ.get("REASONING_MODEL", "gpt-5-mini")
+
+# LangSmith (트레이싱 및 모니터링)
+LANGSMITH_API_KEY: str | None = os.environ.get("LANGSMITH_API_KEY")
+LANGSMITH_TRACING: bool = os.environ.get("LANGSMITH_TRACING", "false").lower() == "true"
+LANGSMITH_ENDPOINT: str = os.environ.get("LANGSMITH_ENDPOINT", "https://api.smith.langchain.com/")
+LANGSMITH_PROJECT: str = os.environ.get("LANGSMITH_PROJECT", "biddingmate_jh")
+
+# Langfuse (대안 트레이싱)
+LANGFUSE_PUBLIC_KEY: str | None = os.environ.get("LANGFUSE_PUBLIC_KEY")
+LANGFUSE_SECRET_KEY: str | None = os.environ.get("LANGFUSE_SECRET_KEY")
+LANGFUSE_BASE_URL: str = os.environ.get("LANGFUSE_BASE_URL", "https://cloud.langfuse.com")
+
+# HuggingFace
+HF_TOKEN: str | None = os.environ.get("HF_TOKEN")
 
 # ============================================================================
 # 매직 넘버
