@@ -4,7 +4,7 @@
 
 ```
 ┌──────────────┐    ┌──────────┐    ┌──────────────────┐    ┌──────────┐
-│ analyze_query│───→│ retrieve  │───→│ extract_evidence │───→│ generate │───→ END
+│ analyze_query│───→│ retrieve │───→│ extract_evidence │───→│ generate │───→ END
 └──────────────┘    └──────────┘    └──────────────────┘    └──────────┘
 ```
 
