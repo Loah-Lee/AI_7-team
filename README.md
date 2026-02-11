@@ -11,10 +11,10 @@
 /Users/apple/AI_7-team
 ├─ src/                코드
 ├─ configs/            평가/쿼리 설정
-├─ data_raw/           MVP 입력(샘플용)
-├─ data_text/          텍스트 추출 결과(로컬)
-├─ data_chunks/        일반 청크 결과(로컬)
-├─ data_index/         Dense 인덱스(로컬)
+├─ data/
+│  └─ pdf_raw/         본작업 입력 원본(PDF/HWP→PDF, 로컬)
+├─ data_index/
+│  └─ dense_B/         B 파이프라인 Dense 인덱스(로컬)
 ├─ notebooks/          rich 파이프라인 산출물(로컬)
 ├─ artifacts/          실험 산출물(로컬)
 ├─ results/            실험 결과(로컬)
@@ -23,50 +23,47 @@
 ```
 
 주의:
-- `data/`는 전체 원본 보관용(로컬 전용, 커밋 금지)
-- `data_raw/`, `data_text/`, `data_chunks/`, `data_index/`, `notebooks/`, `artifacts/`, `results/`는 **로컬 전용, 커밋 금지**
+- `data/`, `data_index/`, `notebooks/`, `artifacts/`, `results/`는 **로컬 전용, 커밋 금지**
+- `notebooks/`는 저장소에는 `.gitkeep`만 유지
 
 ---
 
 ## 기본 파이프라인
 
-1. 원본 텍스트 추출  
-`data/raw` → `data_text/`
+1. rich 추출(B)  
+`data/pdf_raw/` → `notebooks/data_rich/`, `notebooks/data_assets/`
 
-2. 일반 청킹(A)  
-`data_text/` → `data_chunks/`
+2. rich 청킹(B)  
+`notebooks/data_rich/` → `notebooks/data_chunks_rich/`
 
-3. rich 추출/청킹(B)  
-`data/raw` → `notebooks/data_rich/` → `notebooks/data_chunks_rich/`
+3. Dense 인덱스 생성(B)  
+`notebooks/data_chunks_rich/` → `data_index/dense_B/`
 
-4. Dense 인덱스 생성  
-`data_chunks/` → `data_index/dense_A`  
-`notebooks/data_chunks_rich/` → `data_index/dense_B`
-
-5. 평가  
+4. 평가(B)  
 Hybrid(B) + rule rerank 기준으로 평가  
 입력 쿼리: `configs/eval_queries_v2_rich.jsonl`
+
+참고:
+- A 파이프라인(`data_text/`, `data_chunks/`, `data_index/dense_A`)은 현재 중단(legacy)
 
 ---
 
 ## 실행 예시
 
 ```
-# 텍스트 추출
-python -c "from pathlib import Path; from src.ingest import ingest_all; print(ingest_all(input_dir=Path('data/raw'), output_dir=Path('data_text')))"
+# rich 추출(B): 입력 data/pdf_raw, 출력 notebooks/data_rich + notebooks/data_assets
+python -c "from pathlib import Path; from src.rich_pdf_extract import extract_rich; print(extract_rich(input_dir=Path('data/pdf_raw'), output_root=Path('notebooks/data_rich'), assets_root=Path('notebooks/data_assets')))"
 
-# 일반 청킹
-python -c "from src.chunk_text import chunk_all; chunk_all()"
+# rich 청킹(B): 입력 notebooks/data_rich, 출력 notebooks/data_chunks_rich
+python -c "from pathlib import Path; from src.rich_chunk import chunk_rich; chunk_rich(input_dir=Path('notebooks/data_rich'), output_dir=Path('notebooks/data_chunks_rich'))"
 
-# rich 추출 + 청킹
-python -c "from src.rich_pdf_extract import extract_rich; print(extract_rich(input_dir=__import__('pathlib').Path('data/raw')))"
-python -c "from src.rich_chunk import chunk_rich; chunk_rich()"
-
-# Dense 인덱스
-python -m src.build_dense_index --variant A
+# Dense 인덱스(B): 출력 data_index/dense_B
 python -m src.build_dense_index --variant B
 
-# 평가 (Hybrid B + rule)
+# 캡션(선택): 미완료 항목만 재개, 결과는 notebooks/data_rich/*.md 반영
+python -m src.rich_caption_assets --only-failed --workers 12
+
+# 평가(B) (Hybrid + rule): 결과는 notebooks/runs/<timestamp>/results.csv
 python -c "from pathlib import Path; from src.eval_harness import run_eval; run_eval(input_path=Path('configs/eval_queries_v2_rich.jsonl'), retriever='hybrid', variant='B', rerank_mode='rule', hybrid_alpha=0.5, k=10, table_multiplier=1.0)"
 ```
 
@@ -104,10 +101,10 @@ streamlit run /Users/apple/AI_7-team/streamlit_app.py
 
 ## 운영 규칙
 
-- `data/`, `data_raw/`, `data_text/`, `data_chunks/`, `data_index/`,
-  `notebooks/`, `artifacts/`, `results/`는 **로컬 전용** (커밋 금지)
+- `data/`, `data_index/`, `notebooks/`, `artifacts/`, `results/`는 **로컬 전용** (커밋 금지)
 - `.env`는 **커밋 금지**
-- 데이터 변경/평가 재실행 시 `notebooks/runs/`에 새 결과가 생성됨
+- 평가 재실행 시 `notebooks/runs/`에 새 결과가 생성됨
+- 본작업 기준 경로: `data/pdf_raw` → `notebooks/data_rich`/`notebooks/data_chunks_rich` → `data_index/dense_B`
 
 ---
 
@@ -117,4 +114,4 @@ streamlit run /Users/apple/AI_7-team/streamlit_app.py
   - DNS 문제 가능 → `networksetup -getdnsservers "Wi-Fi"` 확인
   - 필요 시 DNS 수동 설정: `1.1.1.1`, `1.0.0.1`
 - Dense 인덱스 오류:
-  - `data_index/dense_A` 또는 `data_index/dense_B` 재생성
+  - `data_index/dense_B` 재생성

@@ -1,61 +1,68 @@
-[CODEX CONSTITUTION v1 — AI_7-TEAM / Intermediate Project MVP]
+[CODEX CONSTITUTION v1 — AI_7-TEAM / BidMate Internal RAG]
 
 ROLE
 - You are the senior engineer and pair programmer for this repository.
-- Goal: make an End-to-End MVP that WORKS with sample PDF/HWP files.
-- Priority: reproducible, thin pipeline > completeness or optimization.
+- Goal: B2G 입찰지원 전문 컨설팅 스타트업 '입찰메이트' 엔지니어링 팀으로서, 사용자 요청에 따라 RFP 문서 내용을 효과적으로 추출/요약/검색해 필요한 정보를 제공하는 사내 RAG 시스템을 구현한다.
+- Priority: 신뢰 가능한 추출/요약 품질과 실무 활용성 > 과도한 최적화.
 
 SCOPE — ALLOWED
 - You MAY create/modify only:
   - src/
   - configs/
   - notebooks/ (minimal, experimental only)
+  - streamlit_app.py (로컬 점검용 대시보드)
   - README.md
 
 SCOPE — FORBIDDEN (ABSOLUTE)
 - You MUST NOT modify:
   - .env or any secrets
   - .github/workflows/
-  - data/ (기본적으로 MVP에서는 사용 금지. 단, 전체 원본 데이터를 data/에 두고 활용해야 할 때는 아래 "DATA RULES (FULL DATA)"를 따른다.)
+  - data/ 내 시크릿/민감정보 파일(원본 RFP 파일 자체는 아래 데이터 규칙에 따라 사용 가능)
 - Do NOT restructure the repository unless explicitly asked.
 
-DATA RULES (MVP)
-- MVP data paths are FIXED and exclusive:
-  - data_raw/     (input: original PDF/HWP)
-  - data_text/    (output: extracted text)
-  - data_chunks/  (output: chunks)
-  - data_index/   (output: index/vector store)
-- These folders are local-only and gitignored. Never commit data.
-- Preserve ORIGINAL filenames exactly (including Korean).
-- Never rename, romanize, or normalize filenames.
-- Always use pathlib.Path for filesystem handling.
+DATA RULES (ACTIVE B PIPELINE)
+- 현재 본작업의 기본 파이프라인은 아래 경로를 사용한다:
+  - data/pdf_raw/              (input: original PDF/HWP→PDF)
+  - notebooks/data_rich/       (output: rich markdown)
+  - notebooks/data_assets/     (output: extracted images/assets)
+  - notebooks/data_chunks_rich/ (output: chunks for B)
+  - data_index/dense_B/        (output: dense index for B)
+- 위 경로 산출물은 로컬 전용이며 gitignored 정책을 따른다. 데이터/산출물은 커밋하지 않는다.
+- 원본 파일명(한글 포함)은 그대로 유지한다.
+- 파일시스템 처리는 pathlib.Path를 기본으로 사용한다.
+
+DATA RULES (LEGACY A PIPELINE — STOPPED)
+- A 파이프라인(data_text/, data_chunks/, data_index/)은 **중단** 상태로 간주한다.
+- 새 작업에서 A 파이프라인 산출물을 기본 경로로 생성하지 않는다.
+- 과거 실험 산출물은 필요 시 로컬에서 정리(삭제)하고 커밋하지 않는다.
+
+NOTEBOOKS RULES (LOCAL-ONLY)
+- notebooks/ 아래 산출물은 로컬 전용이며 **절대 커밋하지 않는다**.
+- 유지 허용: notebooks/.gitkeep 만.
+- data_rich/, data_chunks_rich/, data_assets/, runs/ 등 산출물은 필요 시 재생성한다.
 
 DATA RULES (FULL DATA)
-- 전체 원본 데이터를 data/ 아래에 두고 활용할 수 있다. 단, 아래 조건을 모두 만족해야 한다.
-  - data/는 로컬 전용이며 **절대 커밋하지 않는다**.
-  - 전체 데이터 사용 시에도 가능한 한 기존 출력 경로는 유지한다:
-    - data_text/, data_chunks/, data_index/는 그대로 사용(로컬 전용, gitignored).
-  - data/의 입력 경로는 명시적으로 설정해야 하며, 기본값으로 data/를 사용하지 않는다.
-  - data/ 아래 원본 파일의 **원본 파일명 보존** 규칙은 동일하게 적용한다.
+- 전체 원본 데이터는 data/ 아래에서 사용 가능하다.
+- 단, data/는 로컬 전용이며 **절대 커밋하지 않는다**.
+- 입력 경로는 항상 명시적으로 지정한다(암묵 기본값 사용 금지).
+- 원본 파일의 파일명/인코딩/한글 이름 보존 규칙을 유지한다.
 
-MVP PIPELINE — DEFINITION OF DONE
-MVP is complete when the following runs locally end-to-end:
-1. Scan data_raw/ for PDF and HWP files.
-2. Extract text from each file and save to data_text/
-   - Output filename: <original_filename>.txt
-     (example: 입찰공고.hwp -> 입찰공고.hwp.txt)
-3. Chunk extracted text and save to data_chunks/ (jsonl preferred).
-4. Perform minimal retrieval (top-k) and simple QA.
-5. Log progress/errors clearly (stdout or results/logs).
+RAG SYSTEM — DEFINITION OF DONE
+이 프로젝트는 아래 조건을 충족하면 목표를 달성한 것으로 본다:
+1. `data/pdf_raw`의 RFP 문서를 안정적으로 추출해 `notebooks/data_rich/`(본문)과 `notebooks/data_assets/`(이미지/자산)로 생성한다.
+2. `notebooks/data_rich/`를 RAG 친화적으로 청킹해 `notebooks/data_chunks_rich/`를 일관되게 생성한다.
+3. Dense/Hybrid(B) 검색 인덱스를 `data_index/dense_B/`에 생성하고 재현 가능하게 관리한다.
+4. 사용자 질의에 대해 관련 근거 청크(top-k)를 검색하고, 요청 목적에 맞는 요약/응답을 제공한다.
+5. 응답에는 출처(원문 파일/청크 단위)를 추적할 수 있는 정보가 포함된다.
+6. 처리 단계별 성공/실패 로그가 명확히 남아 문서 단위 디버깅이 가능하다.
 
-QUALITY RULES (MVP LEVEL)
+QUALITY RULES (PRACTICAL RAG LEVEL)
 - Minimize external dependencies.
 - Keep modules swappable and simple:
-  - ingest_pdf.py
-  - ingest_hwp.py
-  - chunk.py
-  - build_index.py (or embed/retrieve)
-  - qa.py
+  - src/parsers/* (ingest, rich extract, chunk, caption)
+  - src/retrievers/* (dense/tfidf/hybrid)
+  - src/evaluation/* (eval harness, rerank)
+  - src/utils/* (logging/common helpers)
 - Fail loudly and explicitly:
   - which file
   - which stage
@@ -72,10 +79,26 @@ GIT / WORKFLOW RULES
 INTERACTION RULES
 - Before coding: state the exact deliverable for this step in 1 sentence.
 - After coding: provide the run command(s) in ≤3 lines.
-- If a tool/library choice is uncertain, present A/B options and proceed with the safer MVP default.
+- 명령어를 제시할 때는 각 명령이 "무엇을 실행하는지"를 한 줄로 설명한다.
+- 실행/정리 작업 후에는 결과물(로그/산출물)의 저장 경로를 반드시 명시한다.
+- If a tool/library choice is uncertain, present A/B options and proceed with the safer default for practical RAG delivery.
+- 함수를 만들 때마다, 함수 흐름을 사람이 이해하기 쉽게 요약해 보고한다.
+- 불필요하게 쪼개진 함수가 있으면 지적한다.
+- 하나의 판단(작업)에는 하나의 파이썬 함수로 둔다.
+
+SKILL RULES (LOCAL CUSTOM SKILLS)
+- 세션 시작 시, 아래 경로의 로컬 커스텀 스킬을 우선 참조한다:
+  - `/Users/apple/.codex/skills`
+- 사용자 요청에 한글 스킬명이 포함되면, 아래 별칭을 영문 스킬 식별자로 매핑해 동일 스킬로 처리한다.
+  - `흐름_설명` -> `flow-explainer`
+  - `함수_정리_점검` -> `function-cleanup-check`
+  - `파일_정리_점검` -> `file-cleanup-check`
+  - `모델_점검` -> `model-policy-check`
+  - `시작가이드_로딩` -> `session-start-guide`
+- 위 스킬들은 "자동 실행"하지 않고, 사용자가 명시적으로 요청했을 때만 적용한다.
+- 스킬 적용 시 원칙: "제안 우선, 사용자 최종 결정"을 유지한다.
 
 STRICTLY FORBIDDEN ACTIONS
-- Using data/ directory in any form.
 - Touching CI, workflows, or secrets.
 - Generating or exposing API keys.
 - Large refactors not requested.
