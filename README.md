@@ -55,7 +55,7 @@ AI_7-team/
 │   ├── parsers/                 # 문서 로더 및 파서
 │   │   ├── csv_loader.py         # CSV 처리
 │   │   ├── pdf_loader.py        # PDF 처리 (pdfplumber)
-│   │   ├── hwp_loader.py        # HWP 처리 (pyhwpx)
+│   │   ├── hwp_loader.py        # HWP 처리 (LibreOffice → PDF 변환)
 │   │   ├── text_cleaner.py      # 텍스트 정제
 │   │   └── chunker.py          # 문서 청킹
 │   ├── retrievers/              # 검색 시스템
@@ -74,6 +74,8 @@ AI_7-team/
 ├── configs/                     # 설정 파일
 │   └── default.yaml             # 기본 설정
 ├── docs/                       # 문서
+│   ├── DOCUMENTATION.md          # 통합 기술 문서
+│   ├── slides.html              # 프레젠테이션 슬라이드
 │   ├── USAGE.md                 # 사용 방법
 │   ├── USAGE_NEW.md             # 새 사용법
 │   └── ARCHITECTURE.md          # 아키텍처 설계
@@ -320,6 +322,8 @@ pip install streamlit>=1.20.0
 
 ## 추가 문서
 
+- [통합 기술 문서](docs/DOCUMENTATION.md) - 9개 챕터로 구성된 상세 기술 문서
+- [프레젠테이션 슬라이드](docs/slides.html) - 브라우저에서 바로 보기
 - [상세 사용법](docs/USAGE.md)
 - [아키텍처 설계](docs/ARCHITECTURE.md)
 - [평가 지표](eval/METRICS.md)
