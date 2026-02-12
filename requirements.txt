@@ -1,0 +1,22 @@
+# 입찰메이트 v17 의존성
+
+# OpenAI
+openai>=1.0.0
+
+# 벡터 DB
+chromadb>=0.4.0
+
+# PDF 처리
+pdfplumber>=0.10.0
+
+# 환경 변수
+python-dotenv>=1.0.0
+
+# 웹 프레임워크
+streamlit>=1.20.0
+
+# 한국어 임베딩 (폴백)
+sentence-transformers>=2.2.0
+
+# 데이터 처리
+pandas>=2.0.0
