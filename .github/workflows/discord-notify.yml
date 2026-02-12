@@ -1,28 +1,17 @@
 # License: MIT (template code)
-name: Discord Notify (main/dev push + PR) - AI_7-team
+name: Discord Notify (safe) - AI_7-team
 
 on:
-  # main/dev push 알림 추가
   push:
     branches:
       - main
       - dev
 
-  # PR 관련 (main/dev 대상)
   pull_request:
     branches:
       - main
       - dev
     types: [opened, reopened, synchronize, closed, edited, ready_for_review]
-
-  issue_comment:
-    types: [created]
-
-  pull_request_review:
-    types: [submitted]
-
-  pull_request_review_comment:
-    types: [created]
 
 jobs:
   notify:
@@ -31,9 +20,8 @@ jobs:
       contents: read
 
     steps:
-      - name: Build Discord payload
+      - name: Build Discord payload (safe embeds)
         env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           GITHUB_EVENT_PATH: ${{ github.event_path }}
           REPO: ${{ github.repository }}
@@ -56,112 +44,93 @@ jobs:
 
           now_iso = datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
 
-          def clip(s, n=160):
+          # Discord hard limits:
+          # title 256, description 4096, field.value 1024
+          def clip(s: str, n: int) -> str:
               s = (s or "").strip()
-              return s if len(s) <= n else s[: n - 1] + "…"
+              if len(s) <= n:
+                  return s
+              return s[: max(0, n - 1)] + "…"
 
-          def build(embed):
+          def build(embed: dict) -> dict:
               return {"embeds": [embed]}
 
           def skip():
               print(json.dumps({"__skip__": True}, ensure_ascii=False))
               raise SystemExit(0)
 
-          # -----------------------------------
-          # PUSH (main / dev)
-          # -----------------------------------
+          # -------------------------
+          # PUSH main/dev
+          # -------------------------
           if event_name == "push":
-              branch = ev.get("ref","").replace("refs/heads/","")
+              branch = (ev.get("ref","") or "").replace("refs/heads/","")
               sender = (ev.get("sender") or {}).get("login") or "unknown"
-              commits = ev.get("commits") or []
-              compare = ev.get("compare") or ""
+              compare = ev.get("compare") or f"{server_url}/{repo}"
 
+              commits = ev.get("commits") or []
+
+              # 너무 길어지면 400 터지니까 커밋 메시지 최소화
               lines = []
               for c in commits[:3]:
                   msg = (c.get("message") or "").splitlines()[0]
                   sha = (c.get("id") or "")[:7]
-                  url = c.get("url") or ""
-                  lines.append(f"• {clip(msg,70)} `{sha}`")
+                  lines.append(f"• {clip(msg, 70)} `{sha}`")
 
-              more = len(commits) - len(commits[:3])
+              more = len(commits) - 3
               if more > 0:
                   lines.append(f"• … (+{more} more)")
 
+              desc = clip("\n".join(lines), 3500)
+
               embed = {
-                  "title": f"{repo} · push → `{branch}`",
-                  "url": compare or f"{server_url}/{repo}",
-                  "description": "\n".join(lines),
+                  "title": clip(f"{repo} · push → {branch}", 256),
+                  "url": compare,
+                  "description": desc,
                   "fields": [
-                      {"name": "By", "value": f"`{sender}`", "inline": True},
+                      {"name": "By", "value": clip(f"`{sender}`", 1024), "inline": True},
                       {"name": "Commits", "value": f"`{len(commits)}`", "inline": True},
                   ],
-                  "footer": {"text": f"Actions · {run_url}"},
+                  "footer": {"text": clip(f"Actions · {run_url}", 2048)},
                   "timestamp": now_iso,
               }
 
               print(json.dumps(build(embed), ensure_ascii=False))
               raise SystemExit(0)
 
-          # -----------------------------------
-          # PULL REQUEST
-          # -----------------------------------
+          # -------------------------
+          # PR main/dev
+          # -------------------------
           if event_name == "pull_request":
-              action = ev.get("action")
+              action = ev.get("action","")
               pr = ev.get("pull_request") or {}
 
-              number = pr.get("number")
+              number = pr.get("number") or ev.get("number")
               title = pr.get("title") or ""
               author = (pr.get("user") or {}).get("login") or "unknown"
               base = ((pr.get("base") or {}).get("ref") or "")
               head = ((pr.get("head") or {}).get("ref") or "")
-              url = pr.get("html_url") or ""
+              url = pr.get("html_url") or f"{server_url}/{repo}"
 
               merged = bool(pr.get("merged", False))
+              kind = "MERGED" if (action == "closed" and merged) else f"PR {action}"
 
-              if action == "closed" and merged:
-                  kind = "MERGED"
-              else:
-                  kind = f"PR {action}"
+              body = clip(pr.get("body") or "", 300)
 
-              embed = {
-                  "title": f"{repo} · {kind}",
-                  "url": url,
-                  "description": f"**#{number}** {clip(title,120)}",
-                  "fields": [
-                      {"name": "From", "value": f"`{head}`", "inline": True},
-                      {"name": "To", "value": f"`{base}`", "inline": True},
-                      {"name": "Author", "value": f"`{author}`", "inline": True},
-                  ],
-                  "footer": {"text": f"Actions · {run_url}"},
-                  "timestamp": now_iso,
-              }
-
-              print(json.dumps(build(embed), ensure_ascii=False))
-              raise SystemExit(0)
-
-          # -----------------------------------
-          # ISSUE COMMENT (PR only)
-          # -----------------------------------
-          if event_name == "issue_comment":
-              issue = ev.get("issue") or {}
-              if not issue.get("pull_request"):
-                  skip()
-
-              number = issue.get("number")
-              title = issue.get("title") or ""
-              comment = ev.get("comment") or {}
-              user = (comment.get("user") or {}).get("login") or "unknown"
-              body = clip(comment.get("body") or "",150)
-              url = comment.get("html_url")
+              desc = f"**#{number}** {clip(title, 160)}"
+              if body:
+                  desc += f"\n{body}"
+              desc = clip(desc, 3500)
 
               embed = {
-                  "title": f"{repo} · PR comment",
+                  "title": clip(f"{repo} · {kind}", 256),
                   "url": url,
-                  "description": f"**#{number}** {clip(title,120)}\n{body}",
+                  "description": desc,
                   "fields": [
-                      {"name": "By", "value": f"`{user}`", "inline": True},
+                      {"name": "From", "value": clip(f"`{head}`", 1024), "inline": True},
+                      {"name": "To", "value": clip(f"`{base}`", 1024), "inline": True},
+                      {"name": "Author", "value": clip(f"`{author}`", 1024), "inline": True},
                   ],
-                  "footer": {"text": f"Actions · {run_url}"},
+                  "footer": {"text": clip(f"Actions · {run_url}", 2048)},
                   "timestamp": now_iso,
               }
 
@@ -171,7 +140,8 @@ jobs:
           skip()
           PY
 
-      - name: Send Discord
+      - name: Send Discord (non-blocking)
+        continue-on-error: true
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
@@ -183,6 +153,9 @@ jobs:
               raise SystemExit(0)
           PY
 
-          curl -f -sS -H "Content-Type: application/json" \
+          # 디버그용: payload 구조 확인(원하면 주석해제)
+          # cat payload.json
+
+          curl -sS -H "Content-Type: application/json" \
             -d @payload.json \
             "$DISCORD_WEBHOOK_URL"
