@@ -3,11 +3,17 @@
 ChromaDB 재구축 스크립트
 """
 
+import os
 import sys
 import shutil
 from pathlib import Path
 
-sys.path.insert(0, 'src')
+# 스크립트 위치 기반 경로 설정
+script_dir = Path(__file__).parent.parent.resolve()
+sys.path.insert(0, str(script_dir))
+
+from dotenv import load_dotenv
+load_dotenv()
 
 from src.utils.config import get_default_db_path, get_data_dir
 

@@ -7,13 +7,13 @@
 
 from src.retrievers.embeddings import EmbeddingGenerator
 from src.retrievers.metadata_filter import AmountFilter, MetadataFilter
-from src.retrievers.vectorstore import ChromaVectorStore, MarkdownData, OrgInfo
+from src.retrievers.vectorstore import VectorStore
+from src.graph.state import OrgInfo
 
 __all__ = [
     "EmbeddingGenerator",
     "MetadataFilter",
     "AmountFilter",
-    "ChromaVectorStore",
-    "MarkdownData",
+    "VectorStore",
     "OrgInfo",
 ]

@@ -11,8 +11,11 @@ from typing import TYPE_CHECKING
 import streamlit as st
 from dotenv import load_dotenv
 
-# 경로 설정
-sys.path.insert(0, 'src')
+# 경로 설정 - 프로젝트 루트와 src를 Python 경로에 추가
+_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(_CURRENT_DIR)
+sys.path.insert(0, _PROJECT_ROOT)
+sys.path.insert(0, os.path.join(_PROJECT_ROOT, 'src'))
 
 # 설정 로드
 load_dotenv()
@@ -32,6 +35,8 @@ if LANGSMITH_TRACING and LANGSMITH_API_KEY:
     os.environ["LANGCHAIN_PROJECT"] = LANGSMITH_PROJECT
 
 from src.utils.config import *
+from src.utils.helpers import format_amount
+from src.utils.config import get_data_dir
 
 # Streamlit 페이지 설정
 st.set_page_config(

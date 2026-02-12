@@ -16,7 +16,7 @@ class OrgInfo:
     """기관 정보를 저장하는 데이터 클래스."""
     name: str
     amount: str = ""
-    amount_numeric: int = 0
+    amount_numeric: float = 0
     project_name: str = ""
     summary: str = ""
     open_date: str = ""

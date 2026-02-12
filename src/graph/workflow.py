@@ -49,12 +49,20 @@ else:
 class RAGChatbotV17:
     """입찰메이트 RFP 챗봇 v17 메인 클래스."""
 
-    def __init__(self, data_dir: str = "../data", db_path: str | None = None) -> None:
+    def __init__(self, data_dir: str = None, db_path: str | None = None) -> None:
+        # data_dir이 None이면 기본값 사용
+        if data_dir is None:
+            data_dir = "data"
+
         script_dir = Path(__file__).parent.parent.parent.resolve()
         if Path(data_dir).is_absolute():
             self.data_dir = Path(data_dir).resolve()
         else:
             self.data_dir = (script_dir / data_dir).resolve()
+
+        # data_dir이 디렉토리면 files 하위를 검색
+        if self.data_dir.is_dir() and (self.data_dir / "files").is_dir():
+            self.data_dir = (self.data_dir / "files").resolve()
 
         self.client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
         
@@ -88,11 +96,17 @@ class RAGChatbotV17:
 
     def _load_csv_files(self, verbose: bool = False) -> None:
         """CSV 파일을 로드하고 변환합니다."""
-        csv_files = (
-            list(self.data_dir.glob("data_list*.csv")) +
-            list(self.data_dir.glob("*data*.csv")) +
-            list(self.data_dir.glob("*data_list*.csv"))
-        )
+        csv_files = []
+
+        # 현재 data_dir에서 CSV 파일 검색
+        csv_files.extend(list(self.data_dir.glob("data_list*.csv")))
+        csv_files.extend(list(self.data_dir.glob("*data*.csv")))
+
+        # 상위 폴더에서도 CSV 파일 검색 (data_dir이 files 하위인 경우)
+        parent_dir = self.data_dir.parent
+        if parent_dir.name != "data":
+            csv_files.extend(list(parent_dir.glob("data_list*.csv")))
+            csv_files.extend(list(parent_dir.glob("*data*.csv")))
 
         if not csv_files:
             if verbose:
@@ -236,93 +250,57 @@ class RAGChatbotV17:
 
     def answer(self, query: str) -> dict[str, Any]:
         """질문에 답변합니다."""
-        from src.graph.state import QueryIntent
-        
-        follow_up_context = self.conversation.get_follow_up_context(query)
-        enhanced_query = query
+        # 기관명 먼저 추출 (자격요건, 제출서류 등 특정 기관 질문)
+        org_name = self._extract_org_name_from_query(query)
 
-        if follow_up_context["is_follow_up"] and follow_up_context["last_org"]:
-            enhanced_query = f"{follow_up_context['last_org']} {query}"
+        if org_name and org_name in self.vector_store.org_registry:
+            # 특정 기관에 대한 질문 - 해당 기관 문서만 검색
+            results = self.vector_store.search(f"{org_name} {query}", top_k=20)
+        else:
+            # 일반 검색
+            results = self.vector_store.search(query, top_k=30)
 
-        intent = self.query_parser.parse(enhanced_query)
-
-        if (intent.query_type == "org" and not intent.org_name and
-                follow_up_context["last_org"]):
-            intent.org_name = follow_up_context["last_org"]
-
-        result = None
-
-        if intent.query_type == "org" and intent.org_name:
-            from src.retrievers.vectorstore import VectorStore
-            org = self.vector_store.org_registry.get(intent.org_name)
-            if org:
-                result = self._handle_org_question(org)
-
-        if result is None:
-            result = self._fallback_search(query)
-
-        self.conversation.add_exchange(
-            query=query,
-            answer=result.get("answer", ""),
-            intent=intent
-        )
-
-        return result
-
-    def _handle_org_question(self, org) -> dict[str, Any]:
-        """기관 질문을 처리합니다."""
-        lines = [f"## {org.name}"]
-
-        if org.project_name:
-            lines.append(f"**사업명**: {org.project_name}")
-        if org.amount_numeric > 0:
-            lines.append(f"**사업비**: {format_amount(org.amount_numeric)}")
-        if org.open_date:
-            lines.append(f"**공개일**: {org.open_date}")
-        if org.summary:
-            summary_text = org.summary[:300] + "..." if len(org.summary) > 300 else org.summary
-            lines.append(f"**사업개요**: {summary_text}")
-
-        return {
-            "answer": "\n".join(lines),
-            "found": True,
-            "source_type": "pdf" if org.has_pdf else ("hwp" if org.has_hwp else "csv")
-        }
-
-    def _fallback_search(self, query: str) -> dict[str, Any]:
-        """기본 검색을 수행합니다."""
-        results = self.vector_store.search(query, top_k=10)
-        
         if not results:
             return {
                 "answer": "관련 정보를 찾을 수 없습니다.",
-                "found": False,
-                "source_type": "unknown"
+                "found": False
             }
 
-        final_answer = self._create_multi_org_summary(results, query)
+        # LLM로 답변 생성
+        if self.client:
+            context_parts = []
+            for r in results[:20]:
+                source = r['metadata'].get('source', 'Unknown')
+                org = r['metadata'].get('org', '')
+                text = r.get('text', '')
+                context_parts.append(f"[{org} - {source}]\n{text[:8000]}")
 
-        if len(final_answer) < 100 and self.client:
-            from src.graph.nodes import RFPAnswerGenerator
-            context = "\n\n---\n\n".join([
-                f"[{r['metadata'].get('source', 'Unknown')}]\n{r['text'][:800]}"
-                for r in results[:5]
-            ])
-            llm_answer = self.answer_generator.generate(query, context)
-            if llm_answer and "오류:" not in llm_answer and len(llm_answer) > 50:
-                final_answer = llm_answer
+            context = "\n\n---\n\n".join(context_parts)
+            answer = self.answer_generator.generate(query, context)
 
-        source_type = results[0]['metadata'].get('type', 'csv') if results else 'csv'
-        return {
-            "answer": final_answer,
-            "found": True,
-            "source_type": source_type
-        }
+            if answer and "오류:" not in answer:
+                return {"answer": answer, "found": True}
 
-    def _create_multi_org_summary(self, results: list, query: str) -> str:
-        """여러 기관의 요약 답변을 생성합니다."""
+        # 기관 요약 반환
+        summary = self._create_multi_org_summary(results, query)
+        return {"answer": summary, "found": True}
+
+    def _extract_org_name_from_query(self, query: str) -> str | None:
+        """질문에서 기관명을 추출합니다."""
+        # 별칭 정규화 후 매칭
+        normalized_query = self.vector_store.normalize_org_name(query)
+
+        # 등록된 기관명 목록과 매칭
+        for org_name in self.vector_store.org_registry.keys():
+            # 완전 일치 또는 포함 확인 (별칭 처리 포함)
+            if org_name in normalized_query or normalized_query in org_name:
+                return org_name
+        return None
+
+    def _create_multi_org_summary(self, results: list, query: str) -> dict[str, Any]:
+        """여러 기관의 요약 답변을 생성합니다 - 입찰 요약 형식."""
         seen_orgs = set()
-        org_summaries = []
+        org_rows = []
 
         for r in results[:15]:
             org_name = r['metadata'].get('org', '')
@@ -331,18 +309,19 @@ class RAGChatbotV17:
 
                 org_info = self.vector_store.org_registry.get(org_name)
                 if org_info:
-                    summary_parts = [f"### {org_info.name}"]
-                    if org_info.project_name:
-                        summary_parts.append(f"- **사업명**: {org_info.project_name}")
-                    if org_info.amount_numeric > 0:
-                        summary_parts.append(f"- **사업비**: {format_amount(org_info.amount_numeric)}")
-                    org_summaries.append("\n".join(summary_parts))
+                    # 입찰 요약 형식: 기관명 | 사업비 | 사업명
+                    project = org_info.project_name[:20] + "..." if org_info.project_name and len(org_info.project_name) > 20 else (org_info.project_name or "-")
+                    amount = format_amount(org_info.amount_numeric) if org_info.amount_numeric > 0 else "-"
+                    org_rows.append(f"| {org_info.name} | {amount} | {project} |")
 
-        if org_summaries:
-            header = f"## 검색된 기관 ({len(org_summaries)}개)\n\n"
-            return header + "\n\n---\n\n".join(org_summaries[:5])
+        if org_rows:
+            # 테이블 헤더
+            header = f"📊 **검색된 {len(org_rows)}개 사업** (입찰 요약)\n\n"
+            header += "| 기관명 | 사업비 | 사업명 |\n"
+            header += "|--------|--------|--------|\n"
+            return header + "\n".join(org_rows[:10])
 
-        return "## 검색 결과\n\n관련 문서를 찾았습니다. 상세 정보를 위해 기관명을 구체적으로 물어보세요."
+        return "📋 관련 사업을 찾았습니다. 구체적인 기관명을 물어보시면 상세 조건을 안내해 드립니다."
 
 
 # ============================================================================

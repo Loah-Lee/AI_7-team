@@ -143,8 +143,8 @@ class RFPAnswerGenerator:
                     {"role": "system", "content": RFP_SYSTEM_PROMPT},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.7,
-                max_tokens=1500
+                temperature=0.1,  # 낮춰서 더 정확한 답변
+                max_tokens=2000   # 더 긴 답변 허용
             )
             answer = response.choices[0].message.content
             return self._clean_final_answer(answer)

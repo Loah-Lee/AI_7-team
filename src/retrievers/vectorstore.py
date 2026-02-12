@@ -37,6 +37,7 @@ class VectorStore:
         )
         self.count = self.collection.count()
         self.org_registry: dict[str, OrgInfo] = {}
+        self.last_search_results: list[dict[str, Any]] = []
 
         # 변환기 초기화
         self.csv_converter = CSVMarkdownConverter()
@@ -113,8 +114,11 @@ class VectorStore:
 
         try:
             response = self.collection.query(query_embeddings=[query_embedding], n_results=top_k)
-            return self._parse_search_results(response)
-        except Exception:
+            results = self._parse_search_results(response)
+            self.last_search_results = results  # 검색 결과 저장
+            return results
+        except Exception as e:
+            print(f"검색 오류: {e}")
             return []
 
     def _create_query_embedding(self, query: str) -> list[float]:

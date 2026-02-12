@@ -16,6 +16,15 @@ EMBEDDING_MODEL: str = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small
 DEFAULT_MODEL: str = os.environ.get("DEFAULT_MODEL", "gpt-4o-mini")
 REASONING_MODEL: str = os.environ.get("REASONING_MODEL", "gpt-5-mini")
 
+# 임베딩 설정
+class EmbeddingConfig:
+    """임베딩 설정."""
+    model: str = EMBEDDING_MODEL
+    dimension: int = 1536
+    fallback_model: str = "distiluse-base-multilingual-cased-v2"
+
+embedding_config = EmbeddingConfig()
+
 # LangSmith (트레이싱 및 모니터링)
 LANGSMITH_API_KEY: str | None = os.environ.get("LANGSMITH_API_KEY")
 LANGSMITH_TRACING: bool = os.environ.get("LANGSMITH_TRACING", "false").lower() == "true"
