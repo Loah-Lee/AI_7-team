@@ -40,7 +40,7 @@
 `notebooks/data_chunks_rich/` → `data_index/dense_B/`
 
 4. 평가(B)  
-Hybrid(B) + rule rerank 기준으로 평가  
+Hybrid(B) + rerank none 기준으로 평가  
 입력 쿼리: `configs/eval_queries_v2_rich.jsonl`
 
 참고:
@@ -63,8 +63,8 @@ python -m src.build_dense_index --variant B
 # 캡션(선택): 미완료 항목만 재개, 결과는 notebooks/data_rich/*.md 반영
 python -m src.rich_caption_assets --only-failed --workers 12
 
-# 평가(B) (Hybrid + rule): 결과는 notebooks/runs/<timestamp>/results.csv
-python -c "from pathlib import Path; from src.eval_harness import run_eval; run_eval(input_path=Path('configs/eval_queries_v2_rich.jsonl'), retriever='hybrid', variant='B', rerank_mode='rule', hybrid_alpha=0.5, k=10, table_multiplier=1.0)"
+# 평가(B) (Hybrid + none): 결과는 notebooks/runs/<timestamp>/results.csv
+python -c "from pathlib import Path; from src.eval_harness import run_eval; run_eval(input_path=Path('configs/eval_queries_v2_rich.jsonl'), retriever='hybrid', variant='B', rerank_mode='none', hybrid_alpha=0.8, k=10, table_multiplier=1.0)"
 ```
 
 ---
@@ -75,8 +75,8 @@ python -c "from pathlib import Path; from src.eval_harness import run_eval; run_
   - 0: 관련 없음
   - 1: 부분 일치/근거 불충분
   - 2: 키워드+값+섹션 일치
-- 현재 기준 설정: **Hybrid(B) + rule**
-  - `hybrid_alpha=0.5`, `k=10`, `table_multiplier=1.0`
+- 현재 기준 설정: **Hybrid(B) + none**
+  - `hybrid_alpha=0.8`, `k=10`, `table_multiplier=1.0`
 - 평가 입력 파일: `configs/eval_queries_v2_rich.jsonl` (B 기준 gold)
 
 ---

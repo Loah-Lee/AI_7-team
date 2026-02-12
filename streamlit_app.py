@@ -8,6 +8,7 @@ import streamlit as st
 RUNS_DIR = Path("/Users/apple/AI_7-team/notebooks/runs")
 RICH_CHUNKS_DIR = Path("/Users/apple/AI_7-team/notebooks/data_chunks_rich")
 RICH_MD_DIR = Path("/Users/apple/AI_7-team/notebooks/data_rich")
+JOINED_CHUNKS_PATH = Path("/Users/apple/AI_7-team/notebooks/data_chunks_rich_joined.jsonl")
 
 
 @st.cache_data(show_spinner=False)
@@ -71,19 +72,41 @@ def _load_chunks() -> dict:
 
 
 @st.cache_data(show_spinner=False)
+def _load_joined_samples(seed: int = 42, n: int = 5) -> list[dict]:
+    if not JOINED_CHUNKS_PATH.exists():
+        return []
+    rows = []
+    with JOINED_CHUNKS_PATH.open("r", encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            rows.append(json.loads(line))
+    if not rows:
+        return []
+    rnd = __import__("random").Random(seed)
+    return rnd.sample(rows, min(n, len(rows)))
+
+
+@st.cache_data(show_spinner=False)
 def _load_md_assets() -> dict:
     assets = {}
     for path in RICH_MD_DIR.rglob("*.md"):
         text = path.read_text(encoding="utf-8")
         imgs = []
         for line in text.splitlines():
-            if "data_assets" in line and "](" in line and ")" in line:
-                start = line.find("](") + 2
-                end = line.rfind(")")
-                if start > 1 and end > start:
-                    ref = line[start:end]
-                    if ref:
-                        imgs.append(ref)
+            line = line.strip()
+            if not line.startswith("![") or "](" not in line or ")" not in line:
+                continue
+            start_caption = line.find("![") + 2
+            end_caption = line.find("](")
+            start_ref = end_caption + 2
+            end_ref = line.rfind(")")
+            if end_caption <= start_caption or end_ref <= start_ref:
+                continue
+            caption = line[start_caption:end_caption].strip()
+            ref = line[start_ref:end_ref].strip()
+            if ref and "data_assets" in ref:
+                imgs.append({"ref": ref, "caption": caption})
         assets[path.name] = imgs
     return assets
 
@@ -177,17 +200,37 @@ if not results_path:
         st.error("data_rich에 md 파일이 없습니다.")
         st.stop()
 
-    st.markdown("**문서별 청크 수**")
+    st.markdown(f"**문서별 청크 수** (총 {len(md_files)} 문서)")
     counts = _load_chunk_counts()
     page_size = 20
     max_page = max((len(counts) - 1) // page_size, 0)
     page = st.number_input("페이지", min_value=0, max_value=max_page, value=0, step=1)
     start = page * page_size
     end = start + page_size
-    st.dataframe(counts.iloc[start:end], use_container_width=True, height=460)
+    view = counts.iloc[start:end].reset_index(drop=True)
+    event = st.dataframe(
+        view,
+        use_container_width=True,
+        height=460,
+        selection_mode="single-row",
+        on_select="rerun",
+    )
+    selected_doc = None
+    try:
+        rows = event.selection.rows or []
+        if rows:
+            selected_doc = view.iloc[rows[0]]["doc"]
+    except Exception:
+        selected_doc = None
 
     md_names = [p.name for p in md_files]
-    selected_md = st.selectbox("문서 선택", md_names, index=0)
+    default_md = None
+    if selected_doc:
+        candidate = f"{selected_doc}.md"
+        if candidate in md_names:
+            default_md = candidate
+    selected_index = md_names.index(default_md) if default_md else 0
+    selected_md = st.selectbox("문서 선택", md_names, index=selected_index)
     md_path = RICH_MD_DIR / selected_md
 
     st.markdown("**본문 미리보기**")
@@ -213,8 +256,18 @@ if not results_path:
     if imgs:
         cols = st.columns(3)
         for i, img in enumerate(imgs[:6]):
-            img_path = _resolve_image(md_path, img)
-            cols[i % 3].image(str(img_path), width=220)
+            ref = img.get("ref", "")
+            caption = (img.get("caption") or "").strip()
+            label = caption if caption and caption != "PLACEHOLDER" else "캡션 없음"
+            label_short = (label[:30] + "…") if len(label) > 30 else label
+            img_path = _resolve_image(md_path, ref)
+            with cols[i % 3]:
+                with st.expander(label_short, expanded=False):
+                    st.image(str(img_path), width=220)
+                    if caption and caption != "PLACEHOLDER":
+                        st.caption(caption)
+                    else:
+                        st.caption("캡션 없음(PLACEHOLDER)")
     else:
         st.caption("이미지 없음")
 
@@ -226,12 +279,39 @@ if not results_path:
         st.text_area(
             "청크",
             chunks[idx].get("text", "")[:1500] or "(청크 텍스트 없음)",
-            height=220,
+            height=650,
             label_visibility="collapsed",
         )
         meta = chunks[idx].get("metadata", {})
         if meta:
             st.json(meta)
+
+    st.markdown("**파싱 품질 샘플(조인 결과)**")
+    if JOINED_CHUNKS_PATH.exists():
+        if "sample_seed" not in st.session_state:
+            st.session_state.sample_seed = 42
+        if st.button("샘플 다시 뽑기"):
+            st.session_state.sample_seed += 1
+        samples = _load_joined_samples(seed=st.session_state.sample_seed, n=5)
+        if samples:
+            for i, row in enumerate(samples, 1):
+                meta = row.get("metadata", {})
+                meta_meta = meta.get("meta", {})
+                st.markdown(f"**[{i}] {meta.get('doc_id','')}**")
+                st.caption(f"section: {meta.get('section_title','')}")
+                st.caption(f"page_refs: {meta.get('page_refs', [])}")
+                st.caption(f"사업명: {meta_meta.get('사업명','')}")
+                st.caption(f"발주 기관: {meta_meta.get('발주 기관','')}")
+                st.text_area(
+                    f"샘플 청크 {i}",
+                    (row.get("text", "")[:600] or "(텍스트 없음)"),
+                    height=180,
+                    label_visibility="collapsed",
+                )
+        else:
+            st.caption("샘플을 불러오지 못했습니다.")
+    else:
+        st.caption("조인 결과 파일이 없습니다. `notebooks/data_chunks_rich_joined.jsonl` 확인.")
     st.stop()
 
 with st.sidebar:
@@ -254,13 +334,15 @@ if query_filter:
     df = df[df["query"].str.contains(query_filter, na=False)]
 
 st.subheader("평가 요약")
-metric_cols = ["hit@5", "hit@10", "mrr", "latency_ms", "cost_usd"]
+recall5_col = "recall@5" if "recall@5" in df.columns else "hit@5"
+recall10_col = "recall@10" if "recall@10" in df.columns else "hit@10"
+metric_cols = [recall5_col, recall10_col, "mrr", "latency_ms", "cost_usd"]
 summary = {c: df[c].astype(float).mean() for c in metric_cols if c in df.columns}
 summary["qual_score_top1_avg"] = df["qual_score_top1"].astype(float).mean()
 cols = st.columns(3)
 cols[0].metric("QUAL 평균", f"{summary['qual_score_top1_avg']:.3f}")
 cols[1].metric("MRR 평균", f"{summary.get('mrr', 0.0):.3f}")
-cols[2].metric("Hit@10 평균", f"{summary.get('hit@10', 0.0):.3f}")
+cols[2].metric("Recall@10 평균", f"{summary.get(recall10_col, 0.0):.3f}")
 with st.expander("요약 상세"):
     st.json(summary)
 
@@ -339,7 +421,17 @@ for _, row in df.iterrows():
             if top1_source and top1_source in assets:
                 cols = st.columns(3)
                 for i, img in enumerate(assets[top1_source][:6]):
-                    img_path = _resolve_image(RICH_MD_DIR / top1_source, img)
-                    cols[i % 3].image(str(img_path), width=220)
+                    ref = img.get("ref", "")
+                    caption = (img.get("caption") or "").strip()
+                    label = caption if caption and caption != "PLACEHOLDER" else "캡션 없음"
+                    label_short = (label[:30] + "…") if len(label) > 30 else label
+                    img_path = _resolve_image(RICH_MD_DIR / top1_source, ref)
+                    with cols[i % 3]:
+                        with st.expander(label_short, expanded=False):
+                            st.image(str(img_path), width=220)
+                            if caption and caption != "PLACEHOLDER":
+                                st.caption(caption)
+                            else:
+                                st.caption("캡션 없음(PLACEHOLDER)")
             else:
                 st.caption("이미지 없음")
