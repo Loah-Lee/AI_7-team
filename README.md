@@ -65,6 +65,9 @@ python -m src.rich_caption_assets --only-failed --workers 12
 
 # 평가(B) (Hybrid + none): 결과는 notebooks/runs/<timestamp>/results.csv
 python -c "from pathlib import Path; from src.eval_harness import run_eval; run_eval(input_path=Path('configs/eval_queries_v2_rich.jsonl'), retriever='hybrid', variant='B', rerank_mode='none', hybrid_alpha=0.8, k=10, table_multiplier=1.0)"
+
+# 평가(B) 설정파일 기반 실행: configs/eval_runtime_b.json 사용
+python -m src.run_eval_b
 ```
 
 ---
@@ -78,6 +81,22 @@ python -c "from pathlib import Path; from src.eval_harness import run_eval; run_
 - 현재 기준 설정: **Hybrid(B) + none**
   - `hybrid_alpha=0.8`, `k=10`, `table_multiplier=1.0`
 - 평가 입력 파일: `configs/eval_queries_v2_rich.jsonl` (B 기준 gold)
+- 운영 파라미터 파일: `configs/eval_runtime_b.json`
+
+---
+
+## E2E 점검 루틴 (B)
+
+```bash
+# 1) gold 재생성
+python -m src.build_eval_gold_rich --input configs/eval_queries_v2_rich.jsonl --output configs/eval_queries_v2_rich.jsonl --top-k 3
+
+# 2) 평가 실행(운영 파라미터 고정)
+python -m src.run_eval_b
+
+# 3) 실패 질의 리포트 생성
+python -c "import pandas as pd; from pathlib import Path; p=sorted(Path('notebooks/runs').glob('*'))[-1]/'results.csv'; df=pd.read_csv(p); cols=['query_id','query','recall@10','mrr','top1_source_path','top1_chunk_index','qual_reason_top1']; df[df['recall@10']==0][cols].to_csv('artifacts/fail_queries_rag.csv', index=False); print('artifacts/fail_queries_rag.csv')"
+```
 
 ---
 
