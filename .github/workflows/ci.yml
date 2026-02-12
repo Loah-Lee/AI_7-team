@@ -1,0 +1,64 @@
+# License: MIT (template code)
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+      - "feature/**"
+  pull_request:
+    branches:
+      - main
+      - dev
+
+jobs:
+  python-ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Show Python version
+        run: |
+          python --version
+          pip --version
+
+      - name: Upgrade pip
+        run: |
+          python -m pip install --upgrade pip
+
+      # requirements.txt가 있으면 설치, 없으면 스킵 (팀 초기 단계에서 깨지지 않게)
+      - name: Install dependencies (optional)
+        run: |
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            echo "No requirements.txt found - skipping dependency install"
+          fi
+
+      # 문법 컴파일 체크 (테스트 없어도 최소 안전망)
+      - name: Syntax check (compileall)
+        run: |
+          python -m compileall -q .
+
+      # pytest가 있고 tests/가 있으면 실행, 아니면 스킵
+      - name: Run tests (optional)
+        run: |
+          if [ -d tests ]; then
+            pip install pytest
+            pytest -q
+          else
+            echo "No tests/ directory found - skipping pytest"
+          fi
