@@ -8,38 +8,236 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/theme/night.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/plugin/highlight/monokai.min.css">
     <style>
-        .reveal h1, .reveal h2, .reveal h3 { text-transform: none; }
-        .reveal h1 { font-size: 2.2em; }
-        .reveal h2 { font-size: 1.6em; color: #667eea; }
-        .reveal h3 { font-size: 1.2em; color: #38ef7d; }
-        .reveal pre { font-size: 0.55em; }
-        .reveal code { font-family: 'Fira Code', 'Consolas', monospace; }
-        .reveal table { font-size: 0.7em; margin: 15px auto; }
-        .reveal th { background: #667eea; color: white; }
-        .reveal td { background: rgba(255,255,255,0.05); }
-        .reveal ul { font-size: 0.85em; }
-        .reveal li { margin: 8px 0; }
-        .tag { display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 4px 12px; border-radius: 15px; font-size: 0.7em; margin: 3px; }
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap');
+
+        * { box-sizing: border-box; }
+
+        .reveal {
+            font-family: 'Noto Sans KR', sans-serif;
+        }
+
+        .reveal h1, .reveal h2, .reveal h3 {
+            text-transform: none;
+            font-weight: 500;
+        }
+
+        .reveal h1 {
+            font-size: 1.8em;
+            line-height: 1.2;
+        }
+
+        .reveal h2 {
+            font-size: 1.3em;
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+
+        .reveal h3 {
+            font-size: 1.0em;
+            color: #38ef7d;
+            margin-bottom: 10px;
+        }
+
+        .reveal h4 {
+            font-size: 0.75em;
+            color: #667eea;
+            margin: 0 0 8px 0;
+        }
+
+        .reveal p {
+            font-size: 0.65em;
+            line-height: 1.5;
+        }
+
+        .reveal ul, .reveal ol {
+            font-size: 0.6em;
+            line-height: 1.4;
+        }
+
+        .reveal li {
+            margin: 5px 0;
+        }
+
+        .reveal pre {
+            font-size: 0.4em;
+            line-height: 1.3;
+            max-height: 65vh;
+            overflow-y: auto;
+        }
+
+        .reveal code {
+            font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+            font-size: 0.9em;
+        }
+
+        .reveal table {
+            font-size: 0.5em;
+            margin: 10px auto;
+            border-collapse: collapse;
+        }
+
+        .reveal th {
+            background: #667eea;
+            color: white;
+            padding: 8px 12px;
+            font-weight: 500;
+        }
+
+        .reveal td {
+            background: rgba(255,255,255,0.05);
+            padding: 6px 10px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .tag {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.5em;
+            margin: 2px;
+            font-weight: 400;
+        }
+
         .feature { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); }
         .warning { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
         .info { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
-        .tech-stack { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 0.75em; }
-        .tech-item { background: rgba(255,255,255,0.1); padding: 10px; border-radius: 8px; }
-        .tech-item strong { color: #667eea; }
-        .diagram { font-size: 0.55em; line-height: 1.3; }
-        .diagram code { font-size: 0.9em; }
-        .two-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        .box { background: rgba(102, 126, 234, 0.2); border-left: 4px solid #667eea; padding: 15px; border-radius: 5px; margin: 10px 0; }
-        .code-snippet { background: rgba(0,0,0,0.3); padding: 10px; border-radius: 5px; font-size: 0.65em; }
-        .section-title { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; }
-        .chapter-number { font-size: 6em; color: rgba(102, 126, 234, 0.3); font-weight: bold; }
-        .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; font-size: 0.75em; }
-        .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; font-size: 0.7em; }
-        .card { background: linear-gradient(135deg, rgba(102,126,234,0.2) 0%, rgba(118,75,162,0.2) 100%); padding: 20px; border-radius: 10px; border: 1px solid rgba(102,126,234,0.3); }
-        .card h4 { color: #667eea; margin: 0 0 10px 0; }
-        .flow-arrow { font-size: 2em; color: #38ef7d; }
-        .highlight { color: #38ef7d; font-weight: bold; }
-        .mermaid-placeholder { background: rgba(255,255,255,0.05); padding: 20px; border-radius: 10px; border: 2px dashed rgba(102,126,234,0.5); }
+
+        .tech-stack {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            font-size: 0.55em;
+        }
+
+        .tech-item {
+            background: rgba(255,255,255,0.08);
+            padding: 8px;
+            border-radius: 6px;
+            border: 1px solid rgba(102,126,234,0.2);
+        }
+
+        .tech-item strong {
+            color: #667eea;
+            font-weight: 500;
+        }
+
+        .diagram {
+            font-size: 0.35em;
+            line-height: 1.4;
+            letter-spacing: 0.5px;
+        }
+
+        .diagram code {
+            font-size: 1em;
+        }
+
+        .two-columns {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .box {
+            background: rgba(102, 126, 234, 0.15);
+            border-left: 3px solid #667eea;
+            padding: 12px;
+            border-radius: 4px;
+            margin: 8px 0;
+        }
+
+        .code-snippet {
+            background: rgba(0,0,0,0.25);
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 0.45em;
+            line-height: 1.4;
+            max-height: 50vh;
+            overflow-y: auto;
+        }
+
+        .section-title {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .chapter-number {
+            font-size: 5em;
+            color: rgba(102, 126, 234, 0.25);
+            font-weight: 700;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            font-size: 0.55em;
+        }
+
+        .grid-4 {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            font-size: 0.5em;
+        }
+
+        .card {
+            background: linear-gradient(135deg, rgba(102,126,234,0.15) 0%, rgba(118,75,162,0.15) 100%);
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid rgba(102,126,234,0.25);
+        }
+
+        .flow-arrow {
+            font-size: 1.5em;
+            color: #38ef7d;
+        }
+
+        .highlight {
+            color: #38ef7d;
+            font-weight: 600;
+        }
+
+        .mermaid-placeholder {
+            background: rgba(255,255,255,0.04);
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px dashed rgba(102,126,234,0.3);
+        }
+
+        /* Compact cards for better fit */
+        .card p, .card ul, .card li {
+            margin: 0;
+            padding: 0;
+        }
+
+        .card ul {
+            list-style: none;
+            padding-left: 5px;
+        }
+
+        .card li {
+            margin: 3px 0;
+        }
+
+        /* Responsive adjustments */
+        @media (max-height: 768px) {
+            .reveal h1 { font-size: 1.5em; }
+            .reveal h2 { font-size: 1.1em; }
+            .reveal pre { font-size: 0.35em; }
+            .grid-3 { grid-template-columns: repeat(2, 1fr); }
+            .grid-4 { grid-template-columns: repeat(3, 1fr); }
+        }
+
+        @media (max-height: 600px) {
+            .reveal h1 { font-size: 1.3em; }
+            .reveal h2 { font-size: 1.0em; }
+            .reveal pre { font-size: 0.3em; max-height: 45vh; }
+        }
     </style>
 </head>
 <body>
@@ -50,8 +248,8 @@
             <section>
                 <h1>🤖 입찰메이트 RFP 챗봇 v17</h1>
                 <h2>기술 문서</h2>
-                <p style="color: #888; margin-top: 50px;">RFP(제안요청서) 문서 기반 지능형 질의응답 시스템</p>
-                <p style="margin-top: 80px; font-size: 0.7em; color: #666;">
+                <p style="color: #aaa; margin-top: 30px;">RFP(제안요청서) 문서 기반 지능형 질의응답 시스템</p>
+                <p style="margin-top: 50px; font-size: 0.55em; color: #666;">
                     <span class="tag feature">CSV+HWP+PDF 통합</span>
                     <span class="tag feature">마크다운 DB</span>
                     <span class="tag feature">간결한 답변</span>
@@ -63,7 +261,7 @@
             <section data-background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)">
                 <div class="section-title">
                     <div class="chapter-number">01</div>
-                    <h1 style="color: white;">아키텍처 개요</h1>
+                    <h1 style="color: white; margin: 0;">아키텍처 개요</h1>
                     <p style="color: rgba(255,255,255,0.7);">Architecture Overview</p>
                 </div>
             </section>
@@ -71,21 +269,21 @@
             <!-- 1.1 PROJECT OVERVIEW -->
             <section>
                 <h2>프로젝트 개요</h2>
-                <div class="box" style="font-size: 0.9em;">
+                <div class="box" style="font-size: 0.65em;">
                     <p><strong>입찰메이트</strong>는 대규모 B2G 입찰 RFP 문서에서 필요한 정보를 빠르고 정확하게 찾아주는 <span class="highlight">AI 기반 질의응답 시스템</span>입니다.</p>
                 </div>
-                <div class="grid-3" style="margin-top: 30px;">
+                <div class="grid-3" style="margin-top: 20px;">
                     <div class="card">
                         <h4>📊 멀티소스</h4>
-                        CSV + PDF + HWP<br>통합 처리
+                        <p style="font-size: 0.6em;">CSV + PDF + HWP<br>통합 처리</p>
                     </div>
                     <div class="card">
                         <h4>🔍 스마트 검색</h4>
-                        ChromaDB 벡터 검색<br>+ 메타데이터 필터
+                        <p style="font-size: 0.6em;">ChromaDB 벡터 검색<br>+ 메타데이터 필터</p>
                     </div>
                     <div class="card">
                         <h4>🤖 LLM 기반</h4>
-                        질문 의도 파악<br>+ 간결한 답변
+                        <p style="font-size: 0.6em;">질문 의도 파악<br>+ 간결한 답변</p>
                     </div>
                 </div>
             </section>
@@ -128,26 +326,26 @@
             <section>
                 <h2>전체 아키텍처 다이어그램</h2>
                 <div class="mermaid-placeholder">
-                    <pre class="diagram"><code style="text-align: left;">┌─────────────────────────────────────────────────────────────────────┐
-│                     🖥️  사용자 인터페이스                       │
-│  Streamlit Web App ──────┐                                    │
-│  CLI Interface ────────────┤                                    │
-└───────────────────────────┼────────────────────────────────────────────┘
+                    <pre class="diagram"><code style="text-align: left;">┌────────────────────────────────────────────────────────────┐
+│                 🖥️  사용자 인터페이스                   │
+│  Streamlit Web App ──────┐                           │
+│  CLI Interface ───────────┤                           │
+└───────────────────────────┼───────────────────────────────┘
                         ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                    RAGChatbotV17 (Workflow)                    │
-│  ┌───────────────┬────────────────┬─────────────────────────┐   │
-│  │ QueryIntent   │   RFPAnswer   │ ConversationContext    │   │
-│  │   Parser     │   Generator   │                      │   │
-│  └───────────────┴────────────────┴─────────────────────────┘   │
-└───────────────────────────┬──────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│              RAGChatbotV17 (Workflow)               │
+│  ┌─────────────┬────────────┬───────────────────┐  │
+│  │ QueryIntent │ RFPAnswer   │ConversationContext │  │
+│  │   Parser    │ Generator   │                   │  │
+│  └─────────────┴────────────┴───────────────────┘  │
+└───────────────────────────┬───────────────────────────────┘
                             │
-        ┌───────────────────┼───────────────────┐
-        ▼                   ▼                   ▼
-┌───────────────┐  ┌──────────────┐  ┌──────────────┐
-│  VectorStore │  │   Prompts    │  │   Parsers   │
-│  (ChromaDB)  │  │  Templates   │  │ CSV/PDF/HWP │
-└───────────────┘  └──────────────┘  └──────────────┘</code></pre>
+        ┌───────────────────┼─────────────┐
+        ▼                   ▼             ▼
+┌───────────────┐  ┌──────────┐  ┌──────────┐
+│  VectorStore │  │  Prompts │  │  Parsers │
+│  (ChromaDB)  │  Templates│  │CSV/PDF/HWP│
+└───────────────┘  └──────────┘  └──────────┘</code></pre>
                 </div>
             </section>
 
@@ -166,8 +364,8 @@
                 <div class="grid-3">
                     <div class="card">
                         <h4>OrgInfo</h4>
-                        <p style="font-size: 0.85em;">기관 정보 저장</p>
-                        <ul style="font-size: 0.7em;">
+                        <p style="font-size: 0.55em;">기관 정보 저장</p>
+                        <ul style="font-size: 0.5em;">
                             <li>name: 기관명</li>
                             <li>amount: 사업비</li>
                             <li>project_name</li>
@@ -176,8 +374,8 @@
                     </div>
                     <div class="card">
                         <h4>MarkdownData</h4>
-                        <p style="font-size: 0.85em;">마크다운 변환 결과</p>
-                        <ul style="font-size: 0.7em;">
+                        <p style="font-size: 0.55em;">마크다운 변환 결과</p>
+                        <ul style="font-size: 0.5em;">
                             <li>markdown: 변환된 텍스트</li>
                             <li>org_name</li>
                             <li>project_name</li>
@@ -186,8 +384,8 @@
                     </div>
                     <div class="card">
                         <h4>QueryIntent</h4>
-                        <p style="font-size: 0.85em;">질문 의도</p>
-                        <ul style="font-size: 0.7em;">
+                        <p style="font-size: 0.55em;">질문 의도</p>
+                        <ul style="font-size: 0.5em;">
                             <li>query_type</li>
                             <li>org_name</li>
                             <li>amount_min/max</li>
@@ -201,14 +399,14 @@
             <section>
                 <h2>질문 유형 (query_type)</h2>
                 <div class="grid-4">
-                    <div class="card"><h4>🏢 org</h4><p style="font-size:0.7em;">특정 기관 질문</p><p style="font-size:0.6em; color:#888;">"고려대학교 사업비는?"</p></div>
-                    <div class="card"><h4>📊 ranking</h4><p style="font-size:0.7em;">랭킹 조회</p><p style="font-size:0.6em; color:#888;">"TOP5 기관은?"</p></div>
-                    <div class="card"><h4>🔍 filter</h4><p style="font-size:0.7em;">필터 조건</p><p style="font-size:0.6em; color:#888;">"5억~10억 사이"</p></div>
-                    <div class="card"><h4>📁 category</h4><p style="font-size:0.7em;">카테고리 검색</p><p style="font-size:0.6em; color:#888;">"IT 관련 사업?"</p></div>
+                    <div class="card"><h4>🏢 org</h4><p style="font-size:0.55em;">특정 기관 질문</p><p style="font-size:0.45em; color:#888;">"고려대학교 사업비는?"</p></div>
+                    <div class="card"><h4>📊 ranking</h4><p style="font-size:0.55em;">랭킹 조회</p><p style="font-size:0.45em; color:#888;">"TOP5 기관은?"</p></div>
+                    <div class="card"><h4>🔍 filter</h4><p style="font-size:0.55em;">필터 조건</p><p style="font-size:0.45em; color:#888;">"5억~10억 사이"</p></div>
+                    <div class="card"><h4>📁 category</h4><p style="font-size:0.55em;">카테고리 검색</p><p style="font-size:0.45em; color:#888;">"IT 관련 사업?"</p></div>
                 </div>
-                <div class="card" style="margin-top: 15px;">
+                <div class="card" style="margin-top: 12px;">
                     <h4>🔎 search</h4>
-                    <p style="font-size: 0.7em;">일반 검색 - 기타 모든 질문</p>
+                    <p style="font-size: 0.55em;">일반 검색 - 기타 모든 질문</p>
                 </div>
             </section>
 
@@ -235,7 +433,7 @@
                 <div class="two-columns">
                     <div>
                         <h3>역할</h3>
-                        <ul style="font-size: 0.8em;">
+                        <ul style="font-size: 0.55em;">
                             <li>검색된 문서 컨텍스트 기반 답변 생성</li>
                             <li>RFP 핵심 정보 추출</li>
                             <li>간결하고 자연스러운 답변</li>
@@ -243,7 +441,7 @@
                     </div>
                     <div>
                         <h3>특징</h3>
-                        <ul style="font-size: 0.8em;">
+                        <ul style="font-size: 0.55em;">
                             <li>temperature: 0.1 (정확성)</li>
                             <li>max_tokens: 2000</li>
                             <li>자동 정제 (태그 제거)</li>
@@ -255,7 +453,7 @@
             <!-- 2.5 RAG CHATBOT -->
             <section>
                 <h2>RAGChatbotV17 - 메인 클래스</h2>
-                <pre class="diagram"><code style="text-align: left;">class RAGChatbotV17:
+                <pre class="code-snippet"><code style="text-align: left;">class RAGChatbotV17:
     def __init__(self, data_dir, db_path):
         # 초기화
         self.answer_generator = RFPAnswerGenerator(client)
@@ -286,8 +484,8 @@
                 <div class="grid-3">
                     <div class="card">
                         <h4>📊 CSV 로더</h4>
-                        <p style="font-size: 0.75em;">CSV → Markdown 변환</p>
-                        <ul style="font-size: 0.65em;">
+                        <p style="font-size: 0.55em;">CSV → Markdown 변환</p>
+                        <ul style="font-size: 0.45em;">
                             <li>CSVMarkdownConverter</li>
                             <li>extract_org_name()</li>
                             <li>convert_file()</li>
@@ -295,8 +493,8 @@
                     </div>
                     <div class="card">
                         <h4>📄 PDF 로더</h4>
-                        <p style="font-size: 0.75em;">PDF → Markdown 변환</p>
-                        <ul style="font-size: 0.65em;">
+                        <p style="font-size: 0.55em;">PDF → Markdown 변환</p>
+                        <ul style="font-size: 0.45em;">
                             <li>PDFMarkdownConverter</li>
                             <li>pdfplumber 사용</li>
                             <li>페이지별 섹션화</li>
@@ -304,8 +502,8 @@
                     </div>
                     <div class="card">
                         <h4>📝 HWP 로더</h4>
-                        <p style="font-size: 0.75em;">HWP → Markdown 변환</p>
-                        <ul style="font-size: 0.65em;">
+                        <p style="font-size: 0.55em;">HWP → Markdown 변환</p>
+                        <ul style="font-size: 0.45em;">
                             <li>HWPMarkdownConverter</li>
                             <li>LibreOffice 변환</li>
                             <li>olefile 폴백</li>
@@ -317,7 +515,7 @@
             <!-- 3.2 CSV PROCESSING -->
             <section>
                 <h2>CSV 처리 흐름</h2>
-                <div style="text-align: center; font-size: 0.9em;">
+                <div style="text-align: center; font-size: 0.7em;">
                     <span class="tag">CSV 파일</span>
                     <span class="flow-arrow">→</span>
                     <span class="tag info">csv.DictReader</span>
@@ -326,7 +524,7 @@
                     <span class="flow-arrow">→</span>
                     <span class="tag feature">MarkdownData</span>
                 </div>
-                <pre class="code-snippet" style="margin-top: 20px;"><code style="text-align: left;">CSV 필드 처리:
+                <pre class="code-snippet" style="margin-top: 15px;"><code style="text-align: left;">CSV 필드 처리:
 • 공고 번호, 공고 차수, 사업명, 발주 기관
 • 사업 금액, 공개 일자, 입찰 시작/마감일
 • 사업 요약, 파일형식, 파일명, 텍스트</code></pre>
@@ -358,18 +556,18 @@
                 <h2>청킹 (Chunker)</h2>
                 <div class="box">
                     <p><strong>Chunk</strong>: 문서 청크 데이터 클래스</p>
-                    <p style="font-size: 0.8em;">text, source, org, chunk_type, metadata</p>
+                    <p style="font-size: 0.55em;">text, source, org, chunk_type, metadata</p>
                 </div>
-                <div class="two-columns" style="margin-top: 20px;">
+                <div class="two-columns" style="margin-top: 15px;">
                     <div class="card">
                         <h4>섹션 단위 청킹</h4>
-                        <p style="font-size: 0.75em;">`## ` 기준 분할</p>
-                        <p style="font-size: 0.65em; color: #888;">최소 길이: 50자</p>
+                        <p style="font-size: 0.55em;">`## ` 기준 분할</p>
+                        <p style="font-size: 0.45em; color: #888;">최소 길이: 50자</p>
                     </div>
                     <div class="card">
                         <h4>크기 단위 청킹</h4>
-                        <p style="font-size: 0.75em;">고정 크기 분할</p>
-                        <p style="font-size: 0.65em; color: #888;">최대: 2000자, 중복: 100자</p>
+                        <p style="font-size: 0.55em;">고정 크기 분할</p>
+                        <p style="font-size: 0.45em; color: #888;">최대: 2000자, 중복: 100자</p>
                     </div>
                 </div>
             </section>
@@ -377,15 +575,15 @@
             <!-- 3.5 TEXT CLEANER -->
             <section>
                 <h2>TextCleaner - 텍스트 정제</h2>
-                <ul style="font-size: 0.85em;">
+                <ul style="font-size: 0.55em;">
                     <li><strong>normalize_newlines</strong>: 연속된 줄바꿈 정리 (`\n{3,}` → `\n\n`)</li>
                     <li><strong>remove_extra_spaces</strong>: 연속 공백 제거</li>
                     <li><strong>remove_special_chars</strong>: 특수 문자 제거</li>
                     <li><strong>extract_sentences</strong>: 문장 추출</li>
                     <li><strong>extract_keywords</strong>: 키워드 추출 (불용어 제거)</li>
                 </ul>
-                <div class="box" style="margin-top: 20px;">
-                    <p style="font-size: 0.8em;"><strong>불용어:</strong> 이다, 하다, 되다, 있다, 없다, 같다, 아니다, 이, 그, 저, 것, 등, 및</p>
+                <div class="box" style="margin-top: 15px;">
+                    <p style="font-size: 0.55em;"><strong>불용어:</strong> 이다, 하다, 되다, 있다, 없다, 같다, 아니다, 이, 그, 저, 것, 등, 및</p>
                 </div>
             </section>
 
@@ -404,7 +602,7 @@
                 <div class="grid-3">
                     <div class="card">
                         <h4>ChromaDB 설정</h4>
-                        <ul style="font-size: 0.7em;">
+                        <ul style="font-size: 0.45em;">
                             <li>컬렉션: rfp_docs_v17</li>
                             <li>거리 공간: cosine</li>
                             <li>지속형 저장소</li>
@@ -412,7 +610,7 @@
                     </div>
                     <div class="card">
                         <h4>임베딩 전략</h4>
-                        <ul style="font-size: 0.7em;">
+                        <ul style="font-size: 0.45em;">
                             <li>1순위: OpenAI API</li>
                             <li>2순위: 로컬 모델</li>
                             <li>차원: 1536</li>
@@ -420,7 +618,7 @@
                     </div>
                     <div class="card">
                         <h4>주요 메서드</h4>
-                        <ul style="font-size: 0.7em;">
+                        <ul style="font-size: 0.45em;">
                             <li>add_documents()</li>
                             <li>search(top_k)</li>
                             <li>register_org()</li>
@@ -450,7 +648,7 @@
                 <div class="two-columns">
                     <div class="card">
                         <h4>MetadataFilter</h4>
-                        <ul style="font-size: 0.75em;">
+                        <ul style="font-size: 0.5em;">
                             <li>source_filter</li>
                             <li>org_filter</li>
                             <li>type_filter</li>
@@ -458,11 +656,11 @@
                     </div>
                     <div class="card">
                         <h4>AmountFilter</h4>
-                        <ul style="font-size: 0.75em;">
+                        <ul style="font-size: 0.5em;">
                             <li>parse_amount_range()</li>
                             <li>filter_by_amount()</li>
                         </ul>
-                        <p style="font-size: 0.65em; margin-top: 10px;">"5억~10억", "10억 이상"</p>
+                        <p style="font-size: 0.45em; margin-top: 8px;">"5억~10억", "10억 이상"</p>
                     </div>
                 </div>
             </section>
@@ -482,23 +680,23 @@
                 <div class="grid-3">
                     <div class="card">
                         <h4>MARKDOWN_TEMPLATE</h4>
-                        <p style="font-size: 0.7em;">CSV → Markdown 변환 템플릿</p>
+                        <p style="font-size: 0.5em;">CSV → Markdown 변환 템플릿</p>
                     </div>
                     <div class="card">
                         <h4>RFP_SYSTEM_PROMPT</h4>
-                        <p style="font-size: 0.7em;">RFP 분석가 시스템 프롬프트</p>
+                        <p style="font-size: 0.5em;">RFP 분석가 시스템 프롬프트</p>
                     </div>
                     <div class="card">
                         <h4>ANSWER_GENERATION_PROMPT</h4>
-                        <p style="font-size: 0.7em;">답변 생성 프롬프트</p>
+                        <p style="font-size: 0.5em;">답변 생성 프롬프트</p>
                     </div>
                     <div class="card">
                         <h4>INTENT_ANALYSIS_PROMPT</h4>
-                        <p style="font-size: 0.7em;">질문 의도 분석 프롬프트</p>
+                        <p style="font-size: 0.5em;">질문 의도 분석 프롬프트</p>
                     </div>
                     <div class="card">
                         <h4>RFP_EXTRACTION_PROMPT</h4>
-                        <p style="font-size: 0.7em;">RFP 핵심 정보 추출 프롬프트</p>
+                        <p style="font-size: 0.5em;">RFP 핵심 정보 추출 프롬프트</p>
                     </div>
                 </div>
             </section>
@@ -507,7 +705,7 @@
             <section>
                 <h2>답변 원칙 (RFP_SYSTEM_PROMPT)</h2>
                 <div class="box">
-                    <ol style="font-size: 0.9em;">
+                    <ol style="font-size: 0.55em;">
                         <li><strong>자연스러운 문장</strong> - 틀에 박히지 말고 말하듯이</li>
                         <li><strong>질문에 먼저 답변</strong> - 묻는 것에 1-2문장으로 직접 답하고, 추가 정보 제공</li>
                         <li><strong>정확한 정보</strong> - 숫자, 날짜는 구체적으로</li>
@@ -519,7 +717,7 @@
             <!-- 5.3 INTENT ANALYSIS -->
             <section>
                 <h2>질문 의도 분석</h2>
-                <p style="font-size: 0.85em;">JSON 형식으로 질문 유형 분류</p>
+                <p style="font-size: 0.55em;">JSON 형식으로 질문 유형 분류</p>
                 <pre class="code-snippet"><code style="text-align: left;">{
   "query_type": "filter",      // org, ranking, filter, category, search
   "org_name": null,
@@ -545,10 +743,10 @@
             <section>
                 <h2>config.py - 설정 관리</h2>
                 <div class="grid-4">
-                    <div class="card"><h4 style="font-size: 0.9em;">OPENAI_API_KEY</h4><p style="font-size:0.65em;">OpenAI API 키</p></div>
-                    <div class="card"><h4 style="font-size: 0.9em;">DEFAULT_MODEL</h4><p style="font-size:0.65em;">gpt-4o-mini</p></div>
-                    <div class="card"><h4 style="font-size: 0.9em;">EMBEDDING_MODEL</h4><p style="font-size:0.65em;">text-embedding-3-small</p></div>
-                    <div class="card"><h4 style="font-size: 0.9em;">LANGSMITH_PROJECT</h4><p style="font-size:0.65em;">biddingmate_jh</p></div>
+                    <div class="card"><h4 style="font-size: 0.65em;">OPENAI_API_KEY</h4><p style="font-size:0.45em;">OpenAI API 키</p></div>
+                    <div class="card"><h4 style="font-size: 0.65em;">DEFAULT_MODEL</h4><p style="font-size:0.45em;">gpt-4o-mini</p></div>
+                    <div class="card"><h4 style="font-size: 0.65em;">EMBEDDING_MODEL</h4><p style="font-size:0.45em;">text-embedding-3-small</p></div>
+                    <div class="card"><h4 style="font-size: 0.65em;">LANGSMITH_PROJECT</h4><p style="font-size:0.45em;">biddingmate_jh</p></div>
                 </div>
             </section>
 
@@ -634,28 +832,28 @@
             <!-- 7.2 QA PIPELINE -->
             <section>
                 <h2>질문-답변 처리 파이프라인</h2>
-                <div style="text-align: center; font-size: 0.85em;">
-                    <div class="card" style="display: inline-block; margin: 5px;">사용자 질문</div>
-                    <span style="font-size: 1.5em;">→</span>
-                    <div class="card info" style="display: inline-block; margin: 5px;">기관명 추출</div>
-                    <span style="font-size: 1.5em;">→</span>
-                    <div class="card" style="display: inline-block; margin: 5px;">VectorStore 검색</div>
-                    <span style="font-size: 1.5em;">→</span>
-                    <div class="card" style="display: inline-block; margin: 5px;">결과 확인</div>
+                <div style="text-align: center; font-size: 0.65em;">
+                    <div class="card" style="display: inline-block; margin: 4px;">사용자 질문</div>
+                    <span style="font-size: 1.2em;">→</span>
+                    <div class="card info" style="display: inline-block; margin: 4px;">기관명 추출</div>
+                    <span style="font-size: 1.2em;">→</span>
+                    <div class="card" style="display: inline-block; margin: 4px;">VectorStore 검색</div>
+                    <span style="font-size: 1.2em;">→</span>
+                    <div class="card" style="display: inline-block; margin: 4px;">결과 확인</div>
                 </div>
-                <div style="text-align: center; margin-top: 20px; font-size: 0.85em;">
-                    <div class="card feature" style="display: inline-block; margin: 5px;">있음</div>
-                    <span style="font-size: 1.5em;">→</span>
-                    <div class="card" style="display: inline-block; margin: 5px;">RFPAnswerGenerator</div>
-                    <span style="font-size: 1.5em;">→</span>
-                    <div class="card" style="display: inline-block; margin: 5px;">LLM 답변</div>
-                    <span style="font-size: 1.5em;">→</span>
-                    <div class="card" style="display: inline-block; margin: 5px;">정제</div>
+                <div style="text-align: center; margin-top: 15px; font-size: 0.65em;">
+                    <div class="card feature" style="display: inline-block; margin: 4px;">있음</div>
+                    <span style="font-size: 1.2em;">→</span>
+                    <div class="card" style="display: inline-block; margin: 4px;">RFPAnswerGenerator</div>
+                    <span style="font-size: 1.2em;">→</span>
+                    <div class="card" style="display: inline-block; margin: 4px;">LLM 답변</div>
+                    <span style="font-size: 1.2em;">→</span>
+                    <div class="card" style="display: inline-block; margin: 4px;">정제</div>
                 </div>
-                <div style="text-align: center; margin-top: 15px; font-size: 0.85em;">
-                    <div class="card warning" style="display: inline-block; margin: 5px;">없음</div>
-                    <span style="font-size: 1.5em;">→</span>
-                    <div class="card" style="display: inline-block; margin: 5px;">"관련 정보 없음"</div>
+                <div style="text-align: center; margin-top: 12px; font-size: 0.65em;">
+                    <div class="card warning" style="display: inline-block; margin: 4px;">없음</div>
+                    <span style="font-size: 1.2em;">→</span>
+                    <div class="card" style="display: inline-block; margin: 4px;">"관련 정보 없음"</div>
                 </div>
             </section>
 
@@ -664,7 +862,7 @@
                 <h2>후속 질문 처리</h2>
                 <div class="box">
                     <p><strong>후속 질문 키워드:</strong></p>
-                    <div style="margin-top: 15px;">
+                    <div style="margin-top: 12px;">
                         <span class="tag">그거</span>
                         <span class="tag">그것</span>
                         <span class="tag">언제</span>
@@ -673,9 +871,9 @@
                         <span class="tag">또</span>
                     </div>
                 </div>
-                <div class="card" style="margin-top: 20px;">
+                <div class="card" style="margin-top: 15px;">
                     <h4>처리 흐름</h4>
-                    <p style="font-size: 0.85em;">ConversationContext → 이전 대화 확인 → 컨텍스트 병합 → 확장된 쿼리 생성</p>
+                    <p style="font-size: 0.55em;">ConversationContext → 이전 대화 확인 → 컨텍스트 병합 → 확장된 쿼리 생성</p>
                 </div>
             </section>
 
@@ -694,14 +892,14 @@
                 <div class="grid-3">
                     <div class="card">
                         <h4>RAGChatbotV17</h4>
-                        <ul style="font-size: 0.7em;">
+                        <ul style="font-size: 0.45em;">
                             <li>__init__(data_dir, db_path)</li>
                             <li>answer(query) → dict</li>
                         </ul>
                     </div>
                     <div class="card">
                         <h4>VectorStore</h4>
-                        <ul style="font-size: 0.7em;">
+                        <ul style="font-size: 0.45em;">
                             <li>add_documents(chunks)</li>
                             <li>search(query, top_k)</li>
                             <li>register_org(org_info)</li>
@@ -710,7 +908,7 @@
                     </div>
                     <div class="card">
                         <h4>Parsers</h4>
-                        <ul style="font-size: 0.7em;">
+                        <ul style="font-size: 0.45em;">
                             <li>convert_file(path)</li>
                             <li>convert_row(row)</li>
                             <li>chunk_markdown(...)</li>
@@ -772,7 +970,7 @@
                 <div class="grid-3">
                     <div class="card">
                         <h4>랭킹</h4>
-                        <div style="font-size: 0.7em;">
+                        <div style="font-size: 0.5em;">
                             <span class="tag">가장</span>
                             <span class="tag">최고</span>
                             <span class="tag">TOP</span>
@@ -781,7 +979,7 @@
                     </div>
                     <div class="card">
                         <h4>필터</h4>
-                        <div style="font-size: 0.7em;">
+                        <div style="font-size: 0.5em;">
                             <span class="tag">이상</span>
                             <span class="tag">이하</span>
                             <span class="tag">초과</span>
@@ -791,7 +989,7 @@
                     </div>
                     <div class="card">
                         <h4>기관 별칭</h4>
-                        <ul style="font-size: 0.7em;">
+                        <ul style="font-size: 0.45em;">
                             <li>서울시 → 서울특별시</li>
                             <li>고려대 → 고려대학교</li>
                             <li>서울시립대 → 서울시립대학교</li>
@@ -803,28 +1001,28 @@
             <!-- APPENDIX -->
             <section data-background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)">
                 <h2 style="color: white;">부록</h2>
-                <div class="grid-3" style="margin-top: 40px;">
+                <div class="grid-3" style="margin-top: 30px;">
                     <div class="card" style="background: rgba(255,255,255,0.1);">
                         <h4 style="color: white;">의존성</h4>
-                        <p style="font-size: 0.7em;">openai, chromadb, pdfplumber, streamlit, sentence-transformers, pandas</p>
+                        <p style="font-size: 0.5em;">openai, chromadb, pdfplumber, streamlit, sentence-transformers, pandas</p>
                     </div>
                     <div class="card" style="background: rgba(255,255,255,0.1);">
                         <h4 style="color: white;">실행 방법</h4>
-                        <p style="font-size: 0.7em;">streamlit run app/main.py<br>python -m src.graph.workflow</p>
+                        <p style="font-size: 0.5em;">streamlit run app/main.py<br>python -m src.graph.workflow</p>
                     </div>
                     <div class="card" style="background: rgba(255,255,255,0.1);">
                         <h4 style="color: white;">DB 재구축</h4>
-                        <p style="font-size: 0.7em;">python scripts/rebuild_db.py</p>
+                        <p style="font-size: 0.5em;">python scripts/rebuild_db.py</p>
                     </div>
                 </div>
             </section>
 
             <!-- END -->
             <section data-background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)">
-                <h1 style="color: white; font-size: 3em;">🤖</h1>
+                <h1 style="color: white; font-size: 2.5em;">🤖</h1>
                 <h2 style="color: white;">감사합니다</h2>
-                <p style="color: rgba(255,255,255,0.8); font-size: 0.9em;">입찰메이트 RFP 챗봇 v17 기술 문서</p>
-                <p style="color: rgba(255,255,255,0.6); font-size: 0.7em; margin-top: 50px;">
+                <p style="color: rgba(255,255,255,0.8); font-size: 0.65em;">입찰메이트 RFP 챗봇 v17 기술 문서</p>
+                <p style="color: rgba(255,255,255,0.6); font-size: 0.5em; margin-top: 40px;">
                     문서 버전: v17 | 최종 수정: 2026년 2월 12일<br>
                     7팀 | GitHub
                 </p>
@@ -848,7 +1046,12 @@
             slideNumber: true,
             controls: true,
             progress: true,
-            touch: true
+            touch: true,
+            width: 1100,
+            height: 700,
+            margin: 0.1,
+            minScale: 0.2,
+            maxScale: 1.5
         });
     </script>
 </body>
