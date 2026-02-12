@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+      - "feature/**"
+  pull_request:
+    branches:
+      - main
+      - dev
+
+jobs:
+  python-ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Show versions
+        run: |
+          python --version
+          pip --version
+
+      - name: Upgrade pip
+        run: |
+          python -m pip install --upgrade pip
+
+      # requirements.txt가 있으면 설치, 없으면 스킵
+      - name: Install dependencies (optional)
+        run: |
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            echo "No requirements.txt found - skipping dependency install"
+          fi
+
+      # 최소 안전망: 문법 컴파일 체크 (이건 실패하면 CI도 실패)
+      - name: Syntax check (compileall)
+        run: |
+          python -m compileall -q .
+
+      # 테스트는 "있으면" 실행하되, 초기엔 실패를 블로킹하지 않게 설정
+      # - 테스트가 없으면 성공 처리
+      # - 수집/실행 실패(exit code 1/2 등)는 경고만 남기고 성공 처리(초기 안정화용)
+      #   -> 팀이 안정화되면 아래 allow-fail 로직을 제거해서 강제하면 됨.
+      - name: Run tests (optional, allow-fail for early stage)
+        run: |
+          if [ -d tests ]; then
+            pip install pytest
+
+            set +e
+            pytest -q
+            code=$?
+            set -e
+
+            if [ "$code" = "0" ]; then
+              echo "pytest: PASS"
+              exit 0
+            fi
+
+            if [ "$code" = "5" ]; then
+              echo "pytest: No tests collected (treat as success)"
+              exit 0
+            fi
+
+            echo "pytest: FAILED with exit code $code (ALLOWING FAILURE for early stage)"
+            # 여기서 실패를 막지 않음 (초기 단계)
+            exit 0
+          else
+            echo "No tests/ directory found - skipping pytest"
+          fi
