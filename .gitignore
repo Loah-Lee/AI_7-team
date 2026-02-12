@@ -205,3 +205,17 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# === Project Specifics ===
+# Data (RFP 원본 및 전처리 데이터는 로컬/VM에서만 관리)
+data/
+!data/.gitkeep
+
+# Model Weights (LLM 가중치는 HuggingFace 등에서 다운로드)
+*.pth
+*.bin
+*.h5
+checkpoint/
+
+# OS specific
+.DS_Store
