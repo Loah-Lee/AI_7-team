@@ -79,7 +79,7 @@ AI_7-team/
 │   ├── USAGE.md                 # 사용 방법
 │   ├── USAGE_NEW.md             # 새 사용법
 │   └── ARCHITECTURE.md          # 아키텍처 설계
-├── eval/                        # 평가 관련
+├── eval_resources/              # 평가 관련
 │   ├── METRICS.md               # 평가 지표
 │   └── eval_dataset.yaml        # 평가 데이터셋
 ├── data/                        # 데이터 파일 (Git 제외)
@@ -326,7 +326,7 @@ pip install streamlit>=1.20.0
 - [프레젠테이션 슬라이드](docs/slides.html) - 브라우저에서 바로 보기
 - [상세 사용법](docs/USAGE.md)
 - [아키텍처 설계](docs/ARCHITECTURE.md)
-- [평가 지표](eval/METRICS.md)
+- [평가 지표](eval_resources/METRICS.md)
 
 ---
 
