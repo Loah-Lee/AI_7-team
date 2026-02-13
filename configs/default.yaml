@@ -12,7 +12,7 @@ embedding:
 vectorstore:
   provider: "chroma"            # chroma | faiss
   collection_name: "rfp_docs"
-  persist_directory: "./chroma_db"
+  persist_directory: "./chroma_db_eval_yc"
 
 retriever:
   search_type: "mmr"            # mmr | dense | bm25 | hybrid
