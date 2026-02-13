@@ -714,38 +714,156 @@ for rowid, score in top_k:
 
 ### 8.5 Hierarchy Scope 적용 검색
 
+Hierarchy 테이블의 **설계 목적**은 사용자 질의에서 관련 문서/섹션을 먼저 발견(anchor)한 뒤,
+해당 범위 내에서 chunk를 검색하는 **2단계 스코핑 패턴**이다.
+
+> **핵심 흐름**: 질의 → `hierarchy_vec` 벡터 검색 → `(doc_id, start_order, end_order)` 발견 → 해당 범위 내 chunk 검색
+
+#### vec0 kNN 제약 사항 (중요)
+
+`chunks_vec`의 kNN 검색(`MATCH ? AND k = N`)은 **전역 최근접 이웃**을 반환한다.
+`doc_id`나 `chunk_order` 조건으로 필터링할 수 없으므로, `k=4096`(최대값)으로 검색해도
+특정 섹션의 11개 chunk 중 5개만 포함되는 등 **누락이 발생**한다.
+
+따라서 스코핑된 Dense 검색은 **Python-side 유사도 계산** 방식을 사용한다:
+1. SQL로 scope 내 chunk + embedding을 일괄 fetch
+2. Python에서 cosine similarity 계산 후 정렬
+
+이 방식은 scope 크기가 보통 5~60개 chunk이므로 **~0.06초** 내 완료된다.
+
+#### Step 1: Hierarchy 벡터 검색 (문서/섹션 발견)
+
 ```python
-# 1. 섹션 범위 조회
-doc_id = "eb69a3dfeb69208c"
-section_title = "사업 개요"
+import struct
+import numpy as np
+from sentence_transformers import SentenceTransformer
 
+model = SentenceTransformer("jhgan/ko-sroberta-multitask")
+
+query = "사업 추진 내용"
+q_emb = model.encode(query)
+q_bytes = struct.pack(f"{len(q_emb)}f", *q_emb.tolist())
+
+# hierarchy_vec에서 관련 섹션 검색 (k=10)
 cursor.execute("""
-    SELECT json_extract(metadata, '$.start_order'),
-           json_extract(metadata, '$.end_order')
-    FROM hierarchy
-    WHERE json_extract(metadata, '$.doc_id') = ?
-      AND json_extract(metadata, '$.title') = ?
-""", (doc_id, section_title))
-row = cursor.fetchone()
+    SELECT rowid, distance
+    FROM hierarchy_vec
+    WHERE text_embedding MATCH ? AND k = 10
+""", (q_bytes,))
+h_results = cursor.fetchall()
 
-if row:
-    start_order, end_order = row
+# 각 결과의 메타데이터 확인
+scopes = []
+for rowid, distance in h_results:
+    cursor.execute("SELECT text, metadata FROM hierarchy WHERE rowid = ?", (rowid,))
+    text, meta_blob = cursor.fetchone()
+    meta = json.loads(meta_blob)
+    scopes.append({
+        "doc_id": meta["doc_id"],
+        "level": meta["level"],
+        "title": meta["title"],
+        "start_order": meta["start_order"],
+        "end_order": meta["end_order"],
+        "distance": distance,
+    })
+    print(f"[{distance:.2f}] L{meta['level']} \"{meta['title']}\" "
+          f"doc={meta['doc_id'][:8]}.. scope=[{meta['start_order']},{meta['end_order']}]")
 
-    # 2. 해당 범위 내에서 Dense 검색
-    cursor.execute("""
-        SELECT c.rowid, c.text, v.distance
-        FROM chunks c
-        JOIN chunks_vec v ON c.rowid = v.rowid
-        WHERE v.text_embedding MATCH ?
-          AND json_extract(c.metadata, '$.doc_id') = ?
-          AND json_extract(c.metadata, '$.chunk_order') BETWEEN ? AND ?
-        ORDER BY v.distance
-        LIMIT 5
-    """, (query_vec, doc_id, start_order, end_order))
-
-    for rowid, text, dist in cursor.fetchall():
-        print(f"[{dist:.4f}] {text[:100]}...")
+# 예시 출력:
+# [7.21] L2 "사업추진내용"  doc=a12e8707.. scope=[14,24]
+# [7.40] L2 "사업개요"      doc=376ea776.. scope=[3,5]
+# [7.53] L2 "사업추진계획"  doc=376ea776.. scope=[7,10]
 ```
+
+#### Step 2a: Scoped Dense 검색 (Python-side 유사도)
+
+```python
+# Step 1에서 발견한 최상위 scope 사용
+best = scopes[0]
+doc_id = best["doc_id"]
+start_order = best["start_order"]
+end_order = best["end_order"]
+
+# scope 내 chunk + embedding 일괄 fetch
+cursor.execute("""
+    SELECT rowid, text, text_embedding
+    FROM chunks
+    WHERE json_extract(metadata, '$.doc_id') = ?
+      AND json_extract(metadata, '$.chunk_order') BETWEEN ? AND ?
+""", (doc_id, start_order, end_order))
+scoped_chunks = cursor.fetchall()
+
+# Python-side cosine similarity 계산
+q_vec = q_emb / np.linalg.norm(q_emb)
+scored = []
+for rowid, text, emb_blob in scoped_chunks:
+    chunk_vec = np.array(struct.unpack(f"{768}f", emb_blob))
+    norm = np.linalg.norm(chunk_vec)
+    if norm > 0:
+        chunk_vec /= norm
+    sim = float(np.dot(q_vec, chunk_vec))
+    scored.append((rowid, text, sim))
+
+scored.sort(key=lambda x: x[2], reverse=True)
+for rowid, text, sim in scored[:5]:
+    print(f"[cos={sim:.4f}] rowid={rowid}: {text[:100]}...")
+
+# 예시 출력 (scope=[14,24], 11 chunks):
+# [cos=0.4906] rowid=15: ## 사업추진내용 ...
+# [cos=0.3761] rowid=25: | ※ (중요) 기재된화면은참고자료이며 ...
+# [cos=0.3537] rowid=17: - 스톡옵션배정및처리현황통계기능구축 ...
+```
+
+#### Step 2b: Scoped Sparse 검색 (FTS5 + doc_id 필터)
+
+```python
+from kiwipiepy import Kiwi
+
+kiwi = Kiwi()
+nouns = [t.form for t in kiwi.tokenize(query) if t.tag.startswith("NN")]
+fts_query = " ".join(nouns)  # "사업 추진 내용"
+
+# sparse 테이블에서 doc_id 필터 적용 검색
+cursor.execute("""
+    SELECT uid, bm25(sparse) AS score
+    FROM sparse
+    WHERE nouns MATCH ? AND doc_id = ?
+    ORDER BY bm25(sparse)
+    LIMIT 30
+""", (fts_query, doc_id))
+sparse_hits = cursor.fetchall()
+
+# chunk_order 범위로 섹션 scope 필터링
+results = []
+for uid, score in sparse_hits:
+    cursor.execute("""
+        SELECT json_extract(metadata, '$.chunk_order')
+        FROM chunks
+        WHERE json_extract(metadata, '$.uid') = ?
+    """, (uid,))
+    row = cursor.fetchone()
+    if row and start_order <= row[0] <= end_order:
+        results.append((uid, score))
+
+# 결과 출력
+for uid, score in results[:5]:
+    cursor.execute("""
+        SELECT text FROM chunks
+        WHERE json_extract(metadata, '$.uid') = ?
+    """, (uid,))
+    text = cursor.fetchone()[0]
+    print(f"[BM25={score:.4f}] uid={uid}: {text[:100]}...")
+```
+
+#### 성능 참고 (E2E 벤치마크)
+
+| 단계 | 소요시간 |
+|------|----------|
+| hierarchy_vec 검색 (k=10) | ~0.24초 |
+| metadata fetch | <0.01초 |
+| scope 내 chunk fetch (11~59개) | ~0.03~0.06초 |
+| Python-side similarity | <0.01초 |
+| **E2E 합계** | **~0.28초** |
 
 ### 8.6 문서 목록 조회
 
