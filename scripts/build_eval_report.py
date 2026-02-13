@@ -6,10 +6,28 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
 project_root = Path(__file__).resolve().parents[1]
+
+
+def _get_eval_dir() -> Path:
+    """평가 결과 디렉토리 경로를 반환한다. 환경변수 우선, 없으면 eval_resources (fallback: eval)."""
+    if custom_dir := os.getenv("EVAL_DIR"):
+        return project_root / custom_dir
+
+    eval_resources = project_root / "eval_resources"
+    eval_legacy = project_root / "eval"
+
+    if eval_resources.exists():
+        return eval_resources
+    elif eval_legacy.exists():
+        print(f"[WARNING] 'eval/' 폴더가 감지되었습니다. 'eval_resources/'로 이름을 변경하는 것을 권장합니다.")
+        return eval_legacy
+    else:
+        return eval_resources
 
 
 def build_html(results: dict) -> str:
@@ -388,8 +406,8 @@ function toggleAll() {{
 
 
 def main():
-    input_path = project_root / "eval" / "eval_results_current.json"
-    output_path = project_root / "eval" / "eval_report.html"
+    input_path = _get_eval_dir() / "eval_results_current.json"
+    output_path = _get_eval_dir() / "eval_report.html"
 
     if not input_path.exists():
         print(f"[ERROR] {input_path} 없음")

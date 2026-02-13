@@ -17,8 +17,8 @@ RAG E2E 평가를 실행하고 결과를 분석하는 에이전트.
 
 ## 참조 문서
 
-- 지표 정의: `eval/METRICS.md`
-- 평가셋: `eval/eval_dataset.yaml`
+- 지표 정의: `eval_resources/METRICS.md`
+- 평가셋: `eval_resources/eval_dataset.yaml`
 - 현재 KPI: `KPI.md`
 - 파이프라인: `src/graph/workflow.py`, `src/graph/nodes.py`
 
@@ -26,5 +26,5 @@ RAG E2E 평가를 실행하고 결과를 분석하는 에이전트.
 
 - 4대 지표(Correctness, Answer Coverage, Faithfulness, Context Relevance) 전체 평균 및 유형별 평균
 - Retrieval 보조 지표(Recall@K, MRR) 확인
-- 이전 실행 결과와 비교 (eval/ 디렉토리 내 JSON 파일)
+- 이전 실행 결과와 비교 (eval_resources/ 디렉토리 내 JSON 파일)
 - 약점 유형/지표에 대한 root cause 분석

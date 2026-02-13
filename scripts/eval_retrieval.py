@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -19,6 +20,23 @@ import yaml
 
 project_root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(project_root))
+
+
+def _get_eval_dir() -> Path:
+    """평가 결과 디렉토리 경로를 반환한다. 환경변수 우선, 없으면 eval_resources (fallback: eval)."""
+    if custom_dir := os.getenv("EVAL_DIR"):
+        return project_root / custom_dir
+
+    eval_resources = project_root / "eval_resources"
+    eval_legacy = project_root / "eval"
+
+    if eval_resources.exists():
+        return eval_resources
+    elif eval_legacy.exists():
+        print(f"[WARNING] 'eval/' 폴더가 감지되었습니다. 'eval_resources/'로 이름을 변경하는 것을 권장합니다.")
+        return eval_legacy
+    else:
+        return eval_resources
 
 from src.evaluation.llm_judge import judge_rag_response
 from src.evaluation.metrics import (
@@ -213,7 +231,7 @@ def main() -> None:
 
     load_env()
 
-    dataset_path = Path(args.dataset) if args.dataset else project_root / "eval" / "eval_dataset.yaml"
+    dataset_path = Path(args.dataset) if args.dataset else _get_eval_dir() / "eval_dataset.yaml"
     eval_items = load_eval_dataset(dataset_path)
     if not eval_items:
         return
@@ -262,7 +280,7 @@ def main() -> None:
     print(f"{'=' * 60}")
 
     # JSON 저장
-    output_path = project_root / "eval" / f"eval_results_{args.label}.json"
+    output_path = _get_eval_dir() / f"eval_results_{args.label}.json"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)

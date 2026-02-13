@@ -51,7 +51,7 @@ prompts/
   templates.py   : ChatPromptTemplate 정의
 
 evaluation/      → LLM-as-Judge + Retrieval 메트릭
-  → eval/METRICS.md 참조
+  → eval_resources/METRICS.md 참조
 ```
 
 ## 검색 전략
@@ -67,8 +67,8 @@ evaluation/      → LLM-as-Judge + Retrieval 메트릭
 
 - **LLM-as-Judge 4지표** (0~5점): Correctness, Answer Coverage, Faithfulness, Context Relevance
 - **Retrieval 보조 3지표**: Recall@K (Source/Page), MRR (Source/Page)
-- 상세 정의: `eval/METRICS.md`
-- 평가셋: `eval/eval_dataset.yaml` (20개 질문: single_doc 12, multi_doc 4, comparison 4)
+- 상세 정의: `eval_resources/METRICS.md`
+- 평가셋: `eval_resources/eval_dataset.yaml` (20개 질문: single_doc 12, multi_doc 4, comparison 4)
 
 ## 설정
 

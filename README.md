@@ -66,7 +66,7 @@ uv run python scripts/eval_retrieval.py --label current --top_k 5
 uv run python scripts/build_eval_report.py
 
 # 결과 확인
-open eval/eval_report.html
+open eval_resources/eval_report.html
 ```
 
 ---
@@ -121,7 +121,7 @@ AI_7-team/
 ├── configs/
 │   └── default.yaml               # 전역 설정 (LLM, 임베딩, 검색, 청킹)
 │
-├── eval/
+├── eval_resources/
 │   ├── eval_dataset.yaml          # 평가 데이터셋 (20개 질문)
 │   ├── eval_results_*.json        # 평가 결과 JSON
 │   ├── eval_report.html           # HTML 대시보드
@@ -238,7 +238,7 @@ PDF/HWP → parse → clean_documents() → chunk → embed → ChromaDB
 | **MRR (Source)** | 정답 문서 순위의 역수 평균 | 0.70+ |
 | **MRR (Page)** | 정답 페이지 순위의 역수 평균 | 0.60+ |
 
-상세 정의: [`eval/METRICS.md`](eval/METRICS.md)
+상세 정의: [`eval_resources/METRICS.md`](eval_resources/METRICS.md)
 
 ### 현재 성능 (Baseline)
 
@@ -460,7 +460,7 @@ uv run python scripts/ingest.py --reset
 ## 참고 문서
 
 - [아키텍처 문서](docs/ARCHITECTURE.md)
-- [평가 지표 정의](eval/METRICS.md)
+- [평가 지표 정의](eval_resources/METRICS.md)
 - [KPI 및 성능 목표](KPI.md)
 - [Claude Code 설정](CLAUDE.md)
 - [프로젝트 개요](PROJECT_BRIEF.md)

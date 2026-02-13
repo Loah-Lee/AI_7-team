@@ -1,7 +1,7 @@
 """평가셋(Ground Truth Q&A) 자동 생성 스크립트.
 
 ChromaDB에서 고품질 청크를 샘플링하고, LLM이 Q&A 쌍을 생성하여
-eval/eval_dataset.yaml에 저장한다.
+eval_resources/eval_dataset.yaml에 저장한다.
 
 실행: uv run python scripts/generate_eval_set.py
       uv run python scripts/generate_eval_set.py --num_pairs 30
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import sys
 from pathlib import Path
@@ -20,6 +21,23 @@ from langchain_openai import ChatOpenAI
 
 project_root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(project_root))
+
+
+def _get_eval_dir() -> Path:
+    """평가 결과 디렉토리 경로를 반환한다. 환경변수 우선, 없으면 eval_resources (fallback: eval)."""
+    if custom_dir := os.getenv("EVAL_DIR"):
+        return project_root / custom_dir
+
+    eval_resources = project_root / "eval_resources"
+    eval_legacy = project_root / "eval"
+
+    if eval_resources.exists():
+        return eval_resources
+    elif eval_legacy.exists():
+        print(f"[WARNING] 'eval/' 폴더가 감지되었습니다. 'eval_resources/'로 이름을 변경하는 것을 권장합니다.")
+        return eval_legacy
+    else:
+        return eval_resources
 
 from src.retrievers.vectorstore import get_vectorstore
 from src.utils.config import load_config
@@ -302,7 +320,7 @@ def main() -> None:
     parser.add_argument("--output", type=str, default=None, help="출력 파일 경로")
     args = parser.parse_args()
 
-    output_path = Path(args.output) if args.output else project_root / "eval" / "eval_dataset.yaml"
+    output_path = Path(args.output) if args.output else _get_eval_dir() / "eval_dataset.yaml"
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     print("=" * 60)

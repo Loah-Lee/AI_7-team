@@ -1,7 +1,7 @@
 # KPI Definition
 
 RFP RAG 시스템의 성능을 정량적으로 측정하기 위한 KPI 정의서입니다.
-평가 체계: LLM-as-Judge 기반 E2E 평가 (상세: `eval/METRICS.md`)
+평가 체계: LLM-as-Judge 기반 E2E 평가 (상세: `eval_resources/METRICS.md`)
 
 ---
 

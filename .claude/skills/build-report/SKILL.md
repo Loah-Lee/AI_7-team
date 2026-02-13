@@ -16,11 +16,11 @@ allowed-tools: Bash, Read
    ```
 
 2. 결과 확인:
-   - `eval/eval_report.html` 파일 존재 여부 확인
+   - `eval_resources/eval_report.html` 파일 존재 여부 확인
    - 파일 크기 확인 (정상 생성 검증)
 
 3. 사용자에게 안내:
    ```
-   eval/eval_report.html이 생성되었습니다.
-   브라우저에서 열어 확인하세요: open eval/eval_report.html
+   eval_resources/eval_report.html이 생성되었습니다.
+   브라우저에서 열어 확인하세요: open eval_resources/eval_report.html
    ```

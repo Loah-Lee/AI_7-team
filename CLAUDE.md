@@ -19,7 +19,7 @@
 - 모든 파싱 로직은 `parsers/`에 위치하며, HWP와 PDF를 구분한다.
 - LangGraph 노드 설계 시 `State` 객체를 엄격히 준수한다.
 - 모든 검색 결과는 LangSmith로 트레이싱한다.
-- 평가 체계: LLM-as-Judge 4지표 (Correctness, Answer Coverage, Faithfulness, Context Relevance) → `eval/METRICS.md` 참조
+- 평가 체계: LLM-as-Judge 4지표 (Correctness, Answer Coverage, Faithfulness, Context Relevance) → `eval_resources/METRICS.md` 참조
 
 ## Git Commit Rules
 - 1 logical change = 1 commit
