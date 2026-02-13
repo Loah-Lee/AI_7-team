@@ -31,3 +31,4 @@ sentence-transformers
 pysqlite3-binary
 langgraph
 sqlite-utils
+basedpyright
