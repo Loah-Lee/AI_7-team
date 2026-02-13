@@ -10,7 +10,9 @@ Features:
 - Table integrity (consecutive | lines never split)
 - Size limit with sentence-boundary splitting using kiwipiepy
 - Overlap with last N sentences from previous chunk
-- Page number tracking from <!-- page: N --> markers
+- Page number tracking from [[PAGE:N]] markers
+- Bullet block atomicity (split only if > CHUNK_SIZE*0.8 or 3+ sentences)
+- Small chunk merge requires matching section path
 """
 
 import json
@@ -23,9 +25,14 @@ from dataclasses import dataclass
 from kiwipiepy import Kiwi
 
 # Parameters
-CHUNK_SIZE = 1500  # characters
-MIN_CHUNK_SIZE = 200  # characters
-OVERLAP_SENTENCES = 2  # number of sentences to overlap
+CHUNK_SIZE = 1500
+MIN_CHUNK_SIZE = 200
+OVERLAP_SENTENCES = 2
+BULLET_SPLIT_RATIO = 0.8
+BULLET_MIN_SENTENCES = 3
+
+_PAGE_MARKER_RE = re.compile(r'\[\[PAGE:(\d+)\]\]')
+_BULLET_RE = re.compile(r'^\s*\*\s')
 
 # Initialize Kiwi once at module level
 kiwi = Kiwi()
@@ -33,10 +40,10 @@ kiwi = Kiwi()
 
 @dataclass
 class Section:
-    """Represents a document section"""
     header_text: str
     header_level: int  # 1 or 2
     content_lines: List[str]
+    line_pages: List[int]  # page number per content_line (parallel array)
     page_start: int
     page_end: int
 
@@ -96,8 +103,7 @@ def is_table_line(line: str) -> bool:
 
 
 def extract_page_number(line: str) -> Optional[int]:
-    """Extract page number from <!-- page: N --> marker."""
-    match = re.match(r'<!--\s*page:\s*(\d+)\s*-->', line.strip())
+    match = _PAGE_MARKER_RE.match(line.strip())
     if match:
         return int(match.group(1))
     return None
@@ -121,284 +127,244 @@ def extract_header(line: str) -> Optional[Tuple[str, int]]:
 def split_into_sections(body: str) -> List[Section]:
     """
     Split document body into sections at header boundaries.
-    Track page numbers from <!-- page: N --> markers.
-    
-    Args:
-        body: Document body (after frontmatter removal)
-    
-    Returns:
-        List of Section objects
+    Track page numbers from [[PAGE:N]] markers.
     """
     lines = body.split('\n')
     sections = []
     
-    current_header = None
+    current_header: Optional[str] = None
     current_level = 0
-    current_content = []
+    current_content: List[str] = []
+    current_line_pages: List[int] = []
     current_page_start = 1
     current_page = 1
-    
+
     for line in lines:
-        # Check for page marker
         page_num = extract_page_number(line)
         if page_num is not None:
             current_page = page_num
             if current_header is None:
                 current_page_start = page_num
-            continue  # Don't include page markers in content
-        
-        # Check for header
+            continue
+
         header_info = extract_header(line)
         if header_info is not None:
-            # Save previous section
             if current_header is not None and current_content:
                 sections.append(Section(
                     header_text=current_header,
                     header_level=current_level,
                     content_lines=current_content,
+                    line_pages=current_line_pages,
                     page_start=current_page_start,
-                    page_end=current_page
+                    page_end=current_page,
                 ))
-            
-            # Start new section
+
             current_header, current_level = header_info
-            current_content = [line]  # Include header in content
+            current_content = [line]
+            current_line_pages = [current_page]
             current_page_start = current_page
         else:
-            # Regular content line
             if current_header is None:
-                # Content before any header - create a default section
                 current_header = "Preamble"
                 current_level = 0
             current_content.append(line)
-    
-    # Save last section
+            current_line_pages.append(current_page)
+
     if current_header is not None and current_content:
         sections.append(Section(
             header_text=current_header,
             header_level=current_level,
             content_lines=current_content,
+            line_pages=current_line_pages,
             page_start=current_page_start,
-            page_end=current_page
+            page_end=current_page,
         ))
     
     return sections
 
 
-def identify_blocks(lines: List[str]) -> List[Tuple[str, List[str]]]:
-    """
-    Identify table blocks and text blocks in content lines.
-    
-    Args:
-        lines: Content lines
-    
-    Returns:
-        List of (block_type, block_lines) tuples
-        block_type is either 'table' or 'text'
-    """
-    blocks = []
-    current_block_type = None
-    current_block_lines = []
-    
-    for line in lines:
-        is_table = is_table_line(line)
-        block_type = 'table' if is_table else 'text'
-        
+def _classify_line(line: str) -> str:
+    if is_table_line(line):
+        return 'table'
+    if _BULLET_RE.match(line):
+        return 'bullet'
+    return 'text'
+
+
+def identify_blocks(
+    lines: List[str], line_pages: List[int],
+) -> List[Tuple[str, List[str], List[int]]]:
+    blocks: List[Tuple[str, List[str], List[int]]] = []
+    current_block_type: Optional[str] = None
+    current_block_lines: List[str] = []
+    current_block_pages: List[int] = []
+
+    for i, line in enumerate(lines):
+        page = line_pages[i] if i < len(line_pages) else (line_pages[-1] if line_pages else 1)
+        block_type = _classify_line(line)
+
         if block_type != current_block_type and current_block_lines:
-            # Save previous block
-            blocks.append((current_block_type, current_block_lines))
+            blocks.append((current_block_type, current_block_lines, current_block_pages))  # type: ignore[arg-type]
             current_block_lines = []
-        
+            current_block_pages = []
+
         current_block_type = block_type
         current_block_lines.append(line)
-    
-    # Save last block
-    if current_block_lines:
-        blocks.append((current_block_type, current_block_lines))
-    
+        current_block_pages.append(page)
+
+    if current_block_lines and current_block_type:
+        blocks.append((current_block_type, current_block_lines, current_block_pages))
+
     return blocks
+
+
+def _make_chunk(
+    content: str, h1: str, h2: str, doc_meta: Dict, pages: List[int],
+) -> Dict:
+    ps = min(pages) if pages else 1
+    pe = max(pages) if pages else 1
+    return {
+        'content': content,
+        'metadata': {
+            'document_title': doc_meta.get('document_title', 'Unknown'),
+            'source_file': doc_meta.get('source_file', 'Unknown'),
+            'section_level1': h1,
+            'section_level2': h2,
+            'page_start': ps,
+            'page_end': pe,
+            'chunk_size': len(content),
+            'created_at': datetime.now().isoformat(),
+        },
+    }
 
 
 def create_chunks_from_section(
     section: Section,
     current_h1: str,
     current_h2: str,
-    doc_meta: Dict
+    doc_meta: Dict,
 ) -> List[Dict]:
-    """
-    Create chunks from a single section, respecting size limits and table integrity.
-    
-    Args:
-        section: Section object to chunk
-        current_h1: Current H1 context
-        current_h2: Current H2 context
-        doc_meta: Document metadata from frontmatter
-    
-    Returns:
-        List of chunk dictionaries (without chunk_id assigned yet)
-    """
-    chunks = []
-    
-    # Identify blocks (tables vs text)
-    blocks = identify_blocks(section.content_lines)
-    
-    # Calculate total content size
+    chunks: List[Dict] = []
+
+    blocks = identify_blocks(section.content_lines, section.line_pages)
+
     total_content = '\n'.join(section.content_lines)
-    
-    # If entire section fits in one chunk, return it as-is
+
     if len(total_content) <= CHUNK_SIZE:
-        chunk = {
-            'content': total_content,
-            'metadata': {
-                'document_title': doc_meta.get('document_title', 'Unknown'),
-                'source_file': doc_meta.get('source_file', 'Unknown'),
-                'section_level1': current_h1,
-                'section_level2': current_h2,
-                'page_start': section.page_start,
-                'page_end': section.page_end,
-                'chunk_size': len(total_content),
-                'created_at': datetime.now().isoformat()
-            }
-        }
-        return [chunk]
-    
-    # Section is too large - need to split at sentence boundaries
-    current_chunk_parts = []
+        return [_make_chunk(total_content, current_h1, current_h2, doc_meta, section.line_pages)]
+
+    current_chunk_parts: List[str] = []
+    current_chunk_pages: List[int] = []
     current_size = 0
-    overlap_sentences_buffer = []
-    
-    for block_type, block_lines in blocks:
-        block_text = '\n'.join(block_lines)
-        block_size = len(block_text)
-        
-        if block_type == 'table':
-            # Tables are atomic - never split
-            if block_size > CHUNK_SIZE:
-                # Single table larger than chunk size - it becomes its own chunk
-                if current_chunk_parts:
-                    # Save current chunk first
-                    chunk_content = '\n'.join(current_chunk_parts)
-                    if len(chunk_content) >= MIN_CHUNK_SIZE:
-                        chunks.append({
-                            'content': chunk_content,
-                            'metadata': {
-                                'document_title': doc_meta.get('document_title', 'Unknown'),
-                                'source_file': doc_meta.get('source_file', 'Unknown'),
-                                'section_level1': current_h1,
-                                'section_level2': current_h2,
-                                'page_start': section.page_start,
-                                'page_end': section.page_end,
-                                'chunk_size': len(chunk_content),
-                                'created_at': datetime.now().isoformat()
-                            }
-                        })
-                    current_chunk_parts = []
-                    current_size = 0
-                    overlap_sentences_buffer = []
-                
-                # Table becomes its own chunk
-                chunks.append({
-                    'content': block_text,
-                    'metadata': {
-                        'document_title': doc_meta.get('document_title', 'Unknown'),
-                        'source_file': doc_meta.get('source_file', 'Unknown'),
-                        'section_level1': current_h1,
-                        'section_level2': current_h2,
-                        'page_start': section.page_start,
-                        'page_end': section.page_end,
-                        'chunk_size': block_size,
-                        'created_at': datetime.now().isoformat()
-                    }
-                })
-            elif current_size + block_size > CHUNK_SIZE:
-                # Table doesn't fit in current chunk - save current and start new
-                if current_chunk_parts:
-                    chunk_content = '\n'.join(current_chunk_parts)
-                    if len(chunk_content) >= MIN_CHUNK_SIZE:
-                        chunks.append({
-                            'content': chunk_content,
-                            'metadata': {
-                                'document_title': doc_meta.get('document_title', 'Unknown'),
-                                'source_file': doc_meta.get('source_file', 'Unknown'),
-                                'section_level1': current_h1,
-                                'section_level2': current_h2,
-                                'page_start': section.page_start,
-                                'page_end': section.page_end,
-                                'chunk_size': len(chunk_content),
-                                'created_at': datetime.now().isoformat()
-                            }
-                        })
-                
-                # Start new chunk with overlap + table
-                current_chunk_parts = overlap_sentences_buffer.copy() if overlap_sentences_buffer else []
-                current_chunk_parts.append(block_text)
-                current_size = sum(len(p) for p in current_chunk_parts)
-                overlap_sentences_buffer = []  # Tables don't contribute to sentence overlap
-            else:
-                # Table fits in current chunk
-                current_chunk_parts.append(block_text)
-                current_size += block_size
-                overlap_sentences_buffer = []  # Reset after table
-        
-        else:  # block_type == 'text'
-            # Split text into sentences
-            sentences = split_sentences(block_text)
-            
-            for sentence in sentences:
-                sent_size = len(sentence)
-                
-                if current_size + sent_size > CHUNK_SIZE and current_chunk_parts:
-                    # Save current chunk
-                    chunk_content = '\n'.join(current_chunk_parts)
-                    if len(chunk_content) >= MIN_CHUNK_SIZE:
-                        chunks.append({
-                            'content': chunk_content,
-                            'metadata': {
-                                'document_title': doc_meta.get('document_title', 'Unknown'),
-                                'source_file': doc_meta.get('source_file', 'Unknown'),
-                                'section_level1': current_h1,
-                                'section_level2': current_h2,
-                                'page_start': section.page_start,
-                                'page_end': section.page_end,
-                                'chunk_size': len(chunk_content),
-                                'created_at': datetime.now().isoformat()
-                            }
-                        })
-                    
-                    # Start new chunk with overlap
-                    if len(overlap_sentences_buffer) >= OVERLAP_SENTENCES:
-                        current_chunk_parts = overlap_sentences_buffer[-OVERLAP_SENTENCES:]
-                    else:
-                        current_chunk_parts = overlap_sentences_buffer.copy()
-                    current_size = sum(len(s) for s in current_chunk_parts)
-                    overlap_sentences_buffer = current_chunk_parts.copy()
-                
-                current_chunk_parts.append(sentence)
-                current_size += sent_size
-                
-                # Update overlap buffer
-                overlap_sentences_buffer.append(sentence)
-                if len(overlap_sentences_buffer) > OVERLAP_SENTENCES * 2:
-                    overlap_sentences_buffer = overlap_sentences_buffer[-OVERLAP_SENTENCES * 2:]
-    
-    # Save last chunk
-    if current_chunk_parts:
+    overlap_sentences_buffer: List[str] = []
+    overlap_pages_buffer: List[int] = []
+
+    def _flush_chunk() -> None:
+        nonlocal current_chunk_parts, current_chunk_pages, current_size, overlap_sentences_buffer, overlap_pages_buffer
+        if not current_chunk_parts:
+            return
         chunk_content = '\n'.join(current_chunk_parts)
         if len(chunk_content) >= MIN_CHUNK_SIZE:
-            chunks.append({
-                'content': chunk_content,
-                'metadata': {
-                    'document_title': doc_meta.get('document_title', 'Unknown'),
-                    'source_file': doc_meta.get('source_file', 'Unknown'),
-                    'section_level1': current_h1,
-                    'section_level2': current_h2,
-                    'page_start': section.page_start,
-                    'page_end': section.page_end,
-                    'chunk_size': len(chunk_content),
-                    'created_at': datetime.now().isoformat()
-                }
-            })
-    
+            chunks.append(_make_chunk(chunk_content, current_h1, current_h2, doc_meta, current_chunk_pages))
+
+    def _start_new_from_overlap() -> None:
+        nonlocal current_chunk_parts, current_chunk_pages, current_size, overlap_sentences_buffer, overlap_pages_buffer
+        if len(overlap_sentences_buffer) >= OVERLAP_SENTENCES:
+            current_chunk_parts = overlap_sentences_buffer[-OVERLAP_SENTENCES:]
+            current_chunk_pages = overlap_pages_buffer[-OVERLAP_SENTENCES:]
+        else:
+            current_chunk_parts = overlap_sentences_buffer.copy()
+            current_chunk_pages = overlap_pages_buffer.copy()
+        current_size = sum(len(s) for s in current_chunk_parts)
+        overlap_sentences_buffer = current_chunk_parts.copy()
+        overlap_pages_buffer = current_chunk_pages.copy()
+
+    for block_type, block_lines, block_pages in blocks:
+        block_text = '\n'.join(block_lines)
+        block_size = len(block_text)
+        block_page_range = block_pages
+
+        if block_type == 'table':
+            if block_size > CHUNK_SIZE:
+                _flush_chunk()
+                current_chunk_parts = []
+                current_chunk_pages = []
+                current_size = 0
+                overlap_sentences_buffer = []
+                overlap_pages_buffer = []
+                chunks.append(_make_chunk(block_text, current_h1, current_h2, doc_meta, block_page_range))
+            elif current_size + block_size > CHUNK_SIZE:
+                _flush_chunk()
+                current_chunk_parts = overlap_sentences_buffer.copy() if overlap_sentences_buffer else []
+                current_chunk_pages = overlap_pages_buffer.copy() if overlap_pages_buffer else []
+                current_chunk_parts.append(block_text)
+                current_chunk_pages.extend(block_page_range)
+                current_size = sum(len(p) for p in current_chunk_parts)
+                overlap_sentences_buffer = []
+                overlap_pages_buffer = []
+            else:
+                current_chunk_parts.append(block_text)
+                current_chunk_pages.extend(block_page_range)
+                current_size += block_size
+                overlap_sentences_buffer = []
+                overlap_pages_buffer = []
+
+        elif block_type == 'bullet':
+            bullet_sentences = split_sentences(block_text)
+            should_keep_atomic = (
+                block_size <= CHUNK_SIZE * BULLET_SPLIT_RATIO
+                or len(bullet_sentences) < BULLET_MIN_SENTENCES
+            )
+            if should_keep_atomic:
+                if current_size + block_size > CHUNK_SIZE and current_chunk_parts:
+                    _flush_chunk()
+                    current_chunk_parts = overlap_sentences_buffer.copy() if overlap_sentences_buffer else []
+                    current_chunk_pages = overlap_pages_buffer.copy() if overlap_pages_buffer else []
+                    current_size = sum(len(p) for p in current_chunk_parts)
+                current_chunk_parts.append(block_text)
+                current_chunk_pages.extend(block_page_range)
+                current_size += block_size
+                overlap_sentences_buffer = []
+                overlap_pages_buffer = []
+            else:
+                bp = block_page_range[0] if block_page_range else 1
+                for sentence in bullet_sentences:
+                    sent_size = len(sentence)
+                    if current_size + sent_size > CHUNK_SIZE and current_chunk_parts:
+                        _flush_chunk()
+                        _start_new_from_overlap()
+                    current_chunk_parts.append(sentence)
+                    current_chunk_pages.append(bp)
+                    current_size += sent_size
+                    overlap_sentences_buffer.append(sentence)
+                    overlap_pages_buffer.append(bp)
+                    if len(overlap_sentences_buffer) > OVERLAP_SENTENCES * 2:
+                        overlap_sentences_buffer = overlap_sentences_buffer[-OVERLAP_SENTENCES * 2:]
+                        overlap_pages_buffer = overlap_pages_buffer[-OVERLAP_SENTENCES * 2:]
+
+        else:
+            sentences = split_sentences(block_text)
+            bp = block_page_range[0] if block_page_range else 1
+
+            for sentence in sentences:
+                sent_size = len(sentence)
+
+                if current_size + sent_size > CHUNK_SIZE and current_chunk_parts:
+                    _flush_chunk()
+                    _start_new_from_overlap()
+
+                current_chunk_parts.append(sentence)
+                current_chunk_pages.append(bp)
+                current_size += sent_size
+
+                overlap_sentences_buffer.append(sentence)
+                overlap_pages_buffer.append(bp)
+                if len(overlap_sentences_buffer) > OVERLAP_SENTENCES * 2:
+                    overlap_sentences_buffer = overlap_sentences_buffer[-OVERLAP_SENTENCES * 2:]
+                    overlap_pages_buffer = overlap_pages_buffer[-OVERLAP_SENTENCES * 2:]
+
+    _flush_chunk()
+
     return chunks
 
 
@@ -452,12 +418,19 @@ def process_file(file_path: Path) -> List[Dict]:
     return all_chunks
 
 
+def _same_section_path(a: Dict, b: Dict) -> bool:
+    return (a['metadata']['section_level1'] == b['metadata']['section_level1']
+            and a['metadata']['section_level2'] == b['metadata']['section_level2'])
+
+
 def _merge_small_chunks(chunks: List[Dict]) -> List[Dict]:
     if len(chunks) <= 1:
         return chunks
     merged = [chunks[0]]
     for chunk in chunks[1:]:
-        if chunk['metadata']['chunk_size'] < MIN_CHUNK_SIZE and merged:
+        if (chunk['metadata']['chunk_size'] < MIN_CHUNK_SIZE
+                and merged
+                and _same_section_path(merged[-1], chunk)):
             prev = merged[-1]
             prev['content'] = prev['content'] + '\n' + chunk['content']
             prev['metadata']['chunk_size'] = len(prev['content'])

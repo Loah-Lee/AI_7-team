@@ -3,10 +3,12 @@
 Storage & Indexing Step 5: Hybrid RAG DB (Korean-optimized)
 - Korean embedding model: jhgan/ko-sroberta-multitask (768d)
 - FTS5 tokenization: kiwipiepy morphological noun extraction
-- Upsert pattern: incremental inserts, no DROP TABLE
+- Upsert pattern: doc_id-level DELETE→INSERT (deterministic SHA-256 hash)
+- UID format: {doc_id}_{local_chunk_index}
 - Hierarchy table: includes page ranges from chunk metadata
 """
 import os
+import hashlib
 import json
 import sqlite3
 from pathlib import Path
@@ -42,49 +44,159 @@ def extract_nouns(text: str) -> str:
     nouns = [t.form for t in tokens if t.tag in ('NNG', 'NNP', 'NNB')]
     return " ".join(nouns)
 
-# --- [수정된 함수] Sparse DB 초기화 (upsert pattern) ---
-def initialize_database(db_path: str, chunks: List[Dict]) -> None:
-    """
-    FTS 테이블을 생성하고 명사 추출 데이터를 삽입합니다.
-    기존 데이터는 유지하고 새로운 chunk만 추가합니다.
-    """
-    print(f"🔹 Initializing database at: {db_path}")
+def initialize_sparse_db(db_path: str, chunks: List[Dict]) -> int:
+    """doc_id 단위 DELETE→INSERT upsert. Returns number of inserted rows."""
+    print(f"🔹 Sparse indexing at: {db_path}")
     Path(db_path).parent.mkdir(exist_ok=True)
-    
+    inserted = 0
+
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
-
-        # 1. FTS 테이블 생성 (CREATE IF NOT EXISTS)
         cursor.execute('''
             CREATE VIRTUAL TABLE IF NOT EXISTS sparse USING fts5(
-                nouns,              -- kiwipiepy 명사 토큰
-                text UNINDEXED,     -- 원본 텍스트
+                uid,
+                doc_id UNINDEXED,
+                nouns,
+                text UNINDEXED,
                 tokenize='unicode61'
             )
         ''')
-        
-        # 2. 기존 rowid 조회 (중복 방지)
-        cursor.execute("SELECT rowid FROM sparse")
-        existing_rowids = set(row[0] for row in cursor.fetchall())
-        
-        # 3. 데이터 변환 및 삽입 (새로운 chunk만 추가)
-        print(f"   Extracting nouns for {len(chunks)} chunks...")
-        data_to_insert = []
-        for chunk in chunks:
-            chunk_id = chunk['chunk_id']
-            if chunk_id not in existing_rowids:
-                raw = chunk['content']
-                noun_text = extract_nouns(raw)
-                data_to_insert.append((chunk_id, noun_text, raw))
-        
-        if data_to_insert:
-            cursor.executemany("INSERT INTO sparse(rowid, nouns, text) VALUES (?, ?, ?)", data_to_insert)
-            conn.commit()
-            print(f"   ✓ Inserted {len(data_to_insert)} new chunks into sparse index.")
-        else:
-            print(f"   ✓ All chunks already exist in sparse index.")
 
-    print("   ✅ Database initialized with kiwipiepy noun extraction.")
+        doc_ids = {c['doc_id'] for c in chunks}
+        for doc_id in doc_ids:
+            cursor.execute("DELETE FROM sparse WHERE doc_id = ?", (doc_id,))
+
+        print(f"   Extracting nouns for {len(chunks)} chunks...")
+        data = []
+        for chunk in chunks:
+            uid = chunk['uid']
+            doc_id = chunk['doc_id']
+            noun_text = extract_nouns(chunk['content'])
+            data.append((uid, doc_id, noun_text, chunk['content']))
+
+        if data:
+            cursor.executemany(
+                "INSERT INTO sparse(uid, doc_id, nouns, text) VALUES (?, ?, ?, ?)",
+                data,
+            )
+            conn.commit()
+            inserted = len(data)
+            print(f"   ✓ Inserted {inserted} chunks into sparse index.")
+
+    return inserted
+
+def upsert_dense_vectors(db_path: str, chunks: List[Dict], model_name: str) -> int:
+    """
+    Doc_ID 기반 Dense Upsert 수행.
+    - 기존 동일 doc_id 벡터 삭제
+    - 새 벡터 삽입
+    Returns: inserted vector count
+    """
+    if not chunks:
+        return 0
+
+    print(f"🔼 Dense upsert at: {db_path}")
+    Path(db_path).parent.mkdir(exist_ok=True)
+
+    embeddings = SentenceTransformerEmbeddings(model_name=model_name)
+
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='chunks'")
+        table_exists = cursor.fetchone() is not None
+
+    if not table_exists:
+        # 테이블이 없으면 신규 생성
+        print("   Creating new chunks table...")
+        SQLiteVec.from_texts(
+            texts=[c['content'] for c in chunks],
+            embedding=embeddings,
+            table="chunks",
+            db_file=db_path,
+            metadatas=[c['metadata'] for c in chunks],
+        )
+        print(f"   ✓ Created chunks table with {len(chunks)} vectors.")
+        return len(chunks)
+
+    # 테이블 존재 → doc_id 기반 DELETE → INSERT
+    doc_ids = {c['doc_id'] for c in chunks}
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        for did in doc_ids:
+            cursor.execute(
+                "DELETE FROM chunks WHERE json_extract(metadata, '$.doc_id') = ?",
+                (did,),
+            )
+            deleted = cursor.rowcount
+            if deleted > 0:
+                print(f"   Deleted {deleted} existing vectors for doc_id={did}")
+        conn.commit()
+
+    # 새 벡터 삽입
+    SQLiteVec.from_texts(
+        texts=[c['content'] for c in chunks],
+        embedding=embeddings,
+        table="chunks",
+        db_file=db_path,
+        metadatas=[c['metadata'] for c in chunks],
+    )
+    print(f"   ✓ Inserted {len(chunks)} vectors.")
+    return len(chunks)
+
+
+def compute_doc_id(parser_raw_path: Path) -> str:
+    """SHA-256 of parser raw output (before auditor) → deterministic doc_id."""
+    h = hashlib.sha256(parser_raw_path.read_bytes()).hexdigest()[:16]
+    return h
+
+
+def assign_uids(chunks: List[Dict]) -> None:
+    """Assign UIDs and enforce Upsert contract (Fail-Fast architecture)."""
+
+    if not chunks:
+        raise RuntimeError(
+            "Critical: empty chunk list detected before UID assignment"
+        )
+
+    doc_counters: Dict[str, int] = {}
+
+    for i, chunk in enumerate(chunks):
+
+        if 'doc_id' not in chunk:
+            raise RuntimeError(
+                f"Critical: chunk index {i} missing 'doc_id' before UID assignment"
+            )
+
+        doc_id = chunk['doc_id']
+
+        if not isinstance(doc_id, str) or not doc_id.strip():
+            raise RuntimeError(
+                f"Critical: invalid doc_id detected at chunk index {i}"
+            )
+
+        if doc_id == "unknown":
+            raise RuntimeError(
+                f"Critical: forbidden fallback doc_id 'unknown' "
+                f"at chunk index {i}"
+            )
+
+        idx = doc_counters.get(doc_id, 0)
+        uid = f"{doc_id}_{idx}"
+        chunk['uid'] = uid
+
+        if 'metadata' not in chunk or chunk['metadata'] is None:
+            chunk['metadata'] = {}
+
+        if not isinstance(chunk['metadata'], dict):
+            raise RuntimeError(
+                f"Critical: metadata must be dict (chunk index {i})"
+            )
+
+        chunk['metadata']['uid'] = uid
+        chunk['metadata']['doc_id'] = doc_id
+
+        doc_counters[doc_id] = idx + 1
+
 
 def load_chunks_from_disk(chunk_dir: str) -> List[Dict]:
     chunks = []
@@ -147,61 +259,50 @@ def main():
     print("💾 STORAGE & INDEXING STAGE (Korean-optimized)")
     print("="*60 + "\n")
 
-    # 1. Load chunks
     all_chunks = load_chunks_from_disk(CHUNK_DIR)
     if not all_chunks:
         print("❌ No chunks found.")
         return
     print(f"   ✓ Loaded {len(all_chunks)} chunks.")
 
-    # 2. Embedding Model
-    print(f"🧠 Loading embedding model: {EMBEDDING_MODEL}...")
-    embeddings = SentenceTransformerEmbeddings(model_name=EMBEDDING_MODEL)
+    parser_dir = Path('output')
+    for chunk in all_chunks:
+        src = chunk.get('metadata', {}).get('source_file', '')
+        stem = Path(src).stem if src else 'unknown'
+        raw_path = parser_dir / f'step1_parsed_{stem}.md'
+        if raw_path.exists():
+            chunk['doc_id'] = compute_doc_id(raw_path)
+        else:
+            chunk['doc_id'] = hashlib.sha256(src.encode()).hexdigest()[:16]
 
-    # 3. Dense Indexing (SQLiteVec) - Upsert pattern
-    print("\n🔼 Performing Dense Indexing...")
-    
-    # Check if chunks table exists
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='chunks'")
-        chunks_table_exists = cursor.fetchone() is not None
-    
-    if not chunks_table_exists:
-        print("   Creating new chunks table...")
-        SQLiteVec.from_texts(
-            texts=[c['content'] for c in all_chunks],
-            embedding=embeddings,
-            table="chunks",
-            db_file=DB_PATH,
-            metadatas=[c['metadata'] for c in all_chunks]
-        )
-        print("   ✓ Dense indexing complete.")
-    else:
-        print("   ✓ Chunks table already exists (skipping recreate).")
+    assign_uids(all_chunks)
 
-    # 4. Sparse Indexing (Noun-based FTS)
-    initialize_database(DB_PATH, all_chunks)
+    dense_count = upsert_dense_vectors(DB_PATH, all_chunks, EMBEDDING_MODEL)
+    sparse_count = initialize_sparse_db(DB_PATH, all_chunks)
+
+    print(f"\n   Dense={dense_count}, Sparse={sparse_count}, Chunks={len(all_chunks)}")
+    if dense_count != sparse_count:
+        print(f"   ⚠️ Dense/Sparse mismatch!")
 
     # 5. Hierarchy Indexing - Upsert pattern with page ranges
     print("\n🌳 Performing Hierarchy Indexing...")
     h_data = extract_hierarchy_data(all_chunks)
     
     if h_data:
-        # Check if hierarchy table exists
         with sqlite3.connect(DB_PATH) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='hierarchy'")
             hierarchy_table_exists = cursor.fetchone() is not None
-        
+
         if not hierarchy_table_exists:
+            h_embeddings = SentenceTransformerEmbeddings(model_name=EMBEDDING_MODEL)
             print(f"   Creating hierarchy table with {len(h_data)} entries...")
             SQLiteVec.from_texts(
                 texts=[h[0] for h in h_data],
-                embedding=embeddings,
+                embedding=h_embeddings,
                 table="hierarchy",
                 db_file=DB_PATH,
-                metadatas=[h[1] for h in h_data]
+                metadatas=[h[1] for h in h_data],
             )
             print("   ✓ Hierarchy indexing complete.")
         else:

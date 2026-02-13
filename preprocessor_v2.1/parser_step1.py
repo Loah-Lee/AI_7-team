@@ -240,12 +240,42 @@ def _cluster_header_sizes(
     return h1_range, h2_range
 
 
+def _maybe_swap_h1_h2(
+    h1_range: Optional[tuple],
+    h2_range: Optional[tuple],
+    spans: List[SpanInfo],
+) -> Tuple[Optional[tuple], Optional[tuple]]:
+    """
+    H1/H2 계층 역전 방지. 스왑 조건:
+      - H1 빈도 ≤ 2 AND H1/(H1+H2) < 10% AND H2 빈도 존재
+      - 스왑 후보 H1이 물리적 페이지 0~1에만 존재할 때만 실행
+    """
+    if not h1_range or not h2_range:
+        return h1_range, h2_range
+
+    h1_spans = [s for s in spans if h1_range[0] <= round(s.fontsize, 1) <= h1_range[1]]
+    h2_spans = [s for s in spans if h2_range[0] <= round(s.fontsize, 1) <= h2_range[1]]
+    h1_count = len(h1_spans)
+    h2_count = len(h2_spans)
+    total = h1_count + h2_count
+
+    if total == 0 or h2_count == 0:
+        return h1_range, h2_range
+
+    if (h1_count <= 2
+            and h1_count / total < 0.10
+            and all(s.page_num <= 1 for s in h1_spans)):
+        return h2_range, h1_range
+
+    return h1_range, h2_range
+
+
 def _build_font_profile(doc: fitz.Document) -> FontProfile:
-    """Pass 1: Build complete font profile from document."""
     spans = _collect_spans(doc)
     body_size = _compute_body_size(spans)
     document_title = _extract_cover_title(spans)
     h1_range, h2_range = _cluster_header_sizes(spans, body_size, len(doc))
+    h1_range, h2_range = _maybe_swap_h1_h2(h1_range, h2_range, spans)
 
     return FontProfile(
         body_size=body_size,
@@ -314,7 +344,7 @@ def _generate_page_markdown(
 ) -> str:
     """Generate markdown for a single page."""
     lines: List[str] = []
-    lines.append(f"<!-- page: {page_num + 1} -->")
+    lines.append(f"[[PAGE:{page_num + 1}]]")
 
     # --- Tables ---
     tables_result = cast(Any, page).find_tables()
