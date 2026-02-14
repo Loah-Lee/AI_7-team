@@ -62,6 +62,11 @@ AI_7-team/
 │   │   ├── embeddings.py        # OpenAI 임베딩
 │   │   ├── vectorstore.py       # ChromaDB 벡터 저장소
 │   │   ├── metadata_filter.py   # 메타데이터 필터링
+│   ├── evaluation/              # 평가 및 트레이싱
+│   │   ├── llm_judge.py         # LLM-as-Judge 4지표
+│   │   ├── metrics.py           # Retrieval 지표 (Recall@K, MRR)
+│   │   ├── langsmith_tracer.py  # LangSmith 트레이싱
+│   │   └── langfuse_tracer.py   # Langfuse 메트릭 수집
 │   ├── prompts/                 # 프롬프트 템플릿
 │   │   └── templates.py         # RAG 프롬프트
 │   └── utils/                  # 유틸리티
