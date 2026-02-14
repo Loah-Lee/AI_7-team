@@ -12,20 +12,33 @@ RFP(제안요청서) 문서 기반 지능형 질의응답 시스템
 ## 목차
 
 1. [프로젝트 소개](#-프로젝트-소개)
-2. [핵심 기능](#-핵심-기능)
-3. [프로젝트 구조](#-프로젝트-구조)
-4. [빠른 시작](#-빠른-시작)
-5. [상세 사용법](#-상세-사용법)
-6. [사용 예시](#-사용-예시)
-7. [기술 스택](#-기술-스택)
-8. [모듈 설명](#-모듈-설명)
-9. [트러블슈팅](#-트러블슈팅)
+2. [내 작업물 변경사항](#-내-작업물-변경사항)
+3. [핵심 기능](#-핵심-기능)
+4. [프로젝트 구조](#-프로젝트-구조)
+5. [빠른 시작](#-빠른-시작)
+6. [상세 사용법](#-상세-사용법)
+7. [사용 예시](#-사용-예시)
+8. [기술 스택](#-기술-스택)
+9. [모듈 설명](#-모듈-설명)
+10. [트러블슈팅](#-트러블슈팅)
 
 ---
 
 ## 프로젝트 소개
 
 **입찰메이트**는 RFP(제안요청서) 문서를 기반으로 한 AI 기반 질의응답 시스템입니다. 대규모 입찰 문서에서 필요한 정보를 빠르고 정확하게 찾아줍니다.
+
+---
+
+## 내 작업물 변경사항
+
+### 2026-02-14 반영 내용
+
+- 평가 리소스 경로를 `eval/`에서 `eval_resources/`로 정리
+- 평가 모듈 신설: `src/evaluation/`
+- 평가/실험 스크립트 추가: `scripts/eval_retrieval.py`, `scripts/build_eval_report.py`
+- 통합 전처리 경로 추가: `src/parsers/preprocessor.py`, `scripts/build_unified_corpus.py`
+- 실험 기록 문서 추가: `docs/EXPERIMENT_LOG.md`
 
 ---
 
@@ -62,6 +75,11 @@ AI_7-team/
 │   │   ├── embeddings.py        # OpenAI 임베딩
 │   │   ├── vectorstore.py       # ChromaDB 벡터 저장소
 │   │   ├── metadata_filter.py   # 메타데이터 필터링
+│   ├── evaluation/              # 평가 및 트레이싱
+│   │   ├── llm_judge.py         # LLM-as-Judge 4지표
+│   │   ├── metrics.py           # Retrieval 지표 (Recall@K, MRR)
+│   │   ├── langsmith_tracer.py  # LangSmith 트레이싱
+│   │   └── langfuse_tracer.py   # Langfuse 메트릭 수집
 │   ├── prompts/                 # 프롬프트 템플릿
 │   │   └── templates.py         # RAG 프롬프트
 │   └── utils/                  # 유틸리티
@@ -69,7 +87,9 @@ AI_7-team/
 │       └── helpers.py          # 헬퍼 함수
 ├── scripts/                      # 유틸리티 스크립트
 │   ├── rebuild_db.py            # 벡터 DB 재구축
-│   └── build_unified_corpus.py  # CSV+원본 통합 코퍼스 생성
+│   ├── build_unified_corpus.py  # CSV+원본 통합 코퍼스 생성
+│   ├── eval_retrieval.py        # 평가 실행 스크립트
+│   └── build_eval_report.py     # 평가 리포트 생성
 ├── tests/                       # 테스트 코드
 │   └── test_conversation.py     # 대화 기능 테스트
 ├── configs/                     # 설정 파일
@@ -80,7 +100,7 @@ AI_7-team/
 │   ├── USAGE.md                 # 사용 방법
 │   ├── USAGE_NEW.md             # 새 사용법
 │   └── ARCHITECTURE.md          # 아키텍처 설계
-├── eval/                        # 평가 관련
+├── eval_resources/              # 평가 관련 리소스
 │   ├── METRICS.md               # 평가 지표
 │   └── eval_dataset.yaml        # 평가 데이터셋
 ├── data/                        # 데이터 파일 (Git 제외)
@@ -335,7 +355,7 @@ pip install streamlit>=1.20.0
 - [프레젠테이션 슬라이드](docs/slides.html) - 브라우저에서 바로 보기
 - [상세 사용법](docs/USAGE.md)
 - [아키텍처 설계](docs/ARCHITECTURE.md)
-- [평가 지표](eval/METRICS.md)
+- [평가 지표](eval_resources/METRICS.md)
 - [실험 변경 보고서](docs/EXPERIMENT_LOG.md) - 성능 개선 실험 로그
 
 ---
