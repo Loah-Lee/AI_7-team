@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from pathlib import Path
 
 import pdfplumber
@@ -34,6 +35,88 @@ class PDFMarkdownConverter:
         """유효한 섹션만 필터링합니다."""
         return [s for s in sections if len(s.strip()) > MIN_SECTION_LENGTH]
 
+    @staticmethod
+    def _sanitize_cell(cell: Any) -> str:
+        """표 셀 텍스트를 정리합니다."""
+        if cell is None:
+            return ""
+        return normalize_newlines(str(cell)).replace("\n", " ").strip()
+
+    @classmethod
+    def _table_to_markdown(cls, table: list[list[Any]]) -> str:
+        """pdfplumber 표를 마크다운 표로 변환합니다."""
+        if not table:
+            return ""
+
+        cleaned_rows = [[cls._sanitize_cell(cell) for cell in row] for row in table if row]
+        cleaned_rows = [row for row in cleaned_rows if any(cell for cell in row)]
+        if not cleaned_rows:
+            return ""
+
+        col_count = max(len(row) for row in cleaned_rows)
+        normalized = [row + [""] * (col_count - len(row)) for row in cleaned_rows]
+
+        header = normalized[0]
+        if not any(header):
+            header = [f"col_{i+1}" for i in range(col_count)]
+            body = normalized
+        else:
+            body = normalized[1:]
+
+        lines = [
+            "| " + " | ".join(header) + " |",
+            "| " + " | ".join(["---"] * col_count) + " |",
+        ]
+        for row in body:
+            lines.append("| " + " | ".join(row) + " |")
+        return "\n".join(lines)
+
+    def extract_pages(
+        self,
+        pdf_path: str | Path,
+        max_pages: int | None = None,
+        include_tables: bool = True
+    ) -> list[dict[str, Any]]:
+        """PDF를 페이지 단위로 추출합니다."""
+        path = Path(pdf_path)
+        pages: list[dict[str, Any]] = []
+        limit = max_pages or MAX_PAGES
+
+        try:
+            with pdfplumber.open(path) as pdf:
+                for page_num, page in enumerate(pdf.pages[:limit], 1):
+                    page_text = normalize_newlines(page.extract_text() or "").strip()
+
+                    table_markdowns: list[str] = []
+                    if include_tables:
+                        raw_tables = page.extract_tables() or []
+                        for idx, table in enumerate(raw_tables, 1):
+                            md_table = self._table_to_markdown(table)
+                            if md_table:
+                                table_markdowns.append(f"#### 표 {idx}\n{md_table}")
+
+                    parts: list[str] = []
+                    if page_text:
+                        parts.append(page_text)
+                    if table_markdowns:
+                        parts.append("\n\n".join(table_markdowns))
+
+                    content = "\n\n".join(parts).strip()
+                    if not content:
+                        continue
+
+                    pages.append({
+                        "page": page_num,
+                        "text": page_text,
+                        "tables": table_markdowns,
+                        "table_count": len(table_markdowns),
+                        "content": content,
+                    })
+        except Exception:
+            return []
+
+        return pages
+
     def convert(self, pdf_path: str | Path, org_name: str | None = None) -> str:
         """PDF를 마크다운으로 변환합니다."""
         path = Path(pdf_path)
@@ -46,21 +129,21 @@ class PDFMarkdownConverter:
         parts.append("- **파일 형식**: PDF\n")
 
         try:
-            with pdfplumber.open(pdf_path) as pdf:
-                parts.append(f"- **페이지 수**: {len(pdf.pages)}\n")
-                parts.append("\n## 문서 내용\n\n")
+            with pdfplumber.open(path) as pdf:
+                total_pages = len(pdf.pages)
+        except Exception:
+            total_pages = 0
 
-                for page_num, page in enumerate(pdf.pages[:MAX_PAGES], 1):
-                    try:
-                        page_text = page.extract_text()
-                        if page_text:
-                            page_text = normalize_newlines(page_text)
-                            parts.append(f"### 페이지 {page_num}\n")
-                            parts.append(f"{page_text}\n\n")
-                    except Exception:
-                        continue
-
-        except Exception as e:
-            parts.append(f"\n*문서 변환 중 오류: {e}*\n")
+        pages = self.extract_pages(path, max_pages=MAX_PAGES, include_tables=True)
+        if pages:
+            shown_pages = min(total_pages, MAX_PAGES) if total_pages else len(pages)
+            parts.append(f"- **페이지 수**: {total_pages or '확인 불가'}\n")
+            parts.append(f"- **추출 페이지 수**: {shown_pages}\n")
+            parts.append("\n## 문서 내용\n\n")
+            for page in pages:
+                parts.append(f"### 페이지 {page['page']}\n")
+                parts.append(f"{page['content']}\n\n")
+        else:
+            parts.append("\n*문서 내용 추출 실패*\n")
 
         return "".join(parts)

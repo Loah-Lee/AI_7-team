@@ -159,11 +159,11 @@ uv run python scripts/eval_retrieval.py --label current --top_k 5
 uv run python scripts/build_eval_report.py
 
 # 결과 확인
-open eval_resources/eval_report.html
+open eval/eval_report.html
 ```
 
 ## 평가셋
 
-- 위치: `eval_resources/eval_dataset.yaml`
+- 위치: `eval/eval_dataset.yaml`
 - 구성: 20개 질문 (single_doc 12, multi_doc 4, comparison 4)
 - 각 항목: question, expected_answer, ground_truth(source, page), query_type, metadata_filter

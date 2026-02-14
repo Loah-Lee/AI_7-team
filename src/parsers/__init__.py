@@ -8,6 +8,7 @@
 from src.parsers.chunker import Chunk, MarkdownChunker
 from src.parsers.hwp_loader import HWPMarkdownConverter
 from src.parsers.pdf_loader import PDFMarkdownConverter
+from src.parsers.preprocessor import UnifiedCorpusPreprocessor
 from src.parsers.text_cleaner import TextCleaner
 
 __all__ = [
@@ -15,5 +16,6 @@ __all__ = [
     "MarkdownChunker",
     "PDFMarkdownConverter",
     "HWPMarkdownConverter",
+    "UnifiedCorpusPreprocessor",
     "TextCleaner",
 ]

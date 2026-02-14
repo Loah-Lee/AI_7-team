@@ -13,7 +13,7 @@ from pathlib import Path
 # OpenAI
 OPENAI_API_KEY: str | None = os.environ.get("OPENAI_API_KEY")
 EMBEDDING_MODEL: str = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
-DEFAULT_MODEL: str = os.environ.get("DEFAULT_MODEL", "gpt-4o-mini")
+DEFAULT_MODEL: str = os.environ.get("DEFAULT_MODEL", "gpt-5-mini")
 REASONING_MODEL: str = os.environ.get("REASONING_MODEL", "gpt-5-mini")
 
 # 임베딩 설정
@@ -29,7 +29,7 @@ embedding_config = EmbeddingConfig()
 LANGSMITH_API_KEY: str | None = os.environ.get("LANGSMITH_API_KEY")
 LANGSMITH_TRACING: bool = os.environ.get("LANGSMITH_TRACING", "false").lower() == "true"
 LANGSMITH_ENDPOINT: str = os.environ.get("LANGSMITH_ENDPOINT", "https://api.smith.langchain.com/")
-LANGSMITH_PROJECT: str = os.environ.get("LANGSMITH_PROJECT", "biddingmate_jh")
+LANGSMITH_PROJECT: str = os.environ.get("LANGSMITH_PROJECT", "biddingmate_ai7")
 
 # Langfuse (대안 트레이싱)
 LANGFUSE_PUBLIC_KEY: str | None = os.environ.get("LANGFUSE_PUBLIC_KEY")
@@ -43,7 +43,7 @@ HF_TOKEN: str | None = os.environ.get("HF_TOKEN")
 # 매직 넘버
 # ============================================================================
 
-MAX_TEXT_LENGTH: int = 5000
+MAX_TEXT_LENGTH: int = 20000
 MIN_SECTION_LENGTH: int = 50
 MAX_PAGES: int = 20
 DEFAULT_TOP_K: int = 10

@@ -3,7 +3,7 @@
 RFP(제안요청서) 문서 기반 지능형 질의응답 시스템
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
-[![OpenAI](https://img.shields.io/badge/OpenAI-gpt--4o--mini-green.svg)](https://openai.com)
+[![OpenAI](https://img.shields.io/badge/OpenAI-gpt--5--mini-green.svg)](https://openai.com)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.20+-red.svg)](https://streamlit.io)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -33,7 +33,7 @@ RFP(제안요청서) 문서 기반 지능형 질의응답 시스템
 
 | 기능 | 설명 |
 |:---|:---|
-| **LLM 기반 질문 파싱** | gpt-4o-mini로 질문 의도 분류 (기관 조회, 랭킹, 필터링, 카테고리, 검색) |
+| **LLM 기반 질문 파싱** | gpt-5-mini로 질문 의도 분류 (기관 조회, 랭킹, 필터링, 카테고리, 검색) |
 | **후속 질문 지원** | 대화 컨텍스트를 통한 "그거 언제야?", "사업명은?" 등 자연스러운 대화 |
 | **멀티소스 통합** | CSV + HWP + PDF 문서를 마크다운으로 통합 변환 |
 | **정교한 필터링** | "5억에서 10억 사이", "10억 이상" 등 범위 질문 지원 |
@@ -68,7 +68,8 @@ AI_7-team/
 │       ├── config.py            # 설정 관리
 │       └── helpers.py          # 헬퍼 함수
 ├── scripts/                      # 유틸리티 스크립트
-│   └── rebuild_db.py            # 벡터 DB 재구축
+│   ├── rebuild_db.py            # 벡터 DB 재구축
+│   └── build_unified_corpus.py  # CSV+원본 통합 코퍼스 생성
 ├── tests/                       # 테스트 코드
 │   └── test_conversation.py     # 대화 기능 테스트
 ├── configs/                     # 설정 파일
@@ -139,7 +140,7 @@ vi .env  # 또는 nano, code 등 선호하는 에디터 사용
 ```env
 OPENAI_API_KEY=sk-your-api-key-here
 CHROMA_DB_PATH=./data/chroma_db_v17
-DEFAULT_MODEL=gpt-4o-mini
+DEFAULT_MODEL=gpt-5-mini
 REASONING_MODEL=gpt-5-mini
 EMBEDDING_MODEL=text-embedding-3-small
 ```
@@ -177,6 +178,14 @@ python -m src.graph.workflow
 
 ```bash
 python scripts/rebuild_db.py
+```
+
+### 통합 전처리 (CSV + 원본 문서)
+
+CSV 메타데이터와 원본(HWP/PDF)을 매칭해 통합 마크다운/매니페스트를 생성합니다.
+
+```bash
+python scripts/build_unified_corpus.py --input-dir data/files --output-dir data/processed
 ```
 
 ### 테스트 실행
@@ -229,7 +238,7 @@ A: 스마트캠퍼스 구축입니다.
 | 분류 | 기술 | 버전 |
 |:---|:---|:---|
 | **언어** | Python | 3.10+ |
-| **LLM** | OpenAI gpt-4o-mini | latest |
+| **LLM** | OpenAI gpt-5-mini | latest |
 | **추론 LLM** | OpenAI gpt-5-mini | latest |
 | **임베딩** | OpenAI text-embedding-3-small | 1536 dim |
 | **벡터 DB** | ChromaDB | 0.4.0+ |
@@ -327,6 +336,7 @@ pip install streamlit>=1.20.0
 - [상세 사용법](docs/USAGE.md)
 - [아키텍처 설계](docs/ARCHITECTURE.md)
 - [평가 지표](eval/METRICS.md)
+- [실험 변경 보고서](docs/EXPERIMENT_LOG.md) - 성능 개선 실험 로그
 
 ---
 

@@ -37,7 +37,7 @@ class CSVMarkdownConverter:
         """유효한 섹션만 필터링합니다."""
         return [s for s in sections if len(s.strip()) > MIN_SECTION_LENGTH]
 
-    def convert_row(self, row: dict[str, str]) -> MarkdownData:
+    def convert_row(self, row: dict[str, str], row_num: int = 0) -> MarkdownData:
         """CSV 한 행을 마크다운으로 변환합니다."""
         notice_num = row.get('공고 번호', '')
         notice_round = row.get('공고 차수', '')
@@ -77,7 +77,23 @@ class CSVMarkdownConverter:
             amount=amount,
             summary=summary,
             filename=filename,
-            file_format=file_format
+            file_format=file_format,
+            row_num=row_num,
+            metadata={
+                "notice_num": notice_num,
+                "notice_round": notice_round,
+                "project_name": project_name,
+                "amount": amount,
+                "org_name": org_name,
+                "open_date": open_date,
+                "start_date": start_date,
+                "end_date": end_date,
+                "summary": summary,
+                "file_format": file_format.lower(),
+                "filename": filename,
+                "file_stem": Path(filename).stem if filename else "",
+                "row_num": row_num,
+            }
         )
 
     def convert_file(self, csv_path: str | Path) -> list[MarkdownData]:
@@ -90,7 +106,7 @@ class CSVMarkdownConverter:
 
                 for row_num, row in enumerate(reader, 1):
                     try:
-                        data = self.convert_row(row)
+                        data = self.convert_row(row, row_num=row_num)
                         markdowns.append(data)
                     except ValueError as e:
                         print(f"  행 {row_num} 변환 실패: {e}")

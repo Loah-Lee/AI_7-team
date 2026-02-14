@@ -1,5 +1,10 @@
 # 입찰메이트 v17 의존성
 
+# LangChain (LangSmith 트레이싱)
+langchain>=0.3.0
+langchain-openai>=0.2.0
+langsmith>=0.1.0
+
 # OpenAI
 openai>=1.0.0
 
@@ -8,6 +13,7 @@ chromadb>=0.4.0
 
 # PDF 처리
 pdfplumber>=0.10.0
+olefile>=0.47
 
 # 환경 변수
 python-dotenv>=1.0.0

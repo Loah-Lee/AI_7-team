@@ -4,21 +4,22 @@
 from __future__ import annotations
 
 import sys
+import hashlib
 from pathlib import Path
 from typing import Any
 
 import chromadb
-from openai import OpenAI
 
 # 설정
 sys.path.insert(0, 'src')
-from src.utils.config import OPENAI_API_KEY, EMBEDDING_MODEL, CHUNK_HASH_MOD, ORG_ALIASES
+from src.utils.config import OPENAI_API_KEY, ORG_ALIASES
 
 # 파서는 import 방식을 사용
 from src.parsers.csv_loader import CSVMarkdownConverter
 from src.parsers.pdf_loader import PDFMarkdownConverter
 from src.parsers.hwp_loader import HWPMarkdownConverter
 from src.graph.state import OrgInfo
+from src.retrievers.embeddings import EmbeddingGenerator
 
 
 class VectorStore:
@@ -30,9 +31,12 @@ class VectorStore:
             db_path = get_default_db_path()
 
         self.db_path = db_path
+        self.embedding_generator = EmbeddingGenerator(api_key=OPENAI_API_KEY)
+        backend = "openai" if self.embedding_generator.use_openai else "local"
+        collection_name = f"rfp_docs_v17_{backend}"
         self.client = chromadb.PersistentClient(path=db_path)
         self.collection = self.client.get_or_create_collection(
-            name="rfp_docs_v17",
+            name=collection_name,
             metadata={"hnsw:space": "cosine"}
         )
         self.count = self.collection.count()
@@ -44,32 +48,78 @@ class VectorStore:
         self.pdf_converter = PDFMarkdownConverter()
         self.hwp_converter = HWPMarkdownConverter()
 
-    def add_documents(self, chunks: list[dict[str, str]]) -> None:
+    @staticmethod
+    def _normalize_metadata_value(value: Any) -> str | int | float | bool | None:
+        """Chroma 메타데이터로 저장 가능한 타입으로 정규화합니다."""
+        if value is None:
+            return None
+        if isinstance(value, (str, int, float, bool)):
+            return value
+        return str(value)
+
+    def add_documents(self, chunks: list[dict[str, Any]]) -> None:
         """문서 청크를 추가합니다."""
         if not chunks:
             return
 
-        texts = [c["text"] for c in chunks]
-        ids = [f"chunk_{i}_{hash(c['text']) % CHUNK_HASH_MOD}" for i, c in enumerate(chunks)]
-        metadatas = [
-            {"source": c.get("source", ""), "org": c.get("org", ""), "type": c.get("type", "unknown")}
-            for c in chunks
-        ]
+        texts = [self._clip_for_embedding(str(c.get("text", ""))) for c in chunks]
+        ids = [self._build_chunk_id(c) for c in chunks]
+        metadatas = []
+        for chunk in chunks:
+            metadata: dict[str, Any] = {
+                "source": chunk.get("source", ""),
+                "org": chunk.get("org", ""),
+                "type": chunk.get("type", "unknown"),
+            }
+
+            for key in ("page", "table_count", "has_table", "section"):
+                if key in chunk:
+                    metadata[key] = chunk.get(key)
+
+            extra = chunk.get("metadata")
+            if isinstance(extra, dict):
+                for key, value in extra.items():
+                    metadata[key] = value
+
+            normalized = {}
+            for key, value in metadata.items():
+                clean = self._normalize_metadata_value(value)
+                if clean is not None:
+                    normalized[key] = clean
+            metadatas.append(normalized)
 
         vectors = self._create_embeddings(texts)
-        self.collection.add(documents=texts, embeddings=vectors, ids=ids, metadatas=metadatas)
+        # upsert를 사용해 재인덱싱 시 동일 ID 충돌 없이 갱신되게 처리
+        self.collection.upsert(documents=texts, embeddings=vectors, ids=ids, metadatas=metadatas)
         self.count = self.collection.count()
+
+    @staticmethod
+    def _clip_for_embedding(text: str, max_chars: int = 2500) -> str:
+        """임베딩 요청 한도를 초과하지 않도록 긴 텍스트를 자릅니다."""
+        cleaned = text.strip()
+        if len(cleaned) <= max_chars:
+            return cleaned
+        return cleaned[:max_chars]
+
+    @staticmethod
+    def _build_chunk_id(chunk: dict[str, Any]) -> str:
+        """청크 내용/출처 기반의 안정적인 ID를 생성합니다."""
+        basis = "|".join(
+            [
+                str(chunk.get("source", "")),
+                str(chunk.get("org", "")),
+                str(chunk.get("type", "")),
+                str(chunk.get("page", "")),
+                str(chunk.get("section", "")),
+                str(chunk.get("text", "")),
+            ]
+        )
+        digest = hashlib.sha1(basis.encode("utf-8")).hexdigest()[:20]
+        return f"chunk_{digest}"
 
     def _create_embeddings(self, texts: list[str]) -> list[list[float]]:
         """텍스트 임베딩을 생성합니다."""
-        if OPENAI_API_KEY:
-            client = OpenAI(api_key=OPENAI_API_KEY)
-            embeddings = client.embeddings.create(model=EMBEDDING_MODEL, input=texts)
-            return [e.embedding for e in embeddings.data]
-        else:
-            from sentence_transformers import SentenceTransformer
-            model = SentenceTransformer("BM-K/KoSimCSE-roberta-multitask")
-            return model.encode(texts).tolist()
+        return self.embedding_generator.embed_texts(texts)
 
     def register_org(self, org_info: OrgInfo, preserve_existing: bool = True) -> None:
         """기관 정보를 등록합니다."""
@@ -108,12 +158,35 @@ class VectorStore:
         if new.has_hwp:
             existing.has_hwp = True
 
-    def search(self, query: str, top_k: int = 10) -> list[dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        top_k: int = 10,
+        org_name: str | None = None,
+        doc_types: list[str] | None = None
+    ) -> list[dict[str, Any]]:
         """문서를 검색합니다."""
         query_embedding = self._create_query_embedding(query)
+        filters: list[dict[str, Any]] = []
+        if org_name:
+            filters.append({"org": org_name})
+        if doc_types:
+            filters.append({"type": {"$in": doc_types}})
+
+        where: dict[str, Any] | None = None
+        if len(filters) == 1:
+            where = filters[0]
+        elif len(filters) > 1:
+            where = {"$and": filters}
 
         try:
-            response = self.collection.query(query_embeddings=[query_embedding], n_results=top_k)
+            kwargs: dict[str, Any] = {
+                "query_embeddings": [query_embedding],
+                "n_results": top_k,
+            }
+            if where is not None:
+                kwargs["where"] = where
+            response = self.collection.query(**kwargs)
             results = self._parse_search_results(response)
             self.last_search_results = results  # 검색 결과 저장
             return results
@@ -121,17 +194,20 @@ class VectorStore:
             print(f"검색 오류: {e}")
             return []
 
+    def count_chunks_by_type(self) -> dict[str, int]:
+        """청크 타입별 개수를 반환합니다."""
+        if self.count == 0:
+            return {}
+        data = self.collection.get(include=["metadatas"])
+        counts: dict[str, int] = {}
+        for md in data.get("metadatas", []):
+            t = (md or {}).get("type", "unknown")
+            counts[t] = counts.get(t, 0) + 1
+        return counts
+
     def _create_query_embedding(self, query: str) -> list[float]:
         """쿼리 임베딩을 생성합니다."""
-        if OPENAI_API_KEY:
-            client = OpenAI(api_key=OPENAI_API_KEY)
-            return client.embeddings.create(
-                model=EMBEDDING_MODEL, input=[query]
-            ).data[0].embedding
-        else:
-            from sentence_transformers import SentenceTransformer
-            model = SentenceTransformer("BM-K/KoSimCSE-roberta-multitask")
-            return model.encode([query]).tolist()[0]
+        return self.embedding_generator.embed_query(query)
 
     def _parse_search_results(self, response: dict) -> list[dict[str, Any]]:
         """검색 응답을 파싱합니다."""

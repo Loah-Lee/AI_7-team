@@ -36,6 +36,7 @@ class MarkdownData:
     filename: str = ""
     file_format: str = ""
     row_num: int = 0
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

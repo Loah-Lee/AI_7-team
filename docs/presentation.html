@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>입찰메이트 RFP 챗봇 v17 - 발표</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/reveal.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/theme/night.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/plugin/highlight/monokai.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap');
+
+        * { box-sizing: border-box; }
+
+        .reveal {
+            font-family: 'Noto Sans KR', sans-serif;
+        }
+
+        .reveal h1, .reveal h2, .reveal h3 {
+            text-transform: none;
+            font-weight: 500;
+        }
+
+        .reveal h1 {
+            font-size: 2em;
+            line-height: 1.2;
+        }
+
+        .reveal h2 {
+            font-size: 1.4em;
+            color: #667eea;
+            margin-bottom: 20px;
+        }
+
+        .reveal h3 {
+            font-size: 1.0em;
+            color: #38ef7d;
+            margin-bottom: 10px;
+        }
+
+        .reveal h4 {
+            font-size: 0.8em;
+            color: #667eea;
+            margin: 0 0 10px 0;
+        }
+
+        .reveal p {
+            font-size: 0.7em;
+            line-height: 1.6;
+        }
+
+        .reveal ul, .reveal ol {
+            font-size: 0.65em;
+            line-height: 1.5;
+        }
+
+        .reveal li {
+            margin: 6px 0;
+        }
+
+        .reveal pre {
+            font-size: 0.45em;
+            line-height: 1.4;
+            max-height: 60vh;
+            overflow-y: auto;
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            padding: 15px;
+        }
+
+        .reveal code {
+            font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+        }
+
+        .reveal table {
+            font-size: 0.55em;
+            margin: 15px auto;
+            border-collapse: collapse;
+        }
+
+        .reveal th {
+            background: #667eea;
+            color: white;
+            padding: 10px 15px;
+            font-weight: 500;
+        }
+
+        .reveal td {
+            background: rgba(255,255,255,0.05);
+            padding: 8px 12px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .tag {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 0.5em;
+            margin: 3px;
+            font-weight: 400;
+        }
+
+        .feature { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); }
+        .warning { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+        .info { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+
+        .tech-stack {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            font-size: 0.6em;
+        }
+
+        .tech-item {
+            background: rgba(255,255,255,0.08);
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(102,126,234,0.3);
+        }
+
+        .tech-item strong {
+            color: #667eea;
+            font-weight: 500;
+        }
+
+        .diagram {
+            font-size: 0.4em;
+            line-height: 1.5;
+        }
+
+        .two-columns {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .box {
+            background: rgba(102, 126, 234, 0.15);
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 10px 0;
+        }
+
+        .section-title {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .chapter-number {
+            font-size: 6em;
+            color: rgba(102, 126, 234, 0.3);
+            font-weight: 700;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+        }
+
+        .card {
+            background: linear-gradient(135deg, rgba(102,126,234,0.15) 0%, rgba(118,75,162,0.15) 100%);
+            padding: 18px;
+            border-radius: 10px;
+            border: 1px solid rgba(102,126,234,0.3);
+            text-align: center;
+        }
+
+        .card h4 {
+            color: #38ef7d;
+            font-size: 0.9em;
+        }
+
+        .flow-arrow {
+            font-size: 2em;
+            color: #38ef7d;
+        }
+
+        .highlight {
+            color: #38ef7d;
+            font-weight: 600;
+        }
+
+        .mermaid-box {
+            background: rgba(255,255,255,0.05);
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px dashed rgba(102,126,234,0.4);
+        }
+
+        @media (max-height: 768px) {
+            .reveal h1 { font-size: 1.6em; }
+            .reveal h2 { font-size: 1.2em; }
+            .reveal pre { font-size: 0.38em; }
+        }
+
+        @media (max-height: 600px) {
+            .reveal h1 { font-size: 1.4em; }
+            .reveal h2 { font-size: 1.0em; }
+            .reveal pre { font-size: 0.32em; max-height: 45vh; }
+        }
+    </style>
+</head>
+<body>
+    <div class="reveal">
+        <div class="slides">
+
+            <!-- TITLE -->
+            <section>
+                <h1>🤖 입찰메이트 RFP 챗봇 v17</h1>
+                <h2>RFP 문서 기반 지능형 질의응답 시스템</h2>
+                <p style="color: #aaa; margin-top: 30px;">대규모 입찰 문서에서 필요한 정보를 빠르고 정확하게 찾아드립니다</p>
+                <div style="margin-top: 40px;">
+                    <span class="tag feature">CSV+HWP+PDF</span>
+                    <span class="tag feature">벡터 검색</span>
+                    <span class="tag feature">LLM 파싱</span>
+                    <span class="tag feature">간결한 답변</span>
+                </div>
+                <p style="margin-top: 50px; font-size: 0.5em; color: #666;">7팀 | 2026년 2월 12일</p>
+            </section>
+
+            <!-- CHAPTER 1 -->
+            <section data-background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)">
+                <div class="section-title">
+                    <div class="chapter-number">01</div>
+                    <h1 style="color: white; margin: 0;">시스템 개요</h1>
+                </div>
+            </section>
+
+            <section>
+                <h2>프로젝트 소개</h2>
+                <div class="box">
+                    <p><strong>입찰메이트</strong>는 RFP(제안요청서) 문서를 기반으로 한 <span class="highlight">AI 기반 질의응답 시스템</span>입니다.</p>
+                </div>
+                <div class="grid-3" style="margin-top: 25px;">
+                    <div class="card">
+                        <h4>📊 멀티소스 통합</h4>
+                        <p>CSV + PDF + HWP<br>마크다운으로 통합 변환</p>
+                    </div>
+                    <div class="card">
+                        <h4>🔍 스마트 검색</h4>
+                        <p>ChromaDB 벡터 검색<br>+ 메타데이터 필터링</p>
+                    </div>
+                    <div class="card">
+                        <h4>🤖 LLM 기반 파싱</h4>
+                        <p>질문 의도 분류<br>+ 간결한 답변 생성</p>
+                    </div>
+                </div>
+            </section>
+
+            <section>
+                <h2>기술 스택</h2>
+                <div class="tech-stack">
+                    <div class="tech-item"><strong>LLM:</strong> OpenAI gpt-4o-mini</div>
+                    <div class="tech-item"><strong>임베딩:</strong> text-embedding-3-small (1536dim)</div>
+                    <div class="tech-item"><strong>벡터 DB:</strong> ChromaDB + Cosine Similarity</div>
+                    <div class="tech-item"><strong>프레임워크:</strong> LangGraph + Streamlit</div>
+                    <div class="tech-item"><strong>PDF 처리:</strong> pdfplumber</div>
+                    <div class="tech-item"><strong>HWP 처리:</strong> LibreOffice 변환</div>
+                    <div class="tech-item"><strong>트레이싱:</strong> LangSmith</div>
+                    <div class="tech-item"><strong>언어:</strong> Python 3.10+</div>
+                </div>
+            </section>
+
+            <!-- CHAPTER 2 -->
+            <section data-background="linear-gradient(135deg, #11998e 0%, #38ef7d 100%)">
+                <div class="section-title">
+                    <div class="chapter-number">02</div>
+                    <h1 style="color: white; margin: 0;">아키텍처</h1>
+                </div>
+            </section>
+
+            <section>
+                <h2>전체 시스템 구조</h2>
+                <div class="mermaid-box">
+                    <pre class="diagram"><code>┌─────────────────────────────────────────────────────────┐
+│                    사용자 인터페이스                      │
+│           Streamlit Web App / CLI                     │
+└────────────────────────────┬────────────────────────────┘
+                             ▼
+┌─────────────────────────────────────────────────────────┐
+│              RAGChatbotV17 (메인 워크플로우)            │
+│  ┌──────────────┬─────────────┬───────────────────┐  │
+│  │ QueryIntent │ RFPAnswer   │ConversationContext │  │
+│  │   Parser    │ Generator   │                   │  │
+│  └──────────────┴─────────────┴───────────────────┘  │
+└────────────────────────────┬────────────────────────────┘
+                             │
+         ┌───────────────────┼───────────────┐
+         ▼                   ▼               ▼
+┌──────────────┐   ┌──────────┐   ┌─────────────┐
+│ VectorStore  │   │ Prompts  │   │   Parsers   │
+│  (ChromaDB)  │   │Templates │   │CSV/PDF/HWP  │
+└──────────────┘   └──────────┘   └─────────────┘</code></pre>
+                </div>
+            </section>
+
+            <section>
+                <h2>데이터 처리 파이프라인</h2>
+                <div style="text-align: center; font-size: 0.7em;">
+                    <div class="card" style="display: inline-block;">📄 CSV/HWP/PDF</div>
+                    <span class="flow-arrow">→</span>
+                    <div class="card" style="display: inline-block;">🔄 Markdown 변환</div>
+                    <span class="flow-arrow">→</span>
+                    <div class="card" style="display: inline-block;">✨ 텍스트 정제</div>
+                    <br><br>
+                    <div class="card" style="display: inline-block;">📦 청킹 (Chunking)</div>
+                    <span class="flow-arrow">→</span>
+                    <div class="card" style="display: inline-block;">🔢 임베딩 생성</div>
+                    <span class="flow-arrow">→</span>
+                    <div class="card" style="display: inline-block;">💾 ChromaDB</div>
+                </div>
+            </section>
+
+            <section>
+                <h2>디렉토리 구조</h2>
+                <pre class="diagram"><code>AI_7-team/
+├── app/                    # Streamlit 웹 UI
+│   └── main.py
+├── src/                    # 핵심 소스 코드
+│   ├── graph/              # 워크플로우 (state, nodes, workflow)
+│   ├── parsers/            # 문서 로더 (csv, pdf, hwp, chunker)
+│   ├── retrievers/         # 검색 시스템 (vectorstore, embeddings)
+│   ├── prompts/            # 프롬프트 템플릿
+│   └── utils/             # 유틸리티 (config, helpers)
+├── scripts/               # 유틸리티 스크립트
+├── tests/                 # 테스트 코드
+└── docs/                 # 문서</code></pre>
+            </section>
+
+            <!-- CHAPTER 3 -->
+            <section data-background="linear-gradient(135deg, #f093fb 0%, #f5576c 100%)">
+                <div class="section-title">
+                    <div class="chapter-number">03</div>
+                    <h1 style="color: white; margin: 0;">핵심 모듈</h1>
+                </div>
+            </section>
+
+            <section>
+                <h2>1. 그래프/워크플로우 모듈</h2>
+                <div class="grid-3">
+                    <div class="card">
+                        <h4>state.py</h4>
+                        <ul style="text-align: left; font-size: 0.55em;">
+                            <li>OrgInfo: 기관 정보</li>
+                            <li>MarkdownData: 변환 결과</li>
+                            <li>QueryIntent: 질문 의도</li>
+                            <li>ConversationContext</li>
+                        </ul>
+                    </div>
+                    <div class="card">
+                        <h4>nodes.py</h4>
+                        <ul style="text-align: left; font-size: 0.55em;">
+                            <li>QueryIntentParser</li>
+                            <li>RFPAnswerGenerator</li>
+                            <li>LLM 기반 파싱</li>
+                        </ul>
+                    </div>
+                    <div class="card">
+                        <h4>workflow.py</h4>
+                        <ul style="text-align: left; font-size: 0.55em;">
+                            <li>RAGChatbotV17</li>
+                            <li>메인 챗봇 클래스</li>
+                            <li>LangGraph 기반</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <section>
+                <h2>2. 파서 모듈</h2>
+                <div class="two-columns">
+                    <div class="card">
+                        <h4>csv_loader.py</h4>
+                        <p style="font-size: 0.55em;">CSV → 마크다운 테이블 변환</p>
+                    </div>
+                    <div class="card">
+                        <h4>pdf_loader.py</h4>
+                        <p style="font-size: 0.55em;">pdfplumber로 텍스트 추출</p>
+                    </div>
+                    <div class="card">
+                        <h4>hwp_loader.py</h4>
+                        <p style="font-size: 0.55em;">LibreOffice → PDF 변환</p>
+                    </div>
+                    <div class="card">
+                        <h4>chunker.py</h4>
+                        <p style="font-size: 0.55em;">헤더 기반 지능형 청킹</p>
+                    </div>
+                </div>
+            </section>
+
+            <section>
+                <h2>3. 검색 모듈</h2>
+                <div class="two-columns">
+                    <div class="card">
+                        <h4>🔍 VectorStore</h4>
+                        <ul style="font-size: 0.55em;">
+                            <li>ChromaDB 기반</li>
+                            <li>Cosine Similarity</li>
+                            <li>메타데이터 필터링</li>
+                            <li>k=5개 문서 반환</li>
+                        </ul>
+                    </div>
+                    <div class="card">
+                        <h4>📊 Embeddings</h4>
+                        <ul style="font-size: 0.55em;">
+                            <li>OpenAI text-embedding-3-small</li>
+                            <li>1536 차원</li>
+                            <li>한국어 최적화</li>
+                            <li>$0.02/1M tokens</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="box" style="margin-top: 15px; font-size: 0.6em;">
+                    <p><strong>왜 ChromaDB?</strong> 로컬 실행 가능, Python 네이티브, 빠른 검색, 무료</p>
+                </div>
+            </section>
+
+            <!-- CHAPTER 4 -->
+            <section data-background="linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)">
+                <div class="section-title">
+                    <div class="chapter-number">04</div>
+                    <h1 style="color: white; margin: 0;">코드 분석</h1>
+                </div>
+            </section>
+
+            <section>
+                <h2>질문 파싱 시스템</h2>
+                <pre><code><small>@dataclass
+class QueryIntent:
+    query_type: str      # org, ranking, filter, category
+    org_name: str = ""
+    rank_order: str = ""
+    amount_min: float = 0
+    amount_max: float = 0
+    confidence: float = 0.0
+
+class QueryIntentParser:
+    def parse(self, query: str) -> QueryIntent:
+        # LLM을 활용한 질문 의도 분석
+        # 후속 질문 처리를 위한 컨텍스트 활용</small></code></pre>
+                <div class="box" style="margin-top: 10px; font-size: 0.6em;">
+                    <p><strong>왜 이 구조?</strong> 질문 유형별로 다른 처리 전략 적용 가능</p>
+                </div>
+            </section>
+
+            <section>
+                <h2>문서 처리 파이프라인</h2>
+                <pre><code><small>class TextCleaner:
+    def clean(self, text: str) -> str:
+        # 1. 공백 정규화 (여러 공백 → 단일 공백)
+        # 2. 특수 문자 정제
+        # 3. 불필요한 패턴 제거
+
+class MarkdownChunker:
+    def chunk(self, markdown: str) -> list[str]:
+        # 1. 헤더(#, ##) 기반 지능형 분할
+        # 2. 청크 크기 조절 (최대 1000 토큰)
+        # 3. 중복 제거</small></code></pre>
+            </section>
+
+            <section>
+                <h2>답변 생성</h2>
+                <pre><code><small>class RFPAnswerGenerator:
+    def generate(self, query: str, context: str) -> str:
+        # 1. 검색된 컨텍스트와 질문 결합
+        # 2. RAG 프롬프트 생성
+        # 3. LLM으로 답변 생성
+        # 4. 후처리 (불필요한 문구 제거)</small></code></pre>
+                <div class="box" style="margin-top: 10px; font-size: 0.6em;">
+                    <p><strong>핵심 원칙:</strong> 간결하고 정확한 답변, 출처 명시</p>
+                </div>
+            </section>
+
+            <!-- CHAPTER 5 -->
+            <section data-background="linear-gradient(135deg, #fa709a 0%, #fee140 100%)">
+                <div class="section-title">
+                    <div class="chapter-number">05</div>
+                    <h1 style="color: #333; margin: 0;">설계 패턴</h1>
+                </div>
+            </section>
+
+            <section>
+                <h2>사용된 설계 패턴</h2>
+                <table>
+                    <tr>
+                        <th>패턴</th>
+                        <th>적용 위치</th>
+                        <th>목적</th>
+                    </tr>
+                    <tr>
+                        <td>전략 패턴</td>
+                        <td>RAGChatbotV17</td>
+                        <td>질문 처리 전략 캡슐화</td>
+                    </tr>
+                    <tr>
+                        <td>팩토리 패턴</td>
+                        <td>파서</td>
+                        <td>파일 형식별 변환기 생성</td>
+                    </tr>
+                    <tr>
+                        <td>빌더 패턴</td>
+                        <td>VectorStore</td>
+                        <td>임베딩 생성기 추상화</td>
+                    </tr>
+                    <tr>
+                        <td>옵저버 패턴</td>
+                        <td>ConversationContext</td>
+                        <td>대화 기록 관리</td>
+                    </tr>
+                    <tr>
+                        <td>어댑터 패턴</td>
+                        <td>Chunker</td>
+                        <td>청킹 크기 동적 조정</td>
+                    </tr>
+                </table>
+            </section>
+
+            <section>
+                <h2>SOLID 원칙 적용</h2>
+                <div class="grid-3">
+                    <div class="card">
+                        <h4>단일 책임 (SRP)</h4>
+                        <p style="font-size: 0.55em;">각 클래스가 하나의 책임만</p>
+                        <p style="font-size: 0.5em; color: #888;">QueryIntentParser는 파싱만</p>
+                    </div>
+                    <div class="card">
+                        <h4>개방-폐쇄 (OCP)</h4>
+                        <p style="font-size: 0.55em;">확장에는 열려, 변경엔 닫혀</p>
+                        <p style="font-size: 0.5em; color: #888;">임베딩 생성기 추가 가능</p>
+                    </div>
+                    <div class="card">
+                        <h4>인터페이스 분리 (ISP)</h4>
+                        <p style="font-size: 0.55em;">구체 구현 숨김</p>
+                        <p style="font-size: 0.5em; color: #888;">VectorStore 인터페이스</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- CHAPTER 6 -->
+            <section data-background="linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)">
+                <div class="section-title">
+                    <div class="chapter-number">06</div>
+                    <h1 style="color: #333; margin: 0;">사용 예시</h1>
+                </div>
+            </section>
+
+            <section>
+                <h2>질문 유형별 처리</h2>
+                <table>
+                    <tr>
+                        <th>질문 유형</th>
+                        <th>예시</th>
+                        <th>처리 방식</th>
+                    </tr>
+                    <tr>
+                        <td>기관 조회</td>
+                        <td>"고려대학교 사업비는?"</td>
+                        <td>org 레지스트리 직접 검색</td>
+                    </tr>
+                    <tr>
+                        <td>랭킹 조회</td>
+                        <td>"TOP5 기관은?"</td>
+                        <td>사업비 순 정렬</td>
+                    </tr>
+                    <tr>
+                        <td>범위 필터링</td>
+                        <td>"5억에서 10억 사이"</td>
+                        <td>min/max 조건 필터링</td>
+                    </tr>
+                    <tr>
+                        <td>카테고리 검색</td>
+                        <td>"IT 관련 사업?"</td>
+                        <td>사업명 키워드 검색</td>
+                    </tr>
+                    <tr>
+                        <td>후속 질문</td>
+                        <td>"그거 언제야?"</td>
+                        <td>대화 컨텍스트 활용</td>
+                    </tr>
+                </table>
+            </section>
+
+            <section>
+                <h2>후속 질문 처리 예시</h2>
+                <div class="box" style="font-size: 0.65em; text-align: left;">
+                    <p><strong>Q:</strong> 고려대학교 사업비는?</p>
+                    <p><strong>A:</strong> 약 141.1억 원입니다.</p>
+                    <br>
+                    <p><strong>Q:</strong> 그거 언제까지야?</p>
+                    <p><strong>A:</strong> 2024년 12월 31일까지입니다.</p>
+                    <br>
+                    <p><strong>Q:</strong> 사업명은?</p>
+                    <p><strong>A:</strong> 스마트캠퍼스 구축입니다.</p>
+                </div>
+                <div class="box" style="margin-top: 10px; font-size: 0.6em;">
+                    <p><strong>ConversationContext</strong>가 이전 대화를 기억하여 자연스러운 대화 가능</p>
+                </div>
+            </section>
+
+            <!-- CLOSING -->
+            <section data-background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)">
+                <h1 style="color: white; font-size: 2.5em;">감사합니다</h1>
+                <p style="color: rgba(255,255,255,0.8); font-size: 0.7em; margin-top: 30px;">
+                    📁 문서: docs/DOCUMENTATION.md, docs/CODE_STUDY.md<br>
+                    🌐 GitHub: https://github.com/Loah-Lee/AI_7-team<br>
+                    🚀 실행: streamlit run app/main.py
+                </p>
+                <div style="margin-top: 50px;">
+                    <span class="tag feature" style="background: rgba(255,255,255,0.2); font-size: 0.6em;">v17</span>
+                    <span class="tag feature" style="background: rgba(255,255,255,0.2); font-size: 0.6em;">7팀</span>
+                    <span class="tag feature" style="background: rgba(255,255,255,0.2); font-size: 0.6em;">2026.02.12</span>
+                </div>
+            </section>
+
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/reveal.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/plugin/notes/notes.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/plugin/markdown/markdown.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/plugin/highlight/highlight.min.js"></script>
+    <script>
+        Reveal.initialize({
+            hash: true,
+            center: true,
+            transition: 'slide',
+            slideNumber: true,
+            plugins: [RevealMarkdown, RevealHighlight, RevealNotes]
+        });
+    </script>
+</body>
+</html>

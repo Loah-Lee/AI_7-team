@@ -78,11 +78,17 @@ class EmbeddingGenerator:
         from openai import OpenAI
 
         client = OpenAI(api_key=self.api_key)
-        embeddings = client.embeddings.create(
-            model=embedding_config.model,
-            input=texts
-        )
-        return [e.embedding for e in embeddings.data]
+        # OpenAI embedding API의 request당 토큰 상한을 피하기 위해 배치 처리
+        vectors: list[list[float]] = []
+        batch_size = 64
+        for idx in range(0, len(texts), batch_size):
+            batch = texts[idx: idx + batch_size]
+            embeddings = client.embeddings.create(
+                model=embedding_config.model,
+                input=batch,
+            )
+            vectors.extend([e.embedding for e in embeddings.data])
+        return vectors
 
     def _embed_with_local(self, texts: list[str]) -> list[list[float]]:
         """로컬 모델로 텍스트를 임베딩합니다.
@@ -96,7 +102,7 @@ class EmbeddingGenerator:
         if self.local_model is None:
             raise RuntimeError("로컬 임베딩 모델이 초기화되지 않았습니다.")
 
-        embeddings = self.local_model.encode(texts)
+        embeddings = self.local_model.encode(texts, show_progress_bar=False)
         return embeddings.tolist()
 
     @property

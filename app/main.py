@@ -33,6 +33,7 @@ if LANGSMITH_TRACING and LANGSMITH_API_KEY:
     os.environ["LANGCHAIN_API_KEY"] = LANGSMITH_API_KEY
     os.environ["LANGCHAIN_ENDPOINT"] = LANGSMITH_ENDPOINT
     os.environ["LANGCHAIN_PROJECT"] = LANGSMITH_PROJECT
+    print(f"🔍 LangSmith 트레이싱 활성화: {LANGSMITH_PROJECT}")
 
 from src.utils.config import *
 from src.utils.helpers import format_amount
