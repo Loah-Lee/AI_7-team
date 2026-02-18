@@ -41,43 +41,56 @@ class HWPConverter:
         raise FileNotFoundError("LibreOffice를 찾을 수 없습니다")
     
     def convert(self, hwp_path: str, output_dir: str = None) -> dict:
-        """HWP 파일을 PDF로 변환"""
+        """한글 및 기호가 포함된 파일명을 안전하게 PDF로 변환"""
         
-        hwp_path = Path(hwp_path)
+        # 1. 절대 경로로 변환 (기호가 섞인 경로 문제를 최소화)
+        hwp_path = Path(hwp_path).resolve()
         if not hwp_path.exists():
             raise FileNotFoundError(f"파일을 찾을 수 없습니다: {hwp_path}")
         
         if output_dir is None:
-            output_dir = str(hwp_path.parent)
+            output_dir = hwp_path.parent
+        else:
+            output_dir = Path(output_dir).resolve()
         
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
         
-        print(f"HWP → PDF 변환 중: {hwp_path.name}")
+        # 2. 인코딩 문제 방지를 위한 환경 변수 설정
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["LANG"] = "ko_KR.UTF-8"
+
+        print(f"🔄 변환 시도 중: {hwp_path.name}")
         
-        # LibreOffice 호출
+        # 3. LibreOffice 호출 (리스트 형태로 전달하여 쉘 이스케이프 방지)
         cmd = [
             self.libreoffice_path,
             '--headless',
             '--convert-to', 'pdf',
-            '--outdir', output_dir,
+            '--outdir', str(output_dir),
             str(hwp_path)
         ]
         
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            # shell=False (기본값)를 유지하여 특수기호가 쉘에 의해 해석되지 않도록 함
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
             
             if result.returncode != 0:
-                raise RuntimeError(f"변환 실패: {result.stderr}")
+                raise RuntimeError(f"LibreOffice 오류: {result.stderr}")
             
-            # 변환된 PDF 파일 찾기
-            pdf_name = hwp_path.stem + '.pdf'
-            pdf_path = Path(output_dir) / pdf_name
+            # 4. 변환된 PDF 파일 확인 로직 강화
+            # LibreOffice는 파일명에 점이 여러개면 마지막 확장자만 바꿉니다.
+            pdf_path = output_dir / (hwp_path.stem + ".pdf")
             
             if not pdf_path.exists():
-                raise RuntimeError("PDF 파일이 생성되지 않았습니다")
+                # 만약 stem 기반으로 못 찾는다면 대안으로 파일 목록에서 검색
+                possible_files = list(output_dir.glob(f"{hwp_path.stem}.pdf"))
+                if possible_files:
+                    pdf_path = possible_files[0]
+                else:
+                    raise RuntimeError(f"PDF 파일 생성 확인 실패: {pdf_path.name}")
             
-            print(f"✅ 변환 완료: {pdf_path}")
-            print(f"   파일 크기: {pdf_path.stat().st_size / (1024*1024):.2f} MB")
+            print(f"✅ 변환 성공: {pdf_path.name}")
             
             return {
                 'success': True,
@@ -87,9 +100,9 @@ class HWPConverter:
             }
         
         except subprocess.TimeoutExpired:
-            raise RuntimeError("변환 타임아웃 (5분 초과)")
+            raise RuntimeError("변환 시간 초과")
         except Exception as e:
-            raise RuntimeError(f"변환 중 오류: {e}")
+            raise RuntimeError(f"변환 중 알 수 없는 오류: {e}")
 
 
 def main():
