@@ -97,6 +97,11 @@ def _query_kind(query: str) -> str:
     return "generic"
 
 
+def _is_summary_query(query: str) -> bool:
+    q = query.strip()
+    return bool(re.search(r"요약|설명|정리|종합|배경|목표|범위|이해하기", q))
+
+
 def _has_kind_signal(text: str, kind: str) -> bool:
     if kind == "percent":
         return bool(_PERCENT_RE.search(text))
@@ -121,6 +126,9 @@ def _query_type_weight_bonus(
     kind = _query_kind(query)
     merged = f"{source_path} {text} {metadata_text(metadata)}"
     bonus = 0.0
+    factoid_mode = kind in {"percent", "money", "date", "period", "contact"} and not _is_summary_query(
+        query
+    )
 
     # 기관명이 명시된 질의는 source/meta에 기관 흔적이 있는 청크를 우선
     if extract_org_prefix(query) and org_match(
@@ -131,17 +139,25 @@ def _query_type_weight_bonus(
         meta_only=False,
     ):
         bonus += 0.18
+        if factoid_mode:
+            bonus += 0.04
 
     if _has_kind_signal(merged, kind):
         if kind in {"percent", "money"}:
             bonus += 0.24
+            if factoid_mode:
+                bonus += 0.06
         elif kind in {"date", "period"}:
             bonus += 0.20
+            if factoid_mode:
+                bonus += 0.05
         elif kind == "contact":
             bonus += 0.16
+            if factoid_mode:
+                bonus += 0.05
     elif kind in {"percent", "money", "date", "period", "contact"}:
         # 숫자/기관 질의에서 시그널이 전혀 없는 청크는 약한 패널티
-        bonus -= 0.08
+        bonus -= 0.12 if factoid_mode else 0.08
 
     return bonus
 
@@ -415,12 +431,15 @@ class HybridRetriever(RetrieverBase):
         if not self._chunks:
             return []
         lexical_scores = tfidf_scores(query, self._chunks, self._vectors, self._idf)
-        query_vec = self._embedder.embed_query(query)
-        dense_scores = self._index.score_all(query_vec)
-        dense_map = {
-            meta.chunk_id: float(score)
-            for meta, score in zip(self._index.meta, dense_scores, strict=False)
-        }
+        dense_map: Dict[str, float] = {}
+        # alpha=1.0이면 lexical-only 경로이므로 불필요한 임베딩 API 호출을 생략한다.
+        if self._alpha < 1.0:
+            query_vec = self._embedder.embed_query(query)
+            dense_scores = self._index.score_all(query_vec)
+            dense_map = {
+                meta.chunk_id: float(score)
+                for meta, score in zip(self._index.meta, dense_scores, strict=False)
+            }
 
         if self._org_hard_filter:
             candidate_indices = [

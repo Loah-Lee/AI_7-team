@@ -1,5 +1,5 @@
 {
-  "input_path": "configs/eval_queries_v2_rich.jsonl",
+  "input_path": "configs/eval_queries_qmix_q20.jsonl",
   "k": 10,
   "rerank_mode": "none",
   "llm_model": "gpt-5-nano",
