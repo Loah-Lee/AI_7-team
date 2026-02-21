@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+import uuid
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -79,7 +80,7 @@ def get_chatbot():
 
     return RAGChatbot(
         retriever="hybrid",
-        rerank="rule",
+        rerank="none",
         top_k=50,
         context_k=20,
     )
@@ -199,6 +200,9 @@ def process_user_query(chatbot, query: str) -> None:
                 "top1": result.get("top1", {}),
                 "citations": result.get("citations", []),
                 "response_time_sec": round(response_time, 4),
+                "session_id": st.session_state.get("langfuse_session_id"),
+                "tags": ["streamlit", "rag", f"retriever:{chatbot.retriever_kind}"],
+                "version": "app.main.v1",
             },
         )
     except Exception:
@@ -230,6 +234,8 @@ def main() -> None:
         st.session_state.messages = []
     if "user_input" not in st.session_state:
         st.session_state.user_input = ""
+    if "langfuse_session_id" not in st.session_state:
+        st.session_state.langfuse_session_id = str(uuid.uuid4())
 
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):

@@ -25,17 +25,118 @@ class _LangfuseLogger:
         )
 
     def log_trace(self, name: str, payload: Dict[str, Any]) -> None:
-        # SDK v3(create_event) 우선, 구버전(v2)의 trace는 fallback으로만 사용한다.
+        # SDK v3에서는 trace 레벨 input/output 표시를 위해 current span + trace update를 사용한다.
+        # 구버전(v2)의 trace는 마지막 fallback으로만 사용한다.
         try:
-            event_input = payload.get("query", payload.get("input"))
-            event_output = payload.get("answer", payload.get("output"))
+            event_input = payload.get("input")
+            if event_input is None and "query" in payload:
+                event_input = {"query": payload.get("query")}
+
+            event_output = payload.get("output")
+            if event_output is None:
+                if any(k in payload for k in ("answer", "status", "top1", "citations", "response_time_sec")):
+                    event_output = {
+                        "answer": payload.get("answer"),
+                        "status": payload.get("status"),
+                        "top1": payload.get("top1"),
+                        "citations": payload.get("citations"),
+                        "response_time_sec": payload.get("response_time_sec"),
+                    }
+                elif any(k in payload for k in ("metrics", "qual_score_top1", "qual_reason_top1")):
+                    event_output = {
+                        "metrics": payload.get("metrics"),
+                        "qual_score_top1": payload.get("qual_score_top1"),
+                        "qual_reason_top1": payload.get("qual_reason_top1"),
+                    }
+                elif "answer" in payload:
+                    event_output = payload.get("answer")
+
+            level = payload.get("level")
+            status = str(payload.get("status", "")).lower().strip()
+            if not level:
+                if status in {"error", "fail", "failed"}:
+                    level = "ERROR"
+                elif status in {"warn", "warning"}:
+                    level = "WARNING"
+                else:
+                    level = "DEFAULT"
+            status_message = payload.get("status_message", payload.get("status"))
+            version = payload.get("version")
+            user_id = payload.get("user_id")
+            session_id = payload.get("session_id")
+            public = payload.get("public")
+
+            tags = payload.get("tags")
+            if isinstance(tags, str):
+                tags = [tags]
+            if not isinstance(tags, list):
+                tags = [name]
+            if status:
+                tags.append(f"status:{status}")
+            if payload.get("variant"):
+                tags.append(f"variant:{payload.get('variant')}")
+            if payload.get("retriever"):
+                tags.append(f"retriever:{payload.get('retriever')}")
+            tags = [str(t) for t in tags if str(t).strip()]
+            # 순서 보존 중복 제거
+            tags = list(dict.fromkeys(tags))
+
+            metadata = dict(payload)
+            for key in (
+                "input",
+                "output",
+                "query",
+                "answer",
+                "level",
+                "status",
+                "status_message",
+                "version",
+                "user_id",
+                "session_id",
+                "public",
+                "tags",
+            ):
+                metadata.pop(key, None)
+
+            start_as_current_span = getattr(self._client, "start_as_current_span", None)
+            if callable(start_as_current_span):
+                with start_as_current_span(
+                    name=name,
+                    input=event_input,
+                    output=event_output,
+                    metadata=metadata,
+                    level=level,
+                    status_message=status_message,
+                    version=version,
+                ):
+                    update_current_trace = getattr(self._client, "update_current_trace", None)
+                    if callable(update_current_trace):
+                        update_current_trace(
+                            name=name,
+                            input=event_input,
+                            output=event_output,
+                            metadata=metadata,
+                            user_id=user_id,
+                            session_id=session_id,
+                            version=version,
+                            tags=tags,
+                            public=public,
+                        )
+                flush = getattr(self._client, "flush", None)
+                if callable(flush):
+                    flush()
+                return
+
             create_event = getattr(self._client, "create_event", None)
             if callable(create_event):
                 create_event(
                     name=name,
                     input=event_input,
                     output=event_output,
-                    metadata=payload,
+                    metadata=metadata,
+                    level=level,
+                    status_message=status_message,
+                    version=version,
                 )
                 flush = getattr(self._client, "flush", None)
                 if callable(flush):

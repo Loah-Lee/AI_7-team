@@ -20,7 +20,7 @@ class RAGChatbot:
         self,
         *,
         retriever: str = "hybrid",
-        rerank: str = "rule",
+        rerank: str = "none",
         top_k: int = 50,
         context_k: int = 20,
     ) -> None:

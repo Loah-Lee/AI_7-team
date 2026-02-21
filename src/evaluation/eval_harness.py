@@ -845,7 +845,9 @@ def run_eval(
                     logger.log_trace(
                         name="eval_query",
                         payload={
+                            "query": query.query,
                             "query_id": query.query_id,
+                            "status": "ok",
                             "variant": retriever.name,
                             "retriever": retriever.kind,
                             "latency_ms": row["latency_ms"],
@@ -858,6 +860,8 @@ def run_eval(
                             },
                             "qual_score_top1": row["qual_score_top1"],
                             "qual_reason_top1": row["qual_reason_top1"],
+                            "tags": ["evaluation", f"variant:{retriever.name}", f"retriever:{retriever.kind}"],
+                            "version": "eval_harness.v1",
                         },
                     )
                     key = f"{retriever.name}:{retriever.kind}:{rerank_mode}"
