@@ -165,13 +165,24 @@ def render_sidebar(chatbot) -> None:
 
 def process_user_query(chatbot, query: str) -> None:
     tracer = get_langfuse_tracer()
+    trace_name = "streamlit_user_query"
+    trace_base_payload = {
+        "query": query,
+        "session_id": st.session_state.get("langfuse_session_id"),
+        "tags": ["streamlit", "rag", f"retriever:{chatbot.retriever_kind}"],
+        "version": "app.main.v1",
+    }
 
     with st.chat_message("user"):
         st.markdown(f"**{query}**")
     st.session_state.messages.append({"role": "user", "content": query})
 
+    span = None
     with st.chat_message("assistant"):
         with st.spinner("검색/생성 중..."):
+            start_span_fn = getattr(tracer, "start_span", None)
+            if callable(start_span_fn):
+                span = start_span_fn(trace_name, trace_base_payload)
             start_time = time.time()
             result = chatbot.answer(query)
             response_time = time.time() - start_time
@@ -191,20 +202,22 @@ def process_user_query(chatbot, query: str) -> None:
         st.caption(f"응답 시간: {response_time:.2f}초")
 
     try:
-        tracer.trace(
-            name="streamlit_user_query",
-            payload={
-                "query": query,
-                "status": result.get("status", "unknown"),
-                "answer": result.get("answer", ""),
-                "top1": result.get("top1", {}),
-                "citations": result.get("citations", []),
-                "response_time_sec": round(response_time, 4),
-                "session_id": st.session_state.get("langfuse_session_id"),
-                "tags": ["streamlit", "rag", f"retriever:{chatbot.retriever_kind}"],
-                "version": "app.main.v1",
-            },
-        )
+        trace_payload = {
+            **trace_base_payload,
+            "status": result.get("status", "unknown"),
+            "answer": result.get("answer", ""),
+            "top1": result.get("top1", {}),
+            "citations": result.get("citations", []),
+            "response_time_sec": round(response_time, 4),
+        }
+        if span is not None:
+            end_span_fn = getattr(tracer, "end_span", None)
+            if callable(end_span_fn):
+                end_span_fn(span, trace_name, trace_payload)
+            else:
+                tracer.trace(name=trace_name, payload=trace_payload)
+        else:
+            tracer.trace(name=trace_name, payload=trace_payload)
     except Exception:
         pass
 
