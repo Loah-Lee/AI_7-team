@@ -786,7 +786,7 @@ def main() -> int:
     parser.add_argument("--answer-model", default="gpt-5-nano")
     parser.add_argument("--topk", type=int, default=50)
     parser.add_argument("--context-k", type=int, default=20)
-    parser.add_argument("--hybrid-alpha", type=float, default=0.8)
+    parser.add_argument("--hybrid-alpha", type=float, default=0.9)
     parser.add_argument("--table-multiplier", type=float, default=1.0)
     parser.add_argument("--dense-index-b", default=str(Path("data_index") / "dense_B"))
     parser.add_argument("--chroma-persist-dir", default=str(Path("data_index") / "chroma_B"))

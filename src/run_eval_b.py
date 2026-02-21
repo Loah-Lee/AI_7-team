@@ -25,7 +25,7 @@ def main() -> int:
         llm_model=str(cfg.get("llm_model", "gpt-5-nano")),
         variant=str(cfg.get("variant", "B")),
         retriever=str(cfg.get("retriever", "hybrid")),
-        hybrid_alpha=float(cfg.get("hybrid_alpha", 0.8)),
+        hybrid_alpha=float(cfg.get("hybrid_alpha", 0.9)),
         tune_alpha=bool(cfg.get("tune_alpha", False)),
         table_multiplier=float(cfg.get("table_multiplier", 1.2)),
         dense_index_b=Path(cfg.get("dense_index_b", "data_index/dense_B")),

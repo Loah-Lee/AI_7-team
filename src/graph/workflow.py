@@ -33,7 +33,7 @@ class RAGChatbot:
             retriever_kind=self.retriever_kind,
             chunks_b=self.chunks,
             dense_index_b=Path("data_index") / "dense_B",
-            hybrid_alpha=0.8,
+            hybrid_alpha=0.9,
             table_multiplier=1.0,
             chroma_persist_dir=Path("data_index") / "chroma_B",
             chroma_collection="rfp_b_auto",
