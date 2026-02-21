@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 import time
 import uuid
@@ -145,6 +146,14 @@ RAG_QUESTION_DEFAULTS = [
 
 def render_sidebar(chatbot) -> None:
     with st.sidebar:
+        current_org = st.session_state.get("session_org", "")
+        if current_org:
+            st.caption(f"현재 기관 컨텍스트: `{current_org}`")
+            if st.button("기관 컨텍스트 초기화", use_container_width=True):
+                st.session_state.session_org = ""
+                st.session_state.pending_org_query = ""
+                st.rerun()
+
         st.header("빠른 질문")
         for q in RAG_QUESTION_DEFAULTS:
             if st.button(q, key=f"q_{hash(q)}", use_container_width=True):
@@ -163,6 +172,35 @@ def render_sidebar(chatbot) -> None:
         st.caption(f"top_k/context_k: `{chatbot.top_k}/{chatbot.context_k}`")
 
 
+def _extract_org_name(query: str) -> str:
+    from src.graph.nodes import parse_org
+
+    org = parse_org(query)
+    if org.matched and org.org_name:
+        return org.org_name.strip()
+    return ""
+
+
+def _looks_like_org_name(text: str) -> bool:
+    t = text.strip()
+    if not t:
+        return False
+    if len(t) > 40:
+        return False
+    if re.search(r"[?？!！]", t):
+        return False
+    return bool(
+        re.search(r"(공사|공단|재단|대학교|대학|병원|정보원|진흥원|연구원|협회|위원회|공항)$", t)
+        or t.startswith("한국")
+    )
+
+
+def _append_assistant_message(text: str) -> None:
+    with st.chat_message("assistant"):
+        st.markdown(text)
+    st.session_state.messages.append({"role": "assistant", "content": text})
+
+
 def process_user_query(chatbot, query: str) -> None:
     tracer = get_langfuse_tracer()
     trace_name = "streamlit_user_query"
@@ -177,6 +215,40 @@ def process_user_query(chatbot, query: str) -> None:
         st.markdown(f"**{query}**")
     st.session_state.messages.append({"role": "user", "content": query})
 
+    pending_org_query = st.session_state.get("pending_org_query", "")
+    session_org = st.session_state.get("session_org", "")
+    detected_org = _extract_org_name(query)
+    effective_query = query
+
+    if pending_org_query:
+        org_candidate = detected_org or query.strip()
+        if not _looks_like_org_name(org_candidate):
+            _append_assistant_message(
+                "기관명을 먼저 확인해야 정확한 답변이 가능합니다. 예: `한국농어촌공사`, `고려대학교`"
+            )
+            st.session_state.user_input = ""
+            st.rerun()
+            return
+
+        st.session_state.session_org = org_candidate
+        st.session_state.pending_org_query = ""
+        _append_assistant_message(
+            f"기관 컨텍스트를 `{org_candidate}`로 설정했습니다. 이어서 답변합니다."
+        )
+        effective_query = f"{org_candidate} {pending_org_query}".strip()
+    elif detected_org:
+        st.session_state.session_org = detected_org
+    elif session_org:
+        effective_query = f"{session_org} {query}".strip()
+    else:
+        st.session_state.pending_org_query = query
+        _append_assistant_message(
+            "어느 기관 문서를 기준으로 찾을까요? 기관명을 먼저 입력해주세요. 예: `한국농어촌공사`"
+        )
+        st.session_state.user_input = ""
+        st.rerun()
+        return
+
     span = None
     with st.chat_message("assistant"):
         with st.spinner("검색/생성 중..."):
@@ -184,11 +256,13 @@ def process_user_query(chatbot, query: str) -> None:
             if callable(start_span_fn):
                 span = start_span_fn(trace_name, trace_base_payload)
             start_time = time.time()
-            result = chatbot.answer(query)
+            result = chatbot.answer(effective_query)
             response_time = time.time() - start_time
 
         st.markdown(result.get("answer", "답변 생성 실패"))
         st.caption(f"status: {result.get('status', 'unknown')}")
+        if effective_query != query:
+            st.caption(f"effective_query: {effective_query}")
         top1 = result.get("top1", {}) or {}
         if top1.get("source_path"):
             st.caption(
@@ -204,6 +278,7 @@ def process_user_query(chatbot, query: str) -> None:
     try:
         trace_payload = {
             **trace_base_payload,
+            "effective_query": effective_query,
             "status": result.get("status", "unknown"),
             "answer": result.get("answer", ""),
             "top1": result.get("top1", {}),
@@ -247,6 +322,10 @@ def main() -> None:
         st.session_state.messages = []
     if "user_input" not in st.session_state:
         st.session_state.user_input = ""
+    if "session_org" not in st.session_state:
+        st.session_state.session_org = ""
+    if "pending_org_query" not in st.session_state:
+        st.session_state.pending_org_query = ""
     if "langfuse_session_id" not in st.session_state:
         st.session_state.langfuse_session_id = str(uuid.uuid4())
 
