@@ -155,9 +155,14 @@ def gold_bonus(query: str, source_path: str, text: str, metadata: Dict[str, obje
         score += 0.6
 
     query_tokens = set(tokenize(query))
-    token_overlap = len(query_tokens & set(tokenize(meta)))
-    if token_overlap > 0:
-        score += min(0.05 * token_overlap, 0.3)
+    text_tokens = set(tokenize(text_n))
+    meta_tokens = set(tokenize(meta))
+
+    # metadata-only hit이 상위로 과도하게 뜨지 않도록, 본문에도 질의 토큰이 있을 때만 메타 가중치 부여
+    meta_overlap = len(query_tokens & meta_tokens)
+    text_overlap = len(query_tokens & text_tokens)
+    if meta_overlap > 0 and text_overlap > 0:
+        score += min(0.02 * meta_overlap, 0.1)
 
     if not passes_required_signals(query, merged):
         return 0.0, False

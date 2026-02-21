@@ -82,6 +82,9 @@ streamlit run /Users/apple/AI_7-team/app/gold_app.py
 
 # 벡터 DB 재구축(스크립트)
 python /Users/apple/AI_7-team/scripts/rebuild_db.py --dense --chroma
+
+# Chroma 실험(청킹 500/60 + 별도 컬렉션/저장소, OpenAI 임베딩)
+python /Users/apple/AI_7-team/scripts/rebuild_db.py --chunk-rich --chroma --chunk-size 500 --overlap 60 --chunk-output-dir notebooks/data_chunks_rich_500_60 --chroma-dir data_index/chroma_B_500_60 --collection rfp_b_500_60_oai --model text-embedding-3-small
 ```
 
 ---
@@ -93,7 +96,8 @@ python /Users/apple/AI_7-team/scripts/rebuild_db.py --dense --chroma
   - 1: 부분 일치/근거 불충분
   - 2: 키워드+값+섹션 일치
 - 현재 기준 설정: **Hybrid(B) + none**
-  - `hybrid_alpha=1.0`, `k=10`, `table_multiplier=1.0`
+  - `hybrid_alpha=1.0`, `topk=50`, `context_k=20`, `table_multiplier=1.0`
+  - `gold_bonus`의 metadata 가중치는 본문 토큰 동시 매칭일 때만 약하게 적용(meta_tuned)
 - 평가 입력 파일: `configs/eval_queries_v2_rich.jsonl` (B 기준 gold)
 - 운영 파라미터 파일: `configs/eval_runtime_b.json`
 

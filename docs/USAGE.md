@@ -12,6 +12,13 @@ streamlit run /Users/apple/AI_7-team/app/main.py
 python -m src.run_eval_b
 ```
 
+## Hybrid 최종 기준 실행
+
+```bash
+python -m src.rag_answer --query-file configs/eval_queries_v2_rich.jsonl --retriever hybrid --rerank none --topk 50 --context-k 20 --hybrid-alpha 1.0 --generate --output-csv results/node_report_hybrid_final_locked_meta_tuned.csv
+python -m src.evaluate_answer --eval-set configs/answer_eval_v1.jsonl --pred results/node_report_hybrid_final_locked_meta_tuned.csv --out results/answer_eval_report_hybrid_final_locked_meta_tuned.csv --fail-out results/fail_answers_hybrid_final_locked_meta_tuned.csv
+```
+
 ## RAG answer
 
 ```bash
@@ -29,6 +36,13 @@ python -m src.retrievers.build_chroma_index --input-dir notebooks/data_chunks_ri
 
 # AUTO (OPENAI_API_KEY 있으면 OpenAI, 없으면 KoSimCSE)
 python -m src.retrievers.build_chroma_index --input-dir notebooks/data_chunks_rich --persist-dir data_index/chroma_B --collection rfp_b_auto --model-provider auto
+```
+
+## Chroma 실험 (청킹 500/60)
+
+```bash
+# rich 청킹 + Chroma 인덱스를 한 번에 재구축
+python /Users/apple/AI_7-team/scripts/rebuild_db.py --chunk-rich --chroma --chunk-size 500 --overlap 60 --chunk-output-dir notebooks/data_chunks_rich_500_60 --chroma-dir data_index/chroma_B_500_60 --collection rfp_b_500_60_oai --model text-embedding-3-small
 ```
 
 ## Chroma 검색
