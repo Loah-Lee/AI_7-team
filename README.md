@@ -70,7 +70,7 @@ python -m src.retrievers.build_dense_index --variant B
 python -m src.parsers.rich_caption_assets --only-failed --workers 12
 
 # 평가(B) (Hybrid + none): 결과는 notebooks/runs/<timestamp>/results.csv
-python -c "from pathlib import Path; from src.evaluation.eval_harness import run_eval; run_eval(input_path=Path('configs/eval_queries_v2_rich.jsonl'), retriever='hybrid', variant='B', rerank_mode='none', hybrid_alpha=0.8, k=10, table_multiplier=1.0)"
+python -c "from pathlib import Path; from src.evaluation.eval_harness import run_eval; run_eval(input_path=Path('configs/eval_queries_v2_rich.jsonl'), retriever='hybrid', variant='B', rerank_mode='none', hybrid_alpha=1.0, k=10, table_multiplier=1.0)"
 
 # 평가(B) 설정파일 기반 실행: configs/eval_runtime_b.json 사용
 python -m src.run_eval_b
@@ -93,7 +93,7 @@ python /Users/apple/AI_7-team/scripts/rebuild_db.py --dense --chroma
   - 1: 부분 일치/근거 불충분
   - 2: 키워드+값+섹션 일치
 - 현재 기준 설정: **Hybrid(B) + none**
-  - `hybrid_alpha=0.8`, `k=10`, `table_multiplier=1.0`
+  - `hybrid_alpha=1.0`, `k=10`, `table_multiplier=1.0`
 - 평가 입력 파일: `configs/eval_queries_v2_rich.jsonl` (B 기준 gold)
 - 운영 파라미터 파일: `configs/eval_runtime_b.json`
 

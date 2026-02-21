@@ -663,7 +663,7 @@ def run_eval(
     llm_model: str = "gpt-5-nano",
     variant: str = "B",
     retriever: str = "hybrid",
-    hybrid_alpha: float = 0.9,
+    hybrid_alpha: float = 1.0,
     tune_alpha: bool = False,
     table_multiplier: float = 1.2,
     dense_index_a: Path = Path("data_index") / "dense_A",
@@ -887,7 +887,7 @@ if __name__ == "__main__":
     parser.add_argument("--topk", type=int, default=10)
     parser.add_argument("--variant", choices=["A", "B", "AB"], default="B")
     parser.add_argument("--retriever", choices=["tfidf", "dense", "hybrid"], default="hybrid")
-    parser.add_argument("--hybrid-alpha", type=float, default=0.9)
+    parser.add_argument("--hybrid-alpha", type=float, default=1.0)
     parser.add_argument("--tune-alpha", action="store_true")
     parser.add_argument("--table-multiplier", type=float, default=1.2)
     parser.add_argument("--dense-index-a", default=str(Path("data_index") / "dense_A"))
