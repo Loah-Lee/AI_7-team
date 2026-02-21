@@ -50,6 +50,7 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
+tests/
 
 # Translations
 *.mo
@@ -220,10 +221,18 @@ data_raw/
 data_text/
 data_chunks/
 data_index/
+chroma_db/*
+!chroma_db/.gitkeep
 
-# outputs/logs (선택: 커밋 원하면 빼도 됨)
-results/logs/
-results/outputs/
+# outputs/logs (local-only)
+artifacts/*
+!artifacts/.gitkeep
+results/*
+!results/.gitkeep
+
+# notebooks outputs (local-only)
+notebooks/*
+!notebooks/.gitkeep
 
 # Model Weights (LLM 가중치는 HuggingFace 등에서 다운로드)
 *.pth

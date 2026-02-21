@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .retrievers.dense_openai import build_dense_index
+from .dense_openai import build_dense_index
 
 
 def _log_start(input_path: Path, output_path: Path) -> None:

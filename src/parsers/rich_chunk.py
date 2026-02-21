@@ -184,6 +184,24 @@ def _chunk_id(text: str) -> str:
     return hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:12]
 
 
+def _extract_section_title(chunk: str) -> str:
+    for line in chunk.splitlines():
+        norm = line.replace("\u00a0", " ")
+        if _MD_HEADER_RE.match(norm) or _SECTION_RE.match(norm):
+            return norm.strip()
+    return ""
+
+
+def _extract_page_refs(assets: List[str]) -> List[int]:
+    pages: List[int] = []
+    for asset in assets:
+        name = Path(asset).name
+        match = re.search(r"p(\d+)_", name)
+        if match:
+            pages.append(int(match.group(1)))
+    return sorted(set(pages))
+
+
 def chunk_rich(
     input_dir: Path = Path("notebooks") / "data_rich",
     output_dir: Path = Path("notebooks") / "data_chunks_rich",
@@ -218,8 +236,14 @@ def chunk_rich(
                         "text": chunk,
                     }
                     assets = _extract_assets(chunk)
+                    metadata = {
+                        "doc_id": rel_path.stem,
+                        "section_title": _extract_section_title(chunk),
+                        "page_refs": _extract_page_refs(assets),
+                    }
                     if assets:
-                        record["metadata"] = {"assets": assets}
+                        metadata["assets"] = assets
+                    record["metadata"] = metadata
                     f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
             _log_ok("chunk", path, out_path)

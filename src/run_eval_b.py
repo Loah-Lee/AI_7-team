@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from .eval_harness import run_eval
+from .evaluation.eval_harness import run_eval
 
 
 def main() -> int:

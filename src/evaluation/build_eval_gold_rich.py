@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
@@ -12,6 +11,7 @@ from ..retrievers.rich_tfidf_search import (
     load_chunks_rich,
     tfidf_scores,
 )
+from .gold_rules import gold_bonus
 
 
 def _iter_jsonl(path: Path) -> Iterable[Dict[str, object]]:
@@ -23,48 +23,6 @@ def _iter_jsonl(path: Path) -> Iterable[Dict[str, object]]:
             yield json.loads(line)
 
 
-def _tokenize(text: str) -> List[str]:
-    return re.findall(r"[0-9A-Za-z가-힣]+", text.lower())
-
-
-def _extract_org_prefix(query: str) -> str:
-    # "한국농어촌공사 입찰 보증금..." -> "한국농어촌공사"
-    tokens = query.strip().split()
-    return tokens[0] if tokens else ""
-
-
-def _meta_text(chunk: ChunkRecord) -> str:
-    if not isinstance(chunk.metadata, dict):
-        return ""
-    parts: List[str] = []
-    for key in ("doc_id", "section_title"):
-        value = chunk.metadata.get(key)
-        if isinstance(value, str) and value.strip():
-            parts.append(value.strip())
-    nested = chunk.metadata.get("meta")
-    if isinstance(nested, dict):
-        for key in ("사업명", "발주 기관", "파일명", "사업 요약"):
-            value = nested.get(key)
-            if isinstance(value, str) and value.strip():
-                parts.append(value.strip())
-    return " ".join(parts)
-
-
-def _pattern_bonus(query: str, text: str) -> float:
-    score = 0.0
-    if re.search(r"\d{4}[./-]\d{1,2}[./-]\d{1,2}", query) and re.search(
-        r"\d{4}[./-]\d{1,2}[./-]\d{1,2}", text
-    ):
-        score += 0.2
-    if re.search(r"\d+%|\d+\s*퍼센트", query) and re.search(r"\d+%|\d+\s*퍼센트", text):
-        score += 0.2
-    if re.search(r"\d[\d,]*\s*(원|만원|천원|억원)", query) and re.search(
-        r"\d[\d,]*\s*(원|만원|천원|억원)", text
-    ):
-        score += 0.2
-    return score
-
-
 def _build_gold_for_query(
     query: str,
     chunks: List[ChunkRecord],
@@ -74,24 +32,19 @@ def _build_gold_for_query(
     top_k: int,
 ) -> List[Dict[str, object]]:
     base_scores = tfidf_scores(query, chunks, vectors, idf)
-    org = _extract_org_prefix(query)
-    query_tokens = set(_tokenize(query))
 
     ranked: List[Tuple[float, int]] = []
     for i, chunk in enumerate(chunks):
         score = float(base_scores[i])
-        text = chunk.text or ""
-        meta = _meta_text(chunk)
-        source = chunk.source_path or ""
-
-        if org and (org in source or org in text or org in meta):
-            score += 0.4
-
-        token_overlap = len(query_tokens & set(_tokenize(meta)))
-        if token_overlap > 0:
-            score += min(0.05 * token_overlap, 0.3)
-
-        score += _pattern_bonus(query, text + " " + meta)
+        bonus, ok = gold_bonus(
+            query=query,
+            source_path=chunk.source_path,
+            text=chunk.text,
+            metadata=chunk.metadata if isinstance(chunk.metadata, dict) else None,
+        )
+        if not ok:
+            continue
+        score += bonus
         ranked.append((score, i))
 
     ranked.sort(key=lambda x: x[0], reverse=True)

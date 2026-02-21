@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import argparse
 import base64
+import concurrent.futures
 import json
 import os
 import re
 import sys
+import random
+import threading
 import time
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -235,6 +238,10 @@ def caption_assets(
     assets_root: Path = Path("notebooks") / "data_assets",
     rich_root: Path = Path("notebooks") / "data_rich",
     only_failed: bool = False,
+    limit: int | None = None,
+    mix_table: bool = False,
+    seed: int = 42,
+    workers: int = 8,
 ) -> Dict[str, int]:
     _log_start(assets_root, rich_root)
 
@@ -243,38 +250,109 @@ def caption_assets(
         _log_fail("scan", assets_root, exc)
         raise exc
 
-    client = _get_client()
-
     images = [p for p in sorted(assets_root.rglob("*.png")) if p.is_file()]
-    summary = {"processed": 0, "succeeded": 0, "failed": 0}
+    if only_failed:
+        filtered = []
+        for img_path in images:
+            doc_id = img_path.parent.name
+            md_path = rich_root / f"{doc_id}.md"
+            manifest_path = rich_root / f"{doc_id}.manifest.json"
+            if not md_path.exists():
+                continue
+            image_rel = (Path("..") / "data_assets" / doc_id / img_path.name).as_posix()
+            if _needs_caption(md_path, manifest_path, image_rel):
+                filtered.append(img_path)
+        images = filtered
 
-    for img_path in images:
-        summary["processed"] += 1
+    if limit is not None:
+        rng = random.Random(seed)
+        if mix_table:
+            tables = []
+            non_tables = []
+            for img in images:
+                guess = _is_table_like_heuristic(img)
+                if guess is True:
+                    tables.append(img)
+                else:
+                    non_tables.append(img)
+            half = max(limit // 2, 0)
+            picked = rng.sample(tables, min(len(tables), half))
+            picked += rng.sample(non_tables, min(len(non_tables), limit - len(picked)))
+            if len(picked) < limit:
+                remaining = [p for p in images if p not in picked]
+                picked += rng.sample(remaining, min(len(remaining), limit - len(picked)))
+            images = picked
+        else:
+            images = rng.sample(images, min(len(images), limit))
+    summary = {"processed": len(images), "succeeded": 0, "failed": 0}
+    if not images:
+        return summary
+
+    # 파일별 동시 쓰기 충돌 방지
+    md_locks: Dict[Path, threading.Lock] = {}
+    md_locks_guard = threading.Lock()
+    local_state = threading.local()
+
+    def _get_client_local():
+        client = getattr(local_state, "client", None)
+        if client is None:
+            client = _get_client()
+            local_state.client = client
+        return client
+
+    def _get_md_lock(md_path: Path) -> threading.Lock:
+        with md_locks_guard:
+            lock = md_locks.get(md_path)
+            if lock is None:
+                lock = threading.Lock()
+                md_locks[md_path] = lock
+            return lock
+
+    def _process_one(img_path: Path) -> Tuple[str, Path, Path]:
         doc_id = img_path.parent.name
         md_path = rich_root / f"{doc_id}.md"
         manifest_path = rich_root / f"{doc_id}.manifest.json"
+
         if not md_path.exists():
-            exc = FileNotFoundError(f"Markdown not found for doc_id={doc_id}")
-            _log_fail("caption", img_path, exc)
-            summary["failed"] += 1
-            continue
+            raise FileNotFoundError(f"Markdown not found for doc_id={doc_id}")
 
-        try:
-            image_rel = (Path("..") / "data_assets" / doc_id / img_path.name).as_posix()
-            if only_failed and not _needs_caption(md_path, manifest_path, image_rel):
-                continue
+        image_rel = (Path("..") / "data_assets" / doc_id / img_path.name).as_posix()
+        if only_failed and not _needs_caption(md_path, manifest_path, image_rel):
+            return "skipped", img_path, md_path
 
-            caption, table_text = _request_caption(client, img_path)
+        caption, table_text = _request_caption(_get_client_local(), img_path)
+        lock = _get_md_lock(md_path)
+        with lock:
             _update_markdown(md_path, image_rel, caption or "이미지", table_text)
-            _log_ok("caption", img_path, md_path)
-            summary["succeeded"] += 1
-            time.sleep(0.2)
-        except Exception as exc:
-            if _is_connection_error(exc):
+        return "ok", img_path, md_path
+
+    max_workers = max(1, int(workers))
+    done = 0
+    futures: Dict[concurrent.futures.Future[Tuple[str, Path, Path]], Path] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as ex:
+        for img in images:
+            futures[ex.submit(_process_one, img)] = img
+
+        for fut in concurrent.futures.as_completed(futures):
+            done += 1
+            try:
+                status, img_path, md_path = fut.result()
+                if status == "ok":
+                    summary["succeeded"] += 1
+                    _log_ok("caption", img_path, md_path)
+            except Exception as exc:
+                img_path = futures[fut]
                 _log_fail("caption", img_path, exc)
-                raise
-            _log_fail("caption", img_path, exc)
-            summary["failed"] += 1
+                summary["failed"] += 1
+                if _is_connection_error(exc):
+                    for remain in futures:
+                        remain.cancel()
+                    raise
+            if done % 100 == 0 or done == len(images):
+                print(
+                    f"CAPTION PROGRESS | done={done}/{len(images)}"
+                    f" | succeeded={summary['succeeded']} | failed={summary['failed']}"
+                )
 
     return summary
 
@@ -345,9 +423,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--healthcheck", action="store_true")
     parser.add_argument("--only-failed", action="store_true")
+    parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--mix-table", action="store_true")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--workers", type=int, default=8)
     args = parser.parse_args()
 
     if args.healthcheck:
         raise SystemExit(_healthcheck())
 
-    caption_assets(only_failed=args.only_failed)
+    caption_assets(
+        only_failed=args.only_failed,
+        limit=args.limit,
+        mix_table=args.mix_table,
+        seed=args.seed,
+        workers=args.workers,
+    )

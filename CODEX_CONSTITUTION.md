@@ -12,6 +12,10 @@ SCOPE — ALLOWED
   - notebooks/ (minimal, experimental only)
   - streamlit_app.py (로컬 점검용 대시보드)
   - README.md
+  - docs/ (문서)
+  - eval/ (평가 문서)
+  - app/ (Streamlit 래퍼)
+  - scripts/ (유틸 스크립트)
 
 SCOPE — FORBIDDEN (ABSOLUTE)
 - You MUST NOT modify:
@@ -125,3 +129,8 @@ LANGUAGE RULES (MANDATORY)
   3) requirements.txt 또는 pyproject.toml (의존성 추가/변경 시)
   4) README.md (사용법/규약 문서화)
 - 단, 위 예외 파일을 수정할 때도 "로컬 데이터/시크릿은 절대 커밋 금지" 원칙을 유지한다.
+
+TESTS RULES (GIT)
+- tests/ 디렉토리는 로컬 전용이며 **절대 커밋하지 않는다**.
+- tests/는 .gitignore에 포함한다.
+- tests/ 아래 .gitkeep도 사용하지 않는다.

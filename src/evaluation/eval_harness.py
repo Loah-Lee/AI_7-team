@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import time
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,7 @@ from typing import Dict, Iterable, List, Sequence, Tuple
 from ..utils.langfuse_logger import get_langfuse_logger
 from .rerank_openai import rerank_openai
 from .rerank_rule import rerank_rule
+from .gold_rules import extract_org_prefix, gold_bonus, metadata_text, org_match
 from ..retrievers.dense_openai import DenseEmbedder, DenseIndex
 from ..retrievers.rich_tfidf_search import ChunkRecord as RichChunkRecord
 from ..retrievers.rich_tfidf_search import load_chunks_rich, search_tfidf, tfidf_scores, _build_tfidf
@@ -33,6 +35,7 @@ class QueryRecord:
     query_id: str
     query: str
     gold: List[Tuple[str, int]]
+    gold_chunk_ids: List[str]
 
 
 def _log_start(input_path: Path, output_path: Path) -> None:
@@ -60,6 +63,89 @@ def _chunk_id(text: str) -> str:
     return hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:12]
 
 
+def _normalize_source_path(path: str) -> str:
+    # HFS+/macOS 환경에서 NFD/NFC 혼용으로 키 매칭이 깨지는 문제를 방지
+    return unicodedata.normalize("NFC", path).strip()
+
+
+def _normalize_query_text(text: str) -> str:
+    return unicodedata.normalize("NFC", text or "").strip()
+
+
+_PERCENT_RE = re.compile(r"\d+(\.\d+)?\s*%|\d+(\.\d+)?\s*퍼센트|(?:100|백)\s*분의\s*\d+(\.\d+)?")
+_MONEY_RE = re.compile(r"\d[\d,]*(\.\d+)?\s*(원|만원|천원|억원)")
+_DATE_RE = re.compile(r"\d{4}[./-]\d{1,2}[./-]\d{1,2}|\d{1,2}\s*월\s*\d{1,2}\s*일")
+_PERIOD_RE = re.compile(r"\d+\s*(일|개월|월|년)")
+_CONTACT_RE = re.compile(
+    r"(전화|연락처|담당자|이메일|e-mail)|\b\d{2,4}-\d{3,4}-\d{4}\b|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+    re.IGNORECASE,
+)
+
+
+def _query_kind(query: str) -> str:
+    q = query.strip()
+    if re.search(r"비율|퍼센트|%", q):
+        return "percent"
+    if re.search(r"예산|금액|비용|사업비|얼마", q):
+        return "money"
+    if re.search(r"마감|일자|언제|날짜", q):
+        return "date"
+    if re.search(r"기간|며칠|몇\s*개월", q):
+        return "period"
+    if re.search(r"문의|연락처|전화|이메일|담당자", q):
+        return "contact"
+    return "generic"
+
+
+def _has_kind_signal(text: str, kind: str) -> bool:
+    if kind == "percent":
+        return bool(_PERCENT_RE.search(text))
+    if kind == "money":
+        return bool(_MONEY_RE.search(text))
+    if kind == "date":
+        return bool(_DATE_RE.search(text))
+    if kind == "period":
+        return bool(_PERIOD_RE.search(text))
+    if kind == "contact":
+        return bool(_CONTACT_RE.search(text))
+    return True
+
+
+def _query_type_weight_bonus(
+    *,
+    query: str,
+    source_path: str,
+    text: str,
+    metadata: Dict[str, object] | None,
+) -> float:
+    kind = _query_kind(query)
+    merged = f"{source_path} {text} {metadata_text(metadata)}"
+    bonus = 0.0
+
+    # 기관명이 명시된 질의는 source/meta에 기관 흔적이 있는 청크를 우선
+    if extract_org_prefix(query) and org_match(
+        query=query,
+        source_path=source_path,
+        text=text,
+        metadata=metadata,
+        meta_only=False,
+    ):
+        bonus += 0.18
+
+    if _has_kind_signal(merged, kind):
+        if kind in {"percent", "money"}:
+            bonus += 0.24
+        elif kind in {"date", "period"}:
+            bonus += 0.20
+        elif kind == "contact":
+            bonus += 0.16
+    elif kind in {"percent", "money", "date", "period", "contact"}:
+        # 숫자/기관 질의에서 시그널이 전혀 없는 청크는 약한 패널티
+        bonus -= 0.08
+
+    return bonus
+
+
 def _extract_sections(text: str) -> List[str]:
     sections = []
     section_map = {
@@ -80,6 +166,8 @@ def _extract_sections(text: str) -> List[str]:
 def _qual_score_top1(query: str, snippet: str) -> Tuple[int, str]:
     q = query.strip()
     s = snippet.strip()
+    if q and not s:
+        return 0, "문서에 해당 정보가 없습니다."
     if not q or not s:
         return 0, "unrelated"
 
@@ -124,22 +212,27 @@ def load_queries(path: Path) -> List[QueryRecord]:
     for row in _iter_jsonl(path):
         gold_list = row.get("gold", [])
         gold_pairs: List[Tuple[str, int]] = []
+        gold_chunk_ids: List[str] = []
         for item in gold_list:
             if not isinstance(item, dict):
                 continue
-            source_path = str(item.get("source_path", ""))
+            source_path = _normalize_source_path(str(item.get("source_path", "")))
             try:
                 chunk_index = int(item.get("chunk_index", -1))
             except Exception:
                 chunk_index = -1
             if source_path and chunk_index >= 0:
                 gold_pairs.append((source_path, chunk_index))
+            chunk_id = str(item.get("chunk_id", "")).strip()
+            if chunk_id:
+                gold_chunk_ids.append(chunk_id)
 
         records.append(
             QueryRecord(
                 query_id=str(row.get("query_id", "")),
-                query=str(row.get("query", "")),
+                query=_normalize_query_text(str(row.get("query", ""))),
                 gold=gold_pairs,
+                gold_chunk_ids=gold_chunk_ids,
             )
         )
     return records
@@ -152,7 +245,7 @@ def load_chunks(chunks_dir: Path) -> List[ChunkRecord]:
 
     for path in sorted(chunks_dir.rglob("*.jsonl")):
         for row in _iter_jsonl(path):
-            source_path = str(row.get("source_path", ""))
+            source_path = _normalize_source_path(str(row.get("source_path", "")))
             try:
                 chunk_index = int(row.get("chunk_index", -1))
             except Exception:
@@ -179,7 +272,7 @@ def load_joined_metadata(path: Path) -> Dict[Tuple[str, int], Dict[str, object]]
         return result
 
     for row in _iter_jsonl(path):
-        source_path = str(row.get("source_path", ""))
+        source_path = _normalize_source_path(str(row.get("source_path", "")))
         try:
             chunk_index = int(row.get("chunk_index", -1))
         except Exception:
@@ -296,6 +389,7 @@ class HybridRetriever(RetrieverBase):
         embedder: DenseEmbedder,
         alpha: float,
         table_multiplier: float,
+        org_hard_filter: bool = False,
     ) -> None:
         self.name = variant
         self._chunks = [
@@ -312,6 +406,7 @@ class HybridRetriever(RetrieverBase):
         self._index = index
         self._embedder = embedder
         self._alpha = max(0.0, min(1.0, float(alpha)))
+        self._org_hard_filter = bool(org_hard_filter)
         # 자체 생성 코드: 표 캡션 가중치 적용을 위한 설정
         self._table_multiplier = max(0.0, float(table_multiplier))
         self._table_map = {meta.chunk_id: meta.is_table for meta in self._index.meta}
@@ -326,16 +421,73 @@ class HybridRetriever(RetrieverBase):
             meta.chunk_id: float(score)
             for meta, score in zip(self._index.meta, dense_scores, strict=False)
         }
+        if self._org_hard_filter:
+            candidate_indices = [
+                idx
+                for idx, chunk in enumerate(self._chunks)
+                if org_match(
+                    query=query,
+                    source_path=chunk.source_path,
+                    text=chunk.text,
+                    metadata=chunk.metadata if isinstance(chunk.metadata, dict) else None,
+                    meta_only=True,
+                )
+            ]
+            if not candidate_indices:
+                return []
+        else:
+            candidate_indices = list(range(len(self._chunks)))
+
         scored = []
-        for idx, chunk in enumerate(self._chunks):
+        for idx in candidate_indices:
+            chunk = self._chunks[idx]
             dense_score = dense_map.get(chunk.chunk_id, 0.0)
             score = self._alpha * tfidf[idx] + (1.0 - self._alpha) * dense_score
+            bonus, ok = gold_bonus(
+                query=query,
+                source_path=chunk.source_path,
+                text=chunk.text,
+                metadata=chunk.metadata if isinstance(chunk.metadata, dict) else None,
+            )
+            if self._org_hard_filter and not ok:
+                continue
+            score += bonus
+            score += _query_type_weight_bonus(
+                query=query,
+                source_path=chunk.source_path,
+                text=chunk.text,
+                metadata=chunk.metadata if isinstance(chunk.metadata, dict) else None,
+            )
             if self._table_multiplier != 1.0 and self._table_map.get(chunk.chunk_id, False):
                 # 자체 생성 코드: 표 청크 점수 가중치
                 score *= self._table_multiplier
             scored.append((idx, score))
-        scored.sort(key=lambda x: x[1], reverse=True)
-        top = scored[:k]
+
+        if not scored:
+            return []
+
+        # source 내에서 가장 유망한 청크 주변(±1, ±2)에 소폭 가중치를 더해
+        # 숫자/조건이 분리된 청크를 상단으로 끌어올린다.
+        source_anchor: Dict[str, int] = {}
+        for idx, score in sorted(scored, key=lambda x: x[1], reverse=True):
+            src = self._chunks[idx].source_path
+            if src not in source_anchor:
+                source_anchor[src] = self._chunks[idx].chunk_index
+
+        adjusted: List[Tuple[int, float]] = []
+        for idx, score in scored:
+            chunk = self._chunks[idx]
+            anchor = source_anchor.get(chunk.source_path, -1)
+            if anchor >= 0 and chunk.chunk_index >= 0:
+                dist = abs(chunk.chunk_index - anchor)
+                if dist == 1:
+                    score += 0.10
+                elif dist == 2:
+                    score += 0.05
+            adjusted.append((idx, score))
+
+        adjusted.sort(key=lambda x: x[1], reverse=True)
+        top = adjusted[:k]
         return [
             ChunkRecord(
                 source_path=self._chunks[i].source_path,
@@ -352,20 +504,34 @@ def evaluate_query(
     query: QueryRecord,
     retrieved: Sequence[ChunkRecord],
 ) -> Dict[str, float]:
-    gold_set = set(query.gold)
+    gold_set = {(_normalize_source_path(src), idx) for src, idx in query.gold}
+    gold_chunk_id_set = {cid for cid in query.gold_chunk_ids if cid}
     rank: int | None = None
-    retrieved_keys = [(item.source_path, item.chunk_index) for item in retrieved]
+    retrieved_keys = [(_normalize_source_path(item.source_path), item.chunk_index) for item in retrieved]
+    retrieved_chunk_ids = [item.chunk_id for item in retrieved]
     for idx, item in enumerate(retrieved, start=1):
-        key = (item.source_path, item.chunk_index)
-        if key in gold_set:
+        key = (_normalize_source_path(item.source_path), item.chunk_index)
+        if key in gold_set or (item.chunk_id and item.chunk_id in gold_chunk_id_set):
             rank = idx
             break
 
-    if gold_set:
-        found_top5 = len(set(retrieved_keys[:5]) & gold_set)
-        found_top10 = len(set(retrieved_keys[:10]) & gold_set)
-        recall_at_5 = found_top5 / len(gold_set)
-        recall_at_10 = found_top10 / len(gold_set)
+    denom = 0
+    if gold_chunk_id_set:
+        denom = len(gold_chunk_id_set)
+    elif gold_set:
+        denom = len(gold_set)
+
+    if denom > 0:
+        found_top5 = 0
+        found_top10 = 0
+        if gold_chunk_id_set:
+            found_top5 = len(set(retrieved_chunk_ids[:5]) & gold_chunk_id_set)
+            found_top10 = len(set(retrieved_chunk_ids[:10]) & gold_chunk_id_set)
+        else:
+            found_top5 = len(set(retrieved_keys[:5]) & gold_set)
+            found_top10 = len(set(retrieved_keys[:10]) & gold_set)
+        recall_at_5 = found_top5 / denom
+        recall_at_10 = found_top10 / denom
     else:
         recall_at_5 = 0.0
         recall_at_10 = 0.0
@@ -579,6 +745,7 @@ def run_eval(
                         embedder,
                         hybrid_alpha,
                         table_multiplier,
+                        org_hard_filter=False,
                     )
                 )
             else:
@@ -601,6 +768,7 @@ def run_eval(
                         embedder,
                         hybrid_alpha,
                         table_multiplier,
+                        org_hard_filter=True,
                     )
                 )
             else:

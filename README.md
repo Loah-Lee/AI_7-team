@@ -9,22 +9,28 @@
 
 ```
 /Users/apple/AI_7-team
-├─ src/                코드
-├─ configs/            평가/쿼리 설정
+├─ app/                Streamlit 진입점/래퍼(main.py 포함)
+├─ src/                핵심 코드
+├─ scripts/            유틸 스크립트
+├─ tests/              로컬 전용(커밋 금지)
+├─ docs/               문서
+├─ eval_resources/     평가 문서/리소스
+├─ configs/            설정/평가 파일(default.yaml 포함)
 ├─ data/
 │  └─ pdf_raw/         본작업 입력 원본(PDF/HWP→PDF, 로컬)
 ├─ data_index/
 │  └─ dense_B/         B 파이프라인 Dense 인덱스(로컬)
+├─ chroma_db/          ChromaDB 저장소(선택, 로컬)
 ├─ notebooks/          rich 파이프라인 산출물(로컬)
-├─ artifacts/          실험 산출물(로컬)
 ├─ results/            실험 결과(로컬)
 ├─ README.md
 └─ CODEX_CONSTITUTION.md
 ```
 
 주의:
-- `data/`, `data_index/`, `notebooks/`, `artifacts/`, `results/`는 **로컬 전용, 커밋 금지**
+- `data/`, `data_index/`, `notebooks/`, `results/`는 **로컬 전용, 커밋 금지**
 - `notebooks/`는 저장소에는 `.gitkeep`만 유지
+- `tests/`는 로컬 전용, 커밋 금지
 
 ---
 
@@ -52,22 +58,30 @@ Hybrid(B) + rerank none 기준으로 평가
 
 ```
 # rich 추출(B): 입력 data/pdf_raw, 출력 notebooks/data_rich + notebooks/data_assets
-python -c "from pathlib import Path; from src.rich_pdf_extract import extract_rich; print(extract_rich(input_dir=Path('data/pdf_raw'), output_root=Path('notebooks/data_rich'), assets_root=Path('notebooks/data_assets')))"
+python -c "from pathlib import Path; from src.parsers.rich_pdf_extract import extract_rich; print(extract_rich(input_dir=Path('data/pdf_raw'), output_root=Path('notebooks/data_rich'), assets_root=Path('notebooks/data_assets')))"
 
 # rich 청킹(B): 입력 notebooks/data_rich, 출력 notebooks/data_chunks_rich
-python -c "from pathlib import Path; from src.rich_chunk import chunk_rich; chunk_rich(input_dir=Path('notebooks/data_rich'), output_dir=Path('notebooks/data_chunks_rich'))"
+python -c "from pathlib import Path; from src.parsers.rich_chunk import chunk_rich; chunk_rich(input_dir=Path('notebooks/data_rich'), output_dir=Path('notebooks/data_chunks_rich'))"
 
 # Dense 인덱스(B): 출력 data_index/dense_B
-python -m src.build_dense_index --variant B
+python -m src.retrievers.build_dense_index --variant B
 
 # 캡션(선택): 미완료 항목만 재개, 결과는 notebooks/data_rich/*.md 반영
-python -m src.rich_caption_assets --only-failed --workers 12
+python -m src.parsers.rich_caption_assets --only-failed --workers 12
 
 # 평가(B) (Hybrid + none): 결과는 notebooks/runs/<timestamp>/results.csv
-python -c "from pathlib import Path; from src.eval_harness import run_eval; run_eval(input_path=Path('configs/eval_queries_v2_rich.jsonl'), retriever='hybrid', variant='B', rerank_mode='none', hybrid_alpha=0.8, k=10, table_multiplier=1.0)"
+python -c "from pathlib import Path; from src.evaluation.eval_harness import run_eval; run_eval(input_path=Path('configs/eval_queries_v2_rich.jsonl'), retriever='hybrid', variant='B', rerank_mode='none', hybrid_alpha=0.8, k=10, table_multiplier=1.0)"
 
 # 평가(B) 설정파일 기반 실행: configs/eval_runtime_b.json 사용
 python -m src.run_eval_b
+
+# Streamlit 실행
+streamlit run /Users/apple/AI_7-team/app/main.py
+streamlit run /Users/apple/AI_7-team/app/streamlit_app.py
+streamlit run /Users/apple/AI_7-team/app/gold_app.py
+
+# 벡터 DB 재구축(스크립트)
+python /Users/apple/AI_7-team/scripts/rebuild_db.py --dense --chroma
 ```
 
 ---
@@ -89,20 +103,20 @@ python -m src.run_eval_b
 
 ```bash
 # 1) gold 재생성
-python -m src.build_eval_gold_rich --input configs/eval_queries_v2_rich.jsonl --output configs/eval_queries_v2_rich.jsonl --top-k 3
+python -m src.evaluation.build_eval_gold_rich --input configs/eval_queries_v2_rich.jsonl --output configs/eval_queries_v2_rich.jsonl --top-k 3
 
 # 2) 평가 실행(운영 파라미터 고정)
 python -m src.run_eval_b
 
 # 3) 실패 질의 리포트 생성
-python -c "import pandas as pd; from pathlib import Path; p=sorted(Path('notebooks/runs').glob('*'))[-1]/'results.csv'; df=pd.read_csv(p); cols=['query_id','query','recall@10','mrr','top1_source_path','top1_chunk_index','qual_reason_top1']; df[df['recall@10']==0][cols].to_csv('artifacts/fail_queries_rag.csv', index=False); print('artifacts/fail_queries_rag.csv')"
+python -c "import pandas as pd; from pathlib import Path; p=sorted(Path('notebooks/runs').glob('*'))[-1]/'results.csv'; df=pd.read_csv(p); cols=['query_id','query','recall@10','mrr','top1_source_path','top1_chunk_index','qual_reason_top1']; out=Path('results/fail_queries_rag.csv'); out.parent.mkdir(parents=True, exist_ok=True); df[df['recall@10']==0][cols].to_csv(out, index=False); print(out)"
 ```
 
 ---
 
 ## Streamlit 대시보드
 
-- 파일: `streamlit_app.py`
+- 파일: `app/main.py`(기본), `app/streamlit_app.py`, `app/gold_app.py`
 - 기능:
   - 평가 요약
   - 쿼리별 Top1 텍스트
@@ -113,14 +127,15 @@ python -c "import pandas as pd; from pathlib import Path; p=sorted(Path('noteboo
 
 ```
 pip install -r /Users/apple/AI_7-team/requirements.txt
-streamlit run /Users/apple/AI_7-team/streamlit_app.py
+streamlit run /Users/apple/AI_7-team/app/main.py
 ```
 
 ---
 
 ## 운영 규칙
 
-- `data/`, `data_index/`, `notebooks/`, `artifacts/`, `results/`는 **로컬 전용** (커밋 금지)
+- `data/`, `data_index/`, `notebooks/`, `results/`는 **로컬 전용** (커밋 금지)
+- `tests/`는 **로컬 전용** (커밋 금지)
 - `.env`는 **커밋 금지**
 - 평가 재실행 시 `notebooks/runs/`에 새 결과가 생성됨
 - 본작업 기준 경로: `data/pdf_raw` → `notebooks/data_rich`/`notebooks/data_chunks_rich` → `data_index/dense_B`

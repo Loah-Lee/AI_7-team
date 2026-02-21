@@ -1,0 +1,7 @@
+name: answer_eval_v1
+source: configs/answer_eval_v1.jsonl
+fields:
+  - query_id
+  - query
+  - expected_type
+  - expected_value
