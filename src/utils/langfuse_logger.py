@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 
 class _NoOpLogger:
@@ -25,8 +25,36 @@ class _LangfuseLogger:
         )
 
     def log_trace(self, name: str, payload: Dict[str, Any]) -> None:
-        trace = self._client.trace(name=name, metadata=payload)
-        trace.flush()
+        # SDK v3(create_event) 우선, 구버전(v2)의 trace는 fallback으로만 사용한다.
+        try:
+            event_input = payload.get("query", payload.get("input"))
+            event_output = payload.get("answer", payload.get("output"))
+            create_event = getattr(self._client, "create_event", None)
+            if callable(create_event):
+                create_event(
+                    name=name,
+                    input=event_input,
+                    output=event_output,
+                    metadata=payload,
+                )
+                flush = getattr(self._client, "flush", None)
+                if callable(flush):
+                    flush()
+                return
+
+            trace_fn = getattr(self._client, "trace", None)
+            if callable(trace_fn):
+                trace = trace_fn(name=name, metadata=payload)
+                trace_flush = getattr(trace, "flush", None)
+                if callable(trace_flush):
+                    trace_flush()
+                    return
+                flush = getattr(self._client, "flush", None)
+                if callable(flush):
+                    flush()
+                return
+        except Exception:
+            return
 
 
 def get_langfuse_logger() -> Any:

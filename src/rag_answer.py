@@ -335,6 +335,8 @@ def _parse_json_object(text: str) -> Dict[str, object]:
 
 def _question_kind(query: str) -> str:
     q = query.strip()
+    if re.search(r"개요|요약|설명|무엇|어떤", q):
+        return "overview"
     if re.search(r"비율|퍼센트|%", q):
         return "percent"
     if re.search(r"예산|금액|비용|얼마", q):
@@ -387,6 +389,21 @@ def _rule_based_answer(query: str, contexts: Sequence[ChunkRecord]) -> Dict[str,
         }
 
     kind = _question_kind(query)
+    # 개요/설명형 질의는 규칙 기반 값 추출을 건너뛰고 LLM 생성으로 넘긴다.
+    if kind in {"overview", "generic"}:
+        preview = re.sub(r"\s+", " ", contexts[0].text).strip()[:160]
+        if preview:
+            return {
+                "status": "partial",
+                "answer": f"요약 생성을 위해 관련 문맥을 확보했습니다: {preview}",
+                "citations": [1],
+            }
+        return {
+            "status": "partial",
+            "answer": "요약 생성을 위해 관련 문맥을 확보했습니다.",
+            "citations": [1],
+        }
+
     percent_keywords = ["입찰보증금", "입찰 보증금", "입찰금액", "입찰 금액", "보증금"]
     percent_exclude = ["기술능력", "평가", "배점", "협상적격"]
     percent_candidates: List[Tuple[int, str]] = []

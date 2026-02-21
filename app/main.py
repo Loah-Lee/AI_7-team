@@ -150,6 +150,13 @@ def render_sidebar(chatbot) -> None:
                 st.session_state.user_input = q
 
         st.divider()
+        if st.button("챗봇 캐시 초기화", use_container_width=True):
+            st.cache_resource.clear()
+            st.session_state.messages = []
+            st.session_state.user_input = ""
+            st.rerun()
+
+        st.caption(f"app: `{__file__}`")
         st.caption(f"retriever: `{chatbot.retriever_kind}`")
         st.caption(f"rerank: `{chatbot.rerank}`")
         st.caption(f"top_k/context_k: `{chatbot.top_k}/{chatbot.context_k}`")
@@ -182,17 +189,20 @@ def process_user_query(chatbot, query: str) -> None:
                 st.write(f"- {c}")
         st.caption(f"응답 시간: {response_time:.2f}초")
 
-    tracer.trace(
-        name="streamlit_user_query",
-        payload={
-            "query": query,
-            "status": result.get("status", "unknown"),
-            "answer": result.get("answer", ""),
-            "top1": result.get("top1", {}),
-            "citations": result.get("citations", []),
-            "response_time_sec": round(response_time, 4),
-        },
-    )
+    try:
+        tracer.trace(
+            name="streamlit_user_query",
+            payload={
+                "query": query,
+                "status": result.get("status", "unknown"),
+                "answer": result.get("answer", ""),
+                "top1": result.get("top1", {}),
+                "citations": result.get("citations", []),
+                "response_time_sec": round(response_time, 4),
+            },
+        )
+    except Exception:
+        pass
 
     st.session_state.messages.append(
         {

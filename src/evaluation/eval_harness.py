@@ -414,13 +414,14 @@ class HybridRetriever(RetrieverBase):
     def retrieve(self, query: str, chunks: Sequence[ChunkRecord], k: int) -> List[ChunkRecord]:
         if not self._chunks:
             return []
-        tfidf = tfidf_scores(query, self._chunks, self._vectors, self._idf)
+        lexical_scores = tfidf_scores(query, self._chunks, self._vectors, self._idf)
         query_vec = self._embedder.embed_query(query)
         dense_scores = self._index.score_all(query_vec)
         dense_map = {
             meta.chunk_id: float(score)
             for meta, score in zip(self._index.meta, dense_scores, strict=False)
         }
+
         if self._org_hard_filter:
             candidate_indices = [
                 idx
@@ -442,7 +443,7 @@ class HybridRetriever(RetrieverBase):
         for idx in candidate_indices:
             chunk = self._chunks[idx]
             dense_score = dense_map.get(chunk.chunk_id, 0.0)
-            score = self._alpha * tfidf[idx] + (1.0 - self._alpha) * dense_score
+            score = self._alpha * lexical_scores[idx] + (1.0 - self._alpha) * dense_score
             bonus, ok = gold_bonus(
                 query=query,
                 source_path=chunk.source_path,

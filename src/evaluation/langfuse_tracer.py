@@ -10,7 +10,10 @@ class _LangfuseTracer:
         self._logger = get_langfuse_logger()
 
     def trace(self, name: str, payload: Dict[str, Any]) -> None:
-        self._logger.log_trace(name=name, payload=payload)
+        try:
+            self._logger.log_trace(name=name, payload=payload)
+        except Exception:
+            return
 
 
 def get_langfuse_tracer() -> _LangfuseTracer:
