@@ -1,0 +1,203 @@
+# hybrid_search_v2 사용 가이드
+
+## 개요
+
+v1의 hybrid search(Dense + Sparse + RRF)에 **CSV 구조화 검색** 채널을 추가한 RAG 파이프라인.
+금액 순위, 범위 필터링, 기관별 집계 등 v1이 처리하지 못했던 크로스 문서 질의를 지원한다.
+
+## 아키텍처
+
+```
+judge (LLM) → routing_llm (LLM) → csv_search   → context_appender → judge
+                                 → retriever                         ↓ (can_answer=true)
+                                                                final_answer
+```
+
+- **judge**: 현재 context로 답변 가능 여부를 판단하고, 부족하면 search_query를 생성
+- **routing_llm**: search_query와 last_query를 참조하여 CSV 검색 또는 기존 retriever로 라우팅
+- **csv_search**: 구조화된 csv_query를 받아 DataFrame 연산 수행 (LLM 호출 없음)
+- **retriever**: 기존 hybrid search (Dense + Sparse → RRF)
+- **context_appender**: 검색 결과 중 유의미한 context를 선별하여 누적
+- **final_answer**: 누적된 context 기반으로 최종 답변 생성
+
+## 실행 방법
+
+### 노트북 (minimum.ipynb)
+
+셀을 위에서 아래로 순차 실행한다.
+
+```
+Cell 0   : import (typing, langgraph, langchain)
+Cell 1   : dotenv
+Cell 2-3 : Langfuse 설정
+Cell 4   : hybrid search 정의 (SearchState, dense/sparse/rrf)
+Cell 5   : empty 노드
+Cell 6-7 : hybrid search 그래프 빌드/컴파일
+Cell 8   : RAGState 정의 + JsonOutputParser import
+Cell 9   : LLM + judge 노드 (prompt1 + llm1_node)
+Cell 10  : router (can_answer 분기)
+Cell 11  : routing_llm 노드 (routing_prompt + routing_llm_node + search_router)  ← NEW
+Cell 12  : context_appender 노드 (prompt2 + compress_chain)
+Cell 13  : final_answer 노드 (prompt3 + final_chain)
+Cell 14  : csv_search import  ← NEW
+Cell 15  : 그래프 빌드 + 첫 번째 테스트 실행
+Cell 16+ : 추가 테스트 쿼리
+```
+
+### 스크립트 (search_graph.py)
+
+```python
+import dotenv
+dotenv.load_dotenv()
+
+from hybrid_search_v2.search_graph import app
+
+result = app.invoke({
+    'query': '사업비가 가장 많은 3곳은?',
+    'context': [],
+    'iteration': 0,
+    'use_csv': False,
+    'csv_query': None
+})
+
+print(result['final_answer'])
+```
+
+### CSV 검색 단독 테스트
+
+```python
+from hybrid_search_v2.csv_search import csv_search
+
+result = csv_search({
+    'csv_query': {
+        'filters': [{'column': '사업 금액', 'op': '>=', 'value': 1e9}],
+        'sort': {'column': '사업 금액', 'order': 'desc'},
+        'limit': 5
+    }
+})
+
+for text, meta in result['search_result']:
+    print(f"{text} | {meta['사업금액_억']:.2f}억 | {meta['발주 기관']}")
+```
+
+## csv_query 스키마
+
+routing_llm이 생성하는 구조화된 쿼리 형식:
+
+```json
+{
+    "filters": [{"column": "사업 금액", "op": ">=", "value": 1000000000}],
+    "sort": {"column": "사업 금액", "order": "desc"},
+    "limit": 10,
+    "keyword": "고려대"
+}
+```
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `filters` | `list[dict]` | 컬럼별 필터 조건. `op`: `>=`, `<=`, `>`, `<`, `==`, `between` |
+| `sort` | `dict` | 정렬 기준. `order`: `"asc"` 또는 `"desc"` |
+| `limit` | `int` | 반환 행 수 (생략 시 전체 반환) |
+| `keyword` | `str` | 사업명/발주기관/사업요약 내 키워드 검색 |
+
+모든 필드는 생략 가능하다.
+
+### 금액 변환 규칙
+
+- `"10억"` → `1000000000`
+- `"5천만원"` → `50000000`
+- `"3,575만원"` → `35750000`
+- 단위는 항상 **원(₩)** 기준
+
+## CSV 데이터 사양
+
+- **원본**: `data/data_list.csv` (100행 × 12열, UTF-8 BOM)
+- **사업 금액**: 3,575만원 ~ 141.07억원 (1천만원 미만은 NaN 처리, 총 8건 null)
+- **발주 기관**: 87개 고유 기관
+- **날짜**: `datetime64[ns]`로 변환 (공개 일자, 입찰 참여 시작일, 입찰 참여 마감일)
+- **텍스트 열**: 제외 (이미 DB에 chunking 완료)
+- **캐시**: `csv_cache.pkl` (CSV 수정 시 자동 재생성)
+
+## RAGState 필드
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `query` | `str` | 원본 사용자 질의 |
+| `context` | `list` | 누적된 `(text, metadata)` 튜플 리스트 |
+| `last_search_query` | `str \| None` | 이전 검색 쿼리 |
+| `search_result` | `list \| None` | 현재 검색 결과 (루프마다 초기화) |
+| `can_answer` | `bool` | judge가 판단한 답변 가능 여부 |
+| `next_query` | `str` | judge가 생성한 다음 검색 쿼리 |
+| `iteration` | `int` | 루프 반복 횟수 (max 6) |
+| `use_csv` | `bool` | routing_llm이 설정한 CSV 라우팅 여부 **(v2 신규)** |
+| `csv_query` | `dict \| None` | routing_llm이 생성한 구조화 쿼리 **(v2 신규)** |
+| `final_answer` | `str` | 최종 답변 |
+
+## 파일 구조
+
+```
+hybrid_search_v2/
+├── csv_preprocessor.py    # CSV 로드/정제/캐싱
+├── csv_search.py          # CSV 구조화 검색 노드
+├── hybrid_search.py       # Dense + Sparse + RRF (v1 기존)
+├── search_graph.py        # 전체 RAG 그래프 (v2)
+├── minimum.ipynb          # 대화형 테스트 노트북
+├── csv_cache.pkl          # CSV 캐시 (자동 생성)
+├── CoT_graph.py           # (기존)
+├── data_generator.ipynb   # (기존)
+└── USAGE.md               # 본 문서
+```
+
+## 변경 내역
+
+### v2.0 — CSV 구조화 검색 채널 추가
+
+#### 신규 파일
+- **`csv_preprocessor.py`**: CSV 전처리 모듈
+  - `data/data_list.csv` 로드 → 텍스트 열 제외, 날짜 datetime 변환, 공고차수 Int64 변환
+  - 사업 금액 1천만원 미만 → NaN 처리
+  - `사업금액_억` 편의 컬럼 추가
+  - pickle 캐싱 (CSV mtime 기반 자동 갱신)
+
+- **`csv_search.py`**: CSV 검색 노드
+  - routing_llm이 생성한 `csv_query` dict를 받아 DataFrame 연산 수행
+  - 필터(`>=`, `<=`, `between` 등), 정렬, 제한, 키워드 검색 지원
+  - 반환 형식: `[(사업명, {전체 CSV 컬럼 + uid + source}), ...]`
+  - LLM 호출 없음 — 순수 실행 로직
+
+#### 수정 파일
+- **`search_graph.py`**:
+  - `RAGState`에 `use_csv: bool`, `csv_query: dict | None` 추가
+  - `routing_llm_node` 추가: search_query + last_query를 참조하여 CSV/retriever 분류
+  - `search_router` 추가: `use_csv` 기반 조건부 분기
+  - `context_appender`: source 기반 metadata 키 분기 (`METADATA_KEYS_HYBRID` / `METADATA_KEYS_CSV`)
+  - `final_answer`: CSV 결과는 `발주 기관` 기반 출처 표시, hybrid 결과는 기존 `문서명 + 페이지` 표시
+  - 그래프: `judge → routing_llm → {csv_search | retriever} → context_appender → judge` 구조
+  - `from .csv_search import csv_search` 추가
+
+- **`minimum.ipynb`**:
+  - Cell 8: `RAGState`에 `use_csv`, `csv_query` 필드 추가
+  - Cell 11 (신규): `routing_llm` 노드 (프롬프트 + 체인 + 노드 함수 + search_router)
+  - Cell 12: `context_appender`에 source 기반 metadata 키 분기 + source 태깅
+  - Cell 13: `final_answer`에 CSV 출처 처리 추가
+  - Cell 14 (신규): `csv_search` import
+  - Cell 15: 그래프 빌드에 `routing_llm`, `csv_search` 노드 및 조건부 엣지 추가
+  - Cell 23-27: CSV 단독 테스트 셀 (4개 테스트 케이스)
+  - 모든 테스트 셀에 `use_csv`, `csv_query` 초기값 추가
+
+#### v1 대비 개선 결과
+
+| 질의 | v1 결과 | v2 결과 |
+|---|---|---|
+| 사업비가 가장 많은 3곳은? | ❌ iteration=7, context=0, 답변 불가 | ✅ 3건 정확 반환 (141억, 112억, 67억) |
+| 10억 이상인 사업은? | ❌ 1건만 발견 (고려대) | ✅ 10건 반환 |
+| 5억에서 10억 사이 | ❌ 예약발매 역사 등 무관한 결과 | ✅ 10건 정확 반환 (CSV 기반) |
+| 고려대학교에서 발주한 프로젝트 | ✅ 정상 | ✅ 정상 (CSV 경유) |
+
+#### 설계 결정 사항
+- routing_llm → csv_search는 **Approach B**: LLM이 `csv_query` 파라미터까지 생성, csv_search는 순수 실행
+- `source` 필드 (`"csv"` / `"hybrid"`)로 데이터 출처 추적
+- `use_csv: bool`을 별도 state 필드로 분리하여 조건부 엣지 감지
+- CSV의 `텍스트` 열은 제외 (이미 DB에 chunking 완료)
+- 사업 금액 1천만원 미만은 NaN 처리 (의미 없는 0/1 값 방지)
+- DataFrame 방식 채택 (SQLite/벡터 DB 불필요 — 정확한 수치 연산 목적)
