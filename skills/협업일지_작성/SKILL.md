@@ -15,6 +15,7 @@ description: Generate a daily collaboration journal entry in Korean using the us
 - 문제 항목은 실제 발생한 건만 작성하고, 없으면 "- 없음"으로 쓴다.
 - 문장은 짧고 실무적으로 쓴다.
 - 사용자가 `1. 오늘의 목표 (Plan)` 내용을 직접 제공하면, Plan은 사용자 입력을 그대로 기준으로 삼고 `2~5` 섹션만 작성한다.
+- Plan과 실제 Work Done이 다르면 Work Done을 우선 사실로 삼고, 변경/이탈 사유를 Work Done 각 항목에 짧게 덧붙인다.
 
 ## 출력 템플릿
 아래 구조를 그대로 사용한다.
@@ -52,13 +53,15 @@ description: Generate a daily collaboration journal entry in Korean using the us
 ## 작성 절차
 1. 사용자가 `1. 오늘의 목표 (Plan)`을 제공했는지 먼저 확인한다.
 2. Plan 제공 시: `2. Work Done`부터 `5. Next Steps`까지만 작성하고, Work Done은 Plan 기준 달성/진행 항목 중심으로 정리한다.
-3. Plan 미제공 시: 오늘 대화에서 목표/실행/결과를 추출해 `1~5`를 모두 작성한다.
-4. Insights는 재사용 가능한 교훈만 1~2개로 요약한다.
-5. Issues & Fixes는 문제-원인-해결-결과를 한 세트로 쓰며, 해결한 문제 수에 따라 양식에 맞춰 늘려서 작성한다.
+3. Plan과 다른 실제 수행이 있으면 Work Done을 우선 기록하고, 각 항목 끝에 `변경 사유: ...`를 한 줄로 짧게 덧붙인다.
+4. Plan 미제공 시: 오늘 대화에서 목표/실행/결과를 추출해 `1~5`를 모두 작성한다.
+5. Insights는 재사용 가능한 교훈만 1~2개로 요약한다.
+6. Issues & Fixes는 문제-원인-해결-결과를 한 세트로 쓰며, 해결한 문제 수에 따라 양식에 맞춰 늘려서 작성한다.
 
 ## 품질 체크
 - 템플릿 섹션 누락 없음
 - 입력 모드(Plan 제공/미제공)와 출력 범위가 일치함
+- Plan과 다른 작업이 있으면 Work Done 항목별 `변경 사유`가 포함됨
 - 중복 문장 없음
 - 추측성 문장 최소화
 - 바로 복붙 가능한 상태
