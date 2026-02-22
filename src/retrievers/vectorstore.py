@@ -105,29 +105,6 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         embs = self.embed_documents([text])
         return embs[0] if embs else []
 
-
-class SentenceTransformerEmbeddingProvider(EmbeddingProvider):
-    def __init__(self, model: str = "BM-K/KoSimCSE-roberta-multitask") -> None:
-        self.model = model
-        try:
-            from sentence_transformers import SentenceTransformer  # type: ignore
-        except Exception as exc:  # pragma: no cover
-            raise RuntimeError(
-                "sentence-transformers가 설치되지 않았습니다. pip install sentence-transformers"
-            ) from exc
-        self._model = SentenceTransformer(model)
-
-    def embed_documents(self, texts: Sequence[str]) -> List[List[float]]:
-        if not texts:
-            return []
-        vecs = self._model.encode(list(texts), normalize_embeddings=True)
-        return [np.asarray(v, dtype=np.float32).tolist() for v in vecs]
-
-    def embed_query(self, text: str) -> List[float]:
-        vec = self._model.encode([text], normalize_embeddings=True)[0]
-        return np.asarray(vec, dtype=np.float32).tolist()
-
-
 @dataclass(frozen=True)
 class SearchResult:
     id: str
@@ -141,7 +118,7 @@ class VectorStore:
         self,
         *,
         persist_dir: Path,
-        collection_name: str = "rfp_b",
+        collection_name: str = "rfp_b_oai",
         embedding_provider: EmbeddingProvider | None = None,
     ) -> None:
         try:

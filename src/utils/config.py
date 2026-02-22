@@ -23,8 +23,7 @@ LANGFUSE_PUBLIC_KEY: str | None = os.getenv("LANGFUSE_PUBLIC_KEY")
 LANGFUSE_SECRET_KEY: str | None = os.getenv("LANGFUSE_SECRET_KEY")
 LANGFUSE_BASE_URL: str = os.getenv("LANGFUSE_BASE_URL", "https://cloud.langfuse.com")
 
-# Embedding fallback and org aliases
-FALLBACK_EMBEDDING_MODEL: str = "BM-K/KoSimCSE-roberta-multitask"
+# Org aliases
 ORG_ALIASES: dict[str, str] = {
     "서울시": "서울특별시",
     "고려대": "고려대학교",

@@ -21,6 +21,16 @@
 
 ---
 
+## Scenario Priority (Guide Sync)
+- 본 저장소 기본 실험 축은 **시나리오 B(클라우드 API 기반)** 로 둔다.
+- 실험/보고 시 최소 비교 단위:
+  1) lexical baseline
+  2) vector retrieval(Dense/Chroma)
+  3) hybrid retrieval
+- `hybrid_alpha=1.0`은 lexical-only baseline으로 분류한다.
+
+---
+
 ## Execution Discipline (3-Command Rule)
 - 한 번에 제시하는 터미널 명령은 **최대 3개**
 - 각 명령의 목적을 한 줄로 설명한다

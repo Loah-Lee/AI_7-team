@@ -8,10 +8,10 @@ paths:
   chunks_dir: notebooks/data_chunks_rich
   joined_chunks: notebooks/data_chunks_rich_joined.jsonl
   dense_index_b: data_index/dense_B
-  chroma_persist_dir: chroma_db
-  chroma_collection: rfp_b_auto
+  chroma_persist_dir: data_index/chroma_B
+  chroma_collection: rfp_b_oai
 
 models:
   llm_model: gpt-5-nano
   answer_model: gpt-5-nano
-  chroma_embedding_model: auto
+  chroma_embedding_model: text-embedding-3-small

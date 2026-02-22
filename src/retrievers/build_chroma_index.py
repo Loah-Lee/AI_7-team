@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import Path
 
 from .chroma_store import build_chroma_index
@@ -11,32 +10,20 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input-dir", default=str(Path("notebooks") / "data_chunks_rich"))
     parser.add_argument("--persist-dir", default=str(Path("data_index") / "chroma_B"))
-    parser.add_argument("--collection", default="rfp_b")
-    parser.add_argument("--model", default="auto")
+    parser.add_argument("--collection", default="rfp_b_oai")
+    parser.add_argument("--model", default="text-embedding-3-small")
     parser.add_argument(
         "--model-provider",
-        choices=["auto", "openai", "kosimcse"],
+        choices=["auto", "openai"],
         default="auto",
-        help="auto(OPENAI_API_KEY 기준), openai, kosimcse 선택",
+        help="시나리오 B 기준: auto/openai 모두 OpenAI 임베딩 사용",
     )
     parser.add_argument("--batch-size", type=int, default=128)
     args = parser.parse_args()
 
     model = args.model
-    if args.model_provider == "openai":
-        model = "text-embedding-3-small" if model == "auto" else model
-    elif args.model_provider == "kosimcse":
-        model = "kosimcse"
-    else:
-        if model == "auto":
-            # OPENAI_API_KEY 유무로 provider 자동 선택
-            try:
-                from dotenv import load_dotenv  # type: ignore
-
-                load_dotenv()
-            except Exception:
-                pass
-            model = "text-embedding-3-small" if os.getenv("OPENAI_API_KEY", "").strip() else "kosimcse"
+    if model == "auto":
+        model = "text-embedding-3-small"
 
     print(f"CHROMA PROVIDER | model={model}")
 

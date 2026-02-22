@@ -24,8 +24,8 @@ def main() -> int:
     parser.add_argument("--overlap", type=int, default=100)
     parser.add_argument("--chroma-input-dir", "--input-dir", dest="chroma_input_dir", default=None)
     parser.add_argument("--chroma-dir", default=str(Path("data_index") / "chroma_B"))
-    parser.add_argument("--collection", default="rfp_b")
-    parser.add_argument("--model", default="auto")
+    parser.add_argument("--collection", default="rfp_b_oai")
+    parser.add_argument("--model", default="text-embedding-3-small")
     parser.add_argument("--batch-size", type=int, default=128)
     args = parser.parse_args()
 

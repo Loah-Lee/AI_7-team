@@ -13,7 +13,7 @@ SCOPE — ALLOWED
   - streamlit_app.py (로컬 점검용 대시보드)
   - README.md
   - docs/ (문서)
-  - eval/ (평가 문서)
+  - eval_resources/ (평가 문서)
   - app/ (Streamlit 래퍼)
   - scripts/ (유틸 스크립트)
 
@@ -31,6 +31,7 @@ DATA RULES (ACTIVE B PIPELINE)
   - notebooks/data_assets/     (output: extracted images/assets)
   - notebooks/data_chunks_rich/ (output: chunks for B)
   - data_index/dense_B/        (output: dense index for B)
+  - data_index/chroma_B/       (output: chroma index for B)
 - 위 경로 산출물은 로컬 전용이며 gitignored 정책을 따른다. 데이터/산출물은 커밋하지 않는다.
 - 원본 파일명(한글 포함)은 그대로 유지한다.
 - 파일시스템 처리는 pathlib.Path를 기본으로 사용한다.
@@ -39,6 +40,15 @@ DATA RULES (LEGACY A PIPELINE — STOPPED)
 - A 파이프라인(data_text/, data_chunks/, data_index/)은 **중단** 상태로 간주한다.
 - 새 작업에서 A 파이프라인 산출물을 기본 경로로 생성하지 않는다.
 - 과거 실험 산출물은 필요 시 로컬에서 정리(삭제)하고 커밋하지 않는다.
+
+SCENARIO POLICY (GUIDE ALIGNMENT)
+- 본 저장소의 운영 기본값은 시나리오 B(클라우드 API 기반)이다.
+- 시나리오 B에서 Retrieval 실험은 아래 3축을 모두 비교 가능해야 한다:
+  1) naive baseline (lexical: TF-IDF/BM25 계열)
+  2) vector retrieval (DenseIndex 또는 Chroma)
+  3) hybrid retrieval (lexical + vector 결합)
+- `hybrid_alpha=1.0`은 결합식상 lexical-only baseline으로 해석한다(실질 dense 비활성).
+- 따라서 성능 보고 시에는 lexical-only 결과와 함께, `alpha<1` 또는 `retriever=chroma/dense` 결과를 반드시 병기한다.
 
 NOTEBOOKS RULES (LOCAL-ONLY)
 - notebooks/ 아래 산출물은 로컬 전용이며 **절대 커밋하지 않는다**.
@@ -55,7 +65,7 @@ RAG SYSTEM — DEFINITION OF DONE
 이 프로젝트는 아래 조건을 충족하면 목표를 달성한 것으로 본다:
 1. `data/pdf_raw`의 RFP 문서를 안정적으로 추출해 `notebooks/data_rich/`(본문)과 `notebooks/data_assets/`(이미지/자산)로 생성한다.
 2. `notebooks/data_rich/`를 RAG 친화적으로 청킹해 `notebooks/data_chunks_rich/`를 일관되게 생성한다.
-3. Dense/Hybrid(B) 검색 인덱스를 `data_index/dense_B/`에 생성하고 재현 가능하게 관리한다.
+3. Dense/Hybrid(B) 검색 인덱스를 `data_index/dense_B/`에, Chroma(B) 인덱스를 `data_index/chroma_B/`에 생성하고 재현 가능하게 관리한다.
 4. 사용자 질의에 대해 관련 근거 청크(top-k)를 검색하고, 요청 목적에 맞는 요약/응답을 제공한다.
 5. 응답에는 출처(원문 파일/청크 단위)를 추적할 수 있는 정보가 포함된다.
 6. 처리 단계별 성공/실패 로그가 명확히 남아 문서 단위 디버깅이 가능하다.
@@ -84,6 +94,7 @@ INTERACTION RULES
 - Before coding: state the exact deliverable for this step in 1 sentence.
 - After coding: provide the run command(s) in ≤3 lines.
 - 명령어를 제시할 때는 각 명령이 "무엇을 실행하는지"를 한 줄로 설명한다.
+- 명령어를 통해 실험을 안내할 경우, 해당 실험에 적용되는 파라미터를 확인할 수 있는 파일 경로도 함께 안내한다.
 - 실행/정리 작업 후에는 결과물(로그/산출물)의 저장 경로를 반드시 명시한다.
 - If a tool/library choice is uncertain, present A/B options and proceed with the safer default for practical RAG delivery.
 - 함수를 만들 때마다, 함수 흐름을 사람이 이해하기 쉽게 요약해 보고한다.

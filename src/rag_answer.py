@@ -790,8 +790,8 @@ def main() -> int:
     parser.add_argument("--table-multiplier", type=float, default=1.0)
     parser.add_argument("--dense-index-b", default=str(Path("data_index") / "dense_B"))
     parser.add_argument("--chroma-persist-dir", default=str(Path("data_index") / "chroma_B"))
-    parser.add_argument("--chroma-collection", default="rfp_b")
-    parser.add_argument("--chroma-model", default="auto")
+    parser.add_argument("--chroma-collection", default="rfp_b_oai")
+    parser.add_argument("--chroma-model", default="text-embedding-3-small")
     parser.add_argument("--chroma-org-filter", action="store_true")
     parser.add_argument(
         "--joined-chunks",

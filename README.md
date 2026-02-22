@@ -19,8 +19,8 @@
 ├─ data/
 │  └─ pdf_raw/         본작업 입력 원본(PDF/HWP→PDF, 로컬)
 ├─ data_index/
-│  └─ dense_B/         B 파이프라인 Dense 인덱스(로컬)
-├─ chroma_db/          ChromaDB 저장소(선택, 로컬)
+│  ├─ dense_B/         B 파이프라인 Dense 인덱스(로컬)
+│  └─ chroma_B/        B 파이프라인 Chroma 인덱스(로컬)
 ├─ notebooks/          rich 파이프라인 산출물(로컬)
 ├─ results/            실험 결과(로컬)
 ├─ README.md
@@ -51,6 +51,7 @@ Hybrid(B) + rerank none 기준으로 평가
 
 참고:
 - A 파이프라인(`data_text/`, `data_chunks/`, `data_index/dense_A`)은 현재 중단(legacy)
+- 시나리오 B 기준으로 Chroma 임베딩은 OpenAI(`text-embedding-3-small`)만 사용
 
 ---
 
@@ -95,11 +96,16 @@ python /Users/apple/AI_7-team/scripts/rebuild_db.py --chunk-rich --chroma --chun
   - 0: 관련 없음
   - 1: 부분 일치/근거 불충분
   - 2: 키워드+값+섹션 일치
-- 현재 기준 설정: **Hybrid(B) + none**
+- 현재 운영 기준 설정: **Hybrid(B) + none**
   - `hybrid_alpha=1.0`, `topk=50`, `context_k=20`, `table_multiplier=1.0`
   - `gold_bonus`의 metadata 가중치는 본문 토큰 동시 매칭일 때만 약하게 적용(meta_tuned)
 - 평가 입력 파일: `configs/eval_queries_v2_rich.jsonl` (B 기준 gold)
 - 운영 파라미터 파일: `configs/eval_runtime_b.json`
+
+주의:
+- 현재 결합식은 `score = alpha * lexical + (1-alpha) * dense`.
+- 따라서 `hybrid_alpha=1.0`은 **lexical-only baseline**이며 dense 벡터 검색은 실질 비활성이다.
+- 가이드 충족을 위해서는 `alpha<1` 비교 또는 `retriever=chroma/dense` 비교 결과를 함께 관리한다.
 
 ---
 

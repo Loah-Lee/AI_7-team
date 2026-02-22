@@ -7,7 +7,6 @@ from typing import Dict, List
 
 from .vectorstore import (
     OpenAIEmbeddingProvider,
-    SentenceTransformerEmbeddingProvider,
     VectorStore,
 )
 
@@ -23,7 +22,12 @@ def _has_openai_api_key() -> bool:
 
 
 def _resolve_auto_model() -> str:
-    return "text-embedding-3-small" if _has_openai_api_key() else "kosimcse"
+    if not _has_openai_api_key():
+        raise RuntimeError(
+            "시나리오 B(OpenAI API 기반)에서는 OPENAI_API_KEY가 필요합니다. "
+            ".env 또는 환경변수에 OPENAI_API_KEY를 설정하세요."
+        )
+    return "text-embedding-3-small"
 
 
 def _lock_path(persist_dir: Path, collection_name: str) -> Path:
@@ -87,12 +91,12 @@ def _build_provider(model: str):
     if model == "auto":
         model = _resolve_auto_model()
 
-    # 팀 표준: OpenAI 또는 KoSimCSE sentence-transformers 지원
-    if model.startswith("sentence-transformers:"):
-        st_model = model.split(":", 1)[1].strip() or "BM-K/KoSimCSE-roberta-multitask"
-        return SentenceTransformerEmbeddingProvider(model=st_model)
-    if model == "kosimcse":
-        return SentenceTransformerEmbeddingProvider(model="BM-K/KoSimCSE-roberta-multitask")
+    # 시나리오 B 고정: OpenAI 임베딩만 허용
+    if model.startswith("sentence-transformers:") or model == "kosimcse":
+        raise RuntimeError(
+            "시나리오 B에서는 로컬 sentence-transformers 임베딩을 사용하지 않습니다. "
+            "OpenAI 임베딩 모델(text-embedding-3-small 등)을 사용하세요."
+        )
     return OpenAIEmbeddingProvider(model=model)
 
 
@@ -100,8 +104,8 @@ def build_chroma_index(
     *,
     input_dir: Path,
     persist_dir: Path,
-    collection_name: str = "rfp_b",
-    model: str = "auto",
+    collection_name: str = "rfp_b_oai",
+    model: str = "text-embedding-3-small",
     batch_size: int = 128,
 ) -> int:
     resolved_model = _resolve_model_for_build(
@@ -124,8 +128,8 @@ def search_chroma(
     *,
     query: str,
     persist_dir: Path,
-    collection_name: str = "rfp_b",
-    model: str = "auto",
+    collection_name: str = "rfp_b_oai",
+    model: str = "text-embedding-3-small",
     top_k: int = 5,
     fetch_k: int | None = None,
     org: str | None = None,

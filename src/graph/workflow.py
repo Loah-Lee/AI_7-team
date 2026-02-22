@@ -36,8 +36,8 @@ class RAGChatbot:
             hybrid_alpha=1.0,
             table_multiplier=1.0,
             chroma_persist_dir=Path("data_index") / "chroma_B",
-            chroma_collection="rfp_b_auto",
-            chroma_model="auto",
+            chroma_collection="rfp_b_oai",
+            chroma_model="text-embedding-3-small",
             chroma_org_filter=False,
         )
 
