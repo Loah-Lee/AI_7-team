@@ -25,7 +25,10 @@ from .evaluation.rerank_rule import rerank_rule
 from .retrievers.dense_openai import DenseEmbedder, DenseIndex
 from .retrievers.chroma_store import search_chroma
 from .retrievers.rich_tfidf_search import (
+    ChunkRecord as LexicalChunkRecord,
+    _build_tfidf,
     load_chunks_rich,
+    tfidf_scores,
 )
 
 
@@ -129,6 +132,25 @@ class ChromaRetriever:
         self._collection_name = collection_name
         self._model = model
         self._org_hard_filter = bool(org_hard_filter)
+        self._chroma_weight = 0.7
+        self._lexical_weight = 0.3
+
+        self._lexical_chunks: List[LexicalChunkRecord] = [
+            LexicalChunkRecord(
+                source_path=c.source_path,
+                chunk_index=c.chunk_index,
+                chunk_id=c.chunk_id,
+                text=c.text,
+                metadata=c.metadata if isinstance(c.metadata, dict) else None,
+            )
+            for c in chunks
+        ]
+        self._lexical_vectors, self._lexical_idf = (
+            _build_tfidf(self._lexical_chunks) if self._lexical_chunks else ([], {})
+        )
+        self._lexical_idx_map: Dict[Tuple[str, int], int] = {
+            (c.source_path, c.chunk_index): i for i, c in enumerate(self._lexical_chunks)
+        }
 
     def retrieve(self, query: str, chunks: Sequence[ChunkRecord], k: int) -> List[ChunkRecord]:
         q = unicodedata.normalize("NFC", query or "").strip()
@@ -198,6 +220,27 @@ class ChromaRetriever:
             )
             scored.append((chunk, score, pos))
 
+        lexical_score_map: Dict[Tuple[str, int], float] = {}
+        if scored and self._lexical_chunks:
+            all_lexical_scores = tfidf_scores(
+                q,
+                self._lexical_chunks,
+                self._lexical_vectors,
+                self._lexical_idf,
+            )
+            for c, _, _ in scored:
+                key = (c.source_path, c.chunk_index)
+                idx = self._lexical_idx_map.get(key)
+                if idx is None:
+                    lexical_score_map[key] = 0.0
+                else:
+                    lexical_score_map[key] = float(all_lexical_scores[idx])
+
+            max_lex = max(lexical_score_map.values()) if lexical_score_map else 0.0
+            if max_lex > 0:
+                for key in list(lexical_score_map.keys()):
+                    lexical_score_map[key] = lexical_score_map[key] / max_lex
+
         # same-source keyword rerank:
         # 소스 내에서 값/키워드 근거가 풍부한 청크를 우선하도록 조정
         def _keyword_bonus(qtext: str, text: str, source_path: str, org_hint: str | None) -> float:
@@ -244,9 +287,11 @@ class ChromaRetriever:
 
         reranked = []
         for c, s, pos in scored:
+            lex = lexical_score_map.get((c.source_path, c.chunk_index), 0.0)
             kb = _keyword_bonus(q, c.text, c.source_path, org)
             sb = source_best.get(c.source_path, 0.0)
-            final = s + (0.26 * kb) + (0.12 * sb) - (0.0001 * pos)
+            base = (self._chroma_weight * s) + (self._lexical_weight * lex)
+            final = base + (0.26 * kb) + (0.12 * sb) - (0.0001 * pos)
             reranked.append((c, final))
         reranked.sort(key=lambda x: x[1], reverse=True)
 

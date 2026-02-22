@@ -95,6 +95,8 @@ INTERACTION RULES
 - After coding: provide the run command(s) in ≤3 lines.
 - 명령어를 제시할 때는 각 명령이 "무엇을 실행하는지"를 한 줄로 설명한다.
 - 명령어를 통해 실험을 안내할 경우, 해당 실험에 적용되는 파라미터를 확인할 수 있는 파일 경로도 함께 안내한다.
+- OpenAI API 호출이 많은 작업(대량 인덱싱, 배치 생성/평가, 대규모 리랭크)은 실행 전에 반드시 호출량이 큰 작업임을 먼저 알리고 안내한다.
+- OpenAI API는 429(rate limit/quota) 위험을 고려해 가능한 범위에서 최소 호출 경로(작은 샘플, generate 비활성, 캐시/재사용 우선)로 안내한다.
 - 실행/정리 작업 후에는 결과물(로그/산출물)의 저장 경로를 반드시 명시한다.
 - If a tool/library choice is uncertain, present A/B options and proceed with the safer default for practical RAG delivery.
 - 함수를 만들 때마다, 함수 흐름을 사람이 이해하기 쉽게 요약해 보고한다.
