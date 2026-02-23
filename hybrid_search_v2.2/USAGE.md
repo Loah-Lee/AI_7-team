@@ -1,5 +1,29 @@
 # hybrid_search_v2.2 사용 가이드
 
+---
+
+## 목차
+
+1. [개요](#개요)
+2. [아키텍처](#아키텍처)
+3. [실행 방법](#실행-방법)
+   - [Streamlit UI (app.py)](#streamlit-ui-apppy)
+   - [노트북 (minimum.ipynb)](#노트북-minimumipynb)
+   - [스크립트 (search_graph.py)](#스크립트-search_graphpy)
+   - [CSV 검색 단독 테스트](#csv-검색-단독-테스트)
+4. [csv_query 스키마](#csv_query-스키마)
+   - [filter op vs keyword 사용 기준](#filter-op-vs-keyword-사용-기준)
+   - [금액 변환 규칙](#금액-변환-규칙)
+5. [CSV 데이터 사양](#csv-데이터-사양)
+6. [RAGState 필드](#ragstate-필드)
+7. [파일 구조](#파일-구조)
+8. [변경 내역](#변경-내역)
+   - [v2.0 — CSV 구조화 검색 채널 추가](#v20--csv-구조화-검색-채널-추가)
+   - [v2.1 — Streamlit 채팅 UI + CSV 문자열 검색 개선](#v21--streamlit-채팅-ui--csv-문자열-검색-개선)
+   - [v2.2 — 세션 메모리 + Query Modifier](#v22--세션-메모리--query-modifier)
+
+---
+
 ## 개요
 
 v1의 hybrid search(Dense + Sparse + RRF)에 **CSV 구조화 검색** 채널을 추가한 RAG 파이프라인.
