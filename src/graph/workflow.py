@@ -66,6 +66,51 @@ class RAGChatbot:
             chroma_mmr_lambda=chroma_mmr_lambda,
             chroma_query_rewrite=chroma_query_rewrite,
         )
+        self.money_rank_retriever = None
+        try:
+            self.money_rank_retriever = _build_retriever(
+                retriever_kind="tfidf",
+                chunks_b=self.chunks,
+                dense_index_b=Path("data_index") / "dense_B",
+                hybrid_alpha=1.0,
+                table_multiplier=1.0,
+                chroma_persist_dir=chroma_persist_dir,
+                chroma_collection=chroma_collection,
+                chroma_model=chroma_model,
+                chroma_org_filter=False,
+                chroma_org_filter_mode="soft",
+                chroma_score_weight=chroma_score_weight,
+                lexical_score_weight=lexical_score_weight,
+                chroma_noise_mode=chroma_noise_mode,
+                chroma_mmr=chroma_mmr,
+                chroma_mmr_lambda=chroma_mmr_lambda,
+                chroma_query_rewrite=chroma_query_rewrite,
+            )
+        except Exception:
+            self.money_rank_retriever = None
+        self.global_retriever = None
+        if self.retriever_kind == "chroma":
+            try:
+                self.global_retriever = _build_retriever(
+                    retriever_kind="chroma",
+                    chunks_b=self.chunks,
+                    dense_index_b=Path("data_index") / "dense_B",
+                    hybrid_alpha=1.0,
+                    table_multiplier=1.0,
+                    chroma_persist_dir=chroma_persist_dir,
+                    chroma_collection=chroma_collection,
+                    chroma_model=chroma_model,
+                    chroma_org_filter=False,
+                    chroma_org_filter_mode="soft",
+                    chroma_score_weight=chroma_score_weight,
+                    lexical_score_weight=lexical_score_weight,
+                    chroma_noise_mode=chroma_noise_mode,
+                    chroma_mmr=chroma_mmr,
+                    chroma_mmr_lambda=chroma_mmr_lambda,
+                    chroma_query_rewrite=chroma_query_rewrite,
+                )
+            except Exception:
+                self.global_retriever = None
         self.asset_retriever = self._build_asset_retriever(
             chroma_persist_dir=chroma_persist_dir,
             chroma_model=chroma_model,
@@ -130,8 +175,9 @@ class RAGChatbot:
         org = parse_org(query)
         state = ChatState(intent=intent, org=org)
 
+        is_money_rank = intent.query_type == "money_rank"
         use_asset = intent.query_type == "asset" and self.asset_retriever is not None
-        if self.retriever_kind == "chroma" and not org.matched:
+        if self.retriever_kind == "chroma" and not org.matched and not is_money_rank:
             return {
                 "status": "need_org",
                 "answer": "정확한 검색을 위해 기관명을 먼저 입력해주세요. 예: `한국농어촌공사`, `고려대학교`",
@@ -140,18 +186,31 @@ class RAGChatbot:
                 "retrieval_mode": "asset" if use_asset else "default",
             }
         active_retriever = self.asset_retriever if use_asset else self.retriever
+        if is_money_rank:
+            if self.money_rank_retriever is not None:
+                active_retriever = self.money_rank_retriever
+            elif self.global_retriever is not None:
+                active_retriever = self.global_retriever
         active_chunks = self.asset_chunks if use_asset else self.chunks
 
-        raw: List[ChunkRecord] = active_retriever.retrieve(query, active_chunks, k=self.top_k)
+        retrieval_query = query
+        retrieve_k = self.top_k
+        context_k = self.context_k
+        if is_money_rank:
+            retrieval_query = f"{query} 사업예산 사업비 총사업비 예정가격 기초금액 금액 원 억원"
+            retrieve_k = max(self.top_k, 240)
+            context_k = max(self.context_k, 120)
+
+        raw: List[ChunkRecord] = active_retriever.retrieve(retrieval_query, active_chunks, k=retrieve_k)
         expanded = _expand_candidates_with_neighbors(
             raw,
             active_chunks,
-            target_k=max(self.top_k, min(self.top_k + 30, self.top_k * 2)),
+            target_k=max(retrieve_k, min(retrieve_k + 80, retrieve_k * 2)),
             neighbor_window=1,
         )
         reranked, _ = _rerank(query, expanded, rerank_mode=self.rerank, llm_model=model)
         contexts = _expand_contexts_with_neighbors(
-            reranked, active_chunks, context_k=self.context_k, neighbor_window=1
+            reranked, active_chunks, context_k=context_k, neighbor_window=1
         )
         state = generate_answer_node(
             state,
@@ -175,5 +234,5 @@ class RAGChatbot:
                 "source_path": contexts[0].source_path if contexts else "",
                 "chunk_index": contexts[0].chunk_index if contexts else -1,
             },
-            "retrieval_mode": "asset" if use_asset else "default",
+            "retrieval_mode": "asset" if use_asset else ("money_rank" if is_money_rank else "default"),
         }

@@ -41,6 +41,7 @@ _BUDGET_KEYWORD_RE = re.compile(r"(사업예산|사업비|총사업비|예정가
 _DATE_RE = re.compile(r"\b\d{4}[./-]\d{1,2}[./-]\d{1,2}\b|\b\d{1,2}\s*월\s*\d{1,2}\s*일\b")
 _PERIOD_RE = re.compile(r"\b\d+\s*(?:개월|개월간|일|일간|년)\b")
 _CONTACT_RE = re.compile(r"(?:\d{2,3}-\d{3,4}-\d{4}|@|담당자|문의처|연락처|전화)")
+_MONEY_VALUE_RE = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(원|만원|천원|억원)")
 
 
 def _get_client():
@@ -757,6 +758,134 @@ def _pick_matches(text: str, kind: str) -> List[str]:
     for pattern in (_PERCENT_RE, _MONEY_RE, _DATE_RE, _PERIOD_RE):
         matches.extend(pattern.findall(text))
     return matches
+
+
+def _parse_top_n_for_rank_query(query: str, default: int = 3) -> int:
+    q = query or ""
+    m = re.search(r"\btop\s*(\d+)\b", q, re.IGNORECASE)
+    if not m:
+        m = re.search(r"(\d+)\s*(?:곳|기관|개|건)", q)
+    if not m:
+        return default
+    try:
+        n = int(m.group(1))
+    except Exception:
+        return default
+    return max(1, min(n, 10))
+
+
+def _extract_org_from_source(source_path: str) -> str:
+    name = Path(source_path or "").name.strip()
+    if not name:
+        return ""
+    base = re.sub(r"\.(?:pdf|hwp|docx?|txt)$", "", name, flags=re.IGNORECASE)
+    if "_" in base:
+        org = base.split("_", 1)[0].strip()
+        if org:
+            return org
+    return base.strip()
+
+
+def _extract_org_name(chunk: ChunkRecord) -> str:
+    metadata = chunk.metadata if isinstance(chunk.metadata, dict) else {}
+    for key in ("org", "institution", "기관"):
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    nested = metadata.get("meta")
+    if isinstance(nested, dict):
+        for key in ("발주 기관", "기관", "institution"):
+            value = nested.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return _extract_org_from_source(chunk.source_path)
+
+
+def _parse_money_values(text: str) -> List[Tuple[float, str, int, int]]:
+    out: List[Tuple[float, str, int, int]] = []
+    if not text:
+        return out
+    for m in _MONEY_VALUE_RE.finditer(text):
+        raw_num = m.group(1).replace(",", "")
+        unit = m.group(2)
+        try:
+            num = float(raw_num)
+        except Exception:
+            continue
+        multiplier = 1.0
+        if unit == "억원":
+            multiplier = 100_000_000.0
+        elif unit == "만원":
+            multiplier = 10_000.0
+        elif unit == "천원":
+            multiplier = 1_000.0
+        value_won = num * multiplier
+        out.append((value_won, m.group(0), m.start(), m.end()))
+    return out
+
+
+def _filter_budget_values(text: str, values: List[Tuple[float, str, int, int]]) -> List[Tuple[float, str, int, int]]:
+    if not values:
+        return []
+    if _BUDGET_KEYWORD_RE.search(text):
+        return values
+
+    filtered: List[Tuple[float, str, int, int]] = []
+    for item in values:
+        _, _, s, e = item
+        win = text[max(0, s - 28) : min(len(text), e + 28)]
+        if _BUDGET_KEYWORD_RE.search(win):
+            filtered.append(item)
+    return filtered
+
+
+def generate_money_rank_answer(
+    query: str,
+    contexts: Sequence[ChunkRecord],
+) -> Dict[str, object]:
+    if not contexts:
+        return {
+            "status": "not_found",
+            "answer": "문서에 해당 정보가 없습니다.",
+            "citations": [],
+        }
+
+    top_n = _parse_top_n_for_rank_query(query, default=3)
+    best_by_org: Dict[str, Tuple[float, str, int]] = {}
+
+    for idx, c in enumerate(contexts, start=1):
+        text = c.text or ""
+        values = _parse_money_values(text)
+        if not values:
+            continue
+        values = _filter_budget_values(text, values)
+        if not values:
+            continue
+        best = max(values, key=lambda x: x[0])
+        org = _extract_org_name(c).strip()
+        if not org:
+            continue
+        prev = best_by_org.get(org)
+        if prev is None or best[0] > prev[0]:
+            best_by_org[org] = (best[0], best[1], idx)
+
+    if not best_by_org:
+        return {
+            "status": "not_found",
+            "answer": "사업비 근거를 찾지 못했습니다.",
+            "citations": [],
+        }
+
+    ranked = sorted(best_by_org.items(), key=lambda x: (-x[1][0], x[0]))[:top_n]
+    lines = [f"{i}. {org} - {amount}" for i, (org, (_, amount, _)) in enumerate(ranked, start=1)]
+    citations = sorted({ref_idx for _, (_, _, ref_idx) in ranked})
+
+    status = "ok" if len(ranked) >= top_n else "partial"
+    return {
+        "status": status,
+        "answer": "\n".join(lines),
+        "citations": citations,
+    }
 
 
 def _rule_based_answer(query: str, contexts: Sequence[ChunkRecord]) -> Dict[str, object]:

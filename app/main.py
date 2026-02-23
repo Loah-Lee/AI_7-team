@@ -8,12 +8,14 @@ import re
 import sys
 import time
 import uuid
+from pathlib import Path
 
 import streamlit as st
 from dotenv import load_dotenv
 
 _CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.dirname(_CURRENT_DIR)
+_PROJECT_ROOT_PATH = Path(_PROJECT_ROOT).resolve()
 sys.path.insert(0, _PROJECT_ROOT)
 sys.path.insert(0, os.path.join(_PROJECT_ROOT, "src"))
 
@@ -145,6 +147,67 @@ RAG_QUESTION_DEFAULTS = [
     "국립중앙의료원 사업예산은 얼마인가?",
 ]
 
+_IMAGE_REF_RE = re.compile(
+    r"(?:\.\./)?data_assets/[^\n]+?\.(?:png|jpg|jpeg|webp|gif)",
+    re.IGNORECASE,
+)
+
+
+def _is_image_only_request(query: str) -> bool:
+    return bool(re.search(r"(이미지|그림|사진|조직도|도표)", query or ""))
+
+
+def _extract_image_refs(text: str) -> list[str]:
+    refs: list[str] = []
+    seen: set[str] = set()
+    for match in _IMAGE_REF_RE.findall(text or ""):
+        ref = match.strip().strip("`'\"")
+        if not ref:
+            continue
+        key = ref.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        refs.append(ref)
+    return refs
+
+
+def _resolve_image_path(ref: str) -> Path | None:
+    raw = (ref or "").strip().strip("`'\"")
+    if not raw:
+        return None
+
+    p = Path(raw)
+    if p.is_absolute() and p.exists():
+        return p
+
+    rel = raw
+    if rel.startswith("../"):
+        rel = rel[3:]
+
+    candidates = [
+        _PROJECT_ROOT_PATH / raw,
+        _PROJECT_ROOT_PATH / rel,
+        _PROJECT_ROOT_PATH / "notebooks" / raw,
+        _PROJECT_ROOT_PATH / "notebooks" / rel,
+    ]
+    for c in candidates:
+        if c.exists():
+            return c.resolve()
+    return None
+
+
+def _collect_image_paths(answer_text: str, limit: int = 4) -> list[str]:
+    out: list[str] = []
+    for ref in _extract_image_refs(answer_text):
+        resolved = _resolve_image_path(ref)
+        if not resolved:
+            continue
+        out.append(str(resolved))
+        if len(out) >= limit:
+            break
+    return out
+
 
 def render_sidebar(chatbot) -> None:
     with st.sidebar:
@@ -197,6 +260,14 @@ def _looks_like_org_name(text: str) -> bool:
     )
 
 
+def _is_money_rank_request(query: str) -> bool:
+    q = query or ""
+    return bool(
+        re.search(r"(사업비|예산|금액|총사업비|예정가격|기초금액)", q)
+        and re.search(r"(가장|상위|top|순위|많은|큰|높은)", q, re.IGNORECASE)
+    )
+
+
 def _append_assistant_message(text: str) -> None:
     with st.chat_message("assistant"):
         st.markdown(text)
@@ -221,8 +292,15 @@ def process_user_query(chatbot, query: str) -> None:
     session_org = st.session_state.get("session_org", "")
     detected_org = _extract_org_name(query)
     effective_query = query
+    is_money_rank_query = _is_money_rank_request(query)
 
-    if pending_org_query:
+    if is_money_rank_query:
+        st.session_state.pending_org_query = ""
+        pending_org_query = ""
+
+    if is_money_rank_query:
+        effective_query = query
+    elif pending_org_query:
         org_candidate = detected_org or query.strip()
         if not _looks_like_org_name(org_candidate):
             _append_assistant_message(
@@ -261,23 +339,35 @@ def process_user_query(chatbot, query: str) -> None:
             result = chatbot.answer(effective_query)
             response_time = time.time() - start_time
 
-        st.markdown(result.get("answer", "답변 생성 실패"))
-        st.caption(f"status: {result.get('status', 'unknown')}")
-        if result.get("retrieval_mode"):
-            st.caption(f"retrieval_mode: {result.get('retrieval_mode')}")
-        if effective_query != query:
-            st.caption(f"effective_query: {effective_query}")
-        top1 = result.get("top1", {}) or {}
-        if top1.get("source_path"):
-            st.caption(
-                f"top1: {top1.get('source_path')} (chunk {top1.get('chunk_index')})"
-            )
-        citations = result.get("citations", []) or []
-        if citations:
-            st.markdown("**citations**")
-            for c in citations:
-                st.write(f"- {c}")
-        st.caption(f"응답 시간: {response_time:.2f}초")
+        answer_text = str(result.get("answer", "답변 생성 실패"))
+        image_paths = _collect_image_paths(answer_text)
+        is_image_request = _is_image_only_request(query)
+        image_only_mode = is_image_request and bool(image_paths)
+        image_not_found_mode = is_image_request and not image_paths
+
+        if image_only_mode:
+            for img in image_paths:
+                st.image(img, use_container_width=True)
+        elif image_not_found_mode:
+            st.markdown("이미지를 찾지 못했습니다.")
+        else:
+            st.markdown(answer_text)
+            st.caption(f"status: {result.get('status', 'unknown')}")
+            if result.get("retrieval_mode"):
+                st.caption(f"retrieval_mode: {result.get('retrieval_mode')}")
+            if effective_query != query:
+                st.caption(f"effective_query: {effective_query}")
+            top1 = result.get("top1", {}) or {}
+            if top1.get("source_path"):
+                st.caption(
+                    f"top1: {top1.get('source_path')} (chunk {top1.get('chunk_index')})"
+                )
+            citations = result.get("citations", []) or []
+            if citations:
+                st.markdown("**citations**")
+                for c in citations:
+                    st.write(f"- {c}")
+            st.caption(f"응답 시간: {response_time:.2f}초")
 
     try:
         trace_payload = {
@@ -287,6 +377,7 @@ def process_user_query(chatbot, query: str) -> None:
             "answer": result.get("answer", ""),
             "top1": result.get("top1", {}),
             "citations": result.get("citations", []),
+            "image_paths": image_paths,
             "response_time_sec": round(response_time, 4),
         }
         if span is not None:
@@ -300,12 +391,13 @@ def process_user_query(chatbot, query: str) -> None:
     except Exception:
         pass
 
-    st.session_state.messages.append(
-        {
-            "role": "assistant",
-            "content": result.get("answer", ""),
-        }
-    )
+    assistant_message = {
+        "role": "assistant",
+        "content": "이미지를 찾지 못했습니다." if image_not_found_mode else ("" if image_only_mode else answer_text),
+    }
+    if image_only_mode:
+        assistant_message["image_paths"] = image_paths
+    st.session_state.messages.append(assistant_message)
 
     st.session_state.user_input = ""
     st.rerun()
@@ -338,7 +430,12 @@ def main() -> None:
             if message["role"] == "user":
                 st.markdown(f"**{message['content']}**")
             else:
-                st.markdown(message["content"])
+                image_paths = message.get("image_paths", []) or []
+                if image_paths:
+                    for img in image_paths:
+                        st.image(img, use_container_width=True)
+                elif message.get("content"):
+                    st.markdown(message["content"])
 
     if prompt := st.chat_input("질문을 입력하세요"):
         process_user_query(chatbot, prompt)

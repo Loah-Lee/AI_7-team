@@ -4,14 +4,18 @@ import re
 from typing import Dict, List
 
 from ..evaluation.eval_harness import ChunkRecord
-from ..rag_answer import generate_answer
+from ..rag_answer import generate_answer, generate_money_rank_answer
 from .state import ChatState, OrgInfo, QueryIntent
 
 
 def parse_query(query: str) -> QueryIntent:
     q = query.strip()
     query_type = "generic"
-    if re.search(r"(표|테이블|이미지|그림|도표|캡션|첨부|원문\s*(표|이미지)|근거\s*(이미지|표))", q):
+    if re.search(r"(사업비|예산|금액|총사업비|예정가격|기초금액)", q) and re.search(
+        r"(가장|상위|top|순위|많은|큰|높은)", q, re.IGNORECASE
+    ):
+        query_type = "money_rank"
+    elif re.search(r"(표|테이블|이미지|그림|도표|캡션|첨부|원문\s*(표|이미지)|근거\s*(이미지|표))", q):
         query_type = "asset"
     elif re.search(r"비율|퍼센트|%", q):
         query_type = "percent"
@@ -63,7 +67,10 @@ def generate_answer_node(
 ) -> ChatState:
     state.contexts = contexts
     chunk_contexts = _to_chunk_records(contexts)
-    ans = generate_answer(state.intent.raw_query, chunk_contexts, answer_model=model)
+    if state.intent.query_type == "money_rank":
+        ans = generate_money_rank_answer(state.intent.raw_query, chunk_contexts)
+    else:
+        ans = generate_answer(state.intent.raw_query, chunk_contexts, answer_model=model)
     state.answer = str(ans.get("answer", "문서에 해당 정보가 없습니다."))
     state.status = str(ans.get("status", "not_found"))
     raw_citations = ans.get("citations", [])
