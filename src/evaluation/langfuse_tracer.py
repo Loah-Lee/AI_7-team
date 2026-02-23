@@ -108,3 +108,62 @@ def log_retrieval_metrics(
     if scores:
         log_score(trace_id, "retrieval_avg_score", round(sum(scores) / len(scores), 4))
         log_score(trace_id, "retrieval_max_score", round(max(scores), 4))
+
+
+class _NoOpTracer:
+    """main.py 호환용 no-op tracer."""
+
+    def trace(self, *, name: str, payload: dict[str, Any]) -> None:
+        return
+
+    def start_span(self, name: str, payload: dict[str, Any]) -> Any:
+        return None
+
+    def end_span(self, span: Any, name: str, payload: dict[str, Any]) -> None:
+        return
+
+
+class _LoggerBackedTracer:
+    """src.utils.langfuse_logger 기반 tracer 어댑터.
+
+    app/main.py가 기대하는 trace/start_span/end_span 시그니처를 제공한다.
+    """
+
+    def __init__(self, logger: Any) -> None:
+        self._logger = logger
+
+    def trace(self, *, name: str, payload: dict[str, Any]) -> None:
+        log_trace = getattr(self._logger, "log_trace", None)
+        if callable(log_trace):
+            log_trace(name, payload)
+            return
+        # 호환 fallback
+        trace_fn = getattr(self._logger, "trace", None)
+        if callable(trace_fn):
+            trace_fn(name=name, payload=payload)
+
+    def start_span(self, name: str, payload: dict[str, Any]) -> Any:
+        start_span = getattr(self._logger, "start_span", None)
+        if callable(start_span):
+            return start_span(name, payload)
+        return None
+
+    def end_span(self, span: Any, name: str, payload: dict[str, Any]) -> None:
+        end_span = getattr(self._logger, "end_span", None)
+        if callable(end_span):
+            end_span(span, name, payload)
+
+
+def get_langfuse_tracer() -> Any:
+    """app/main.py 호환 tracer를 반환한다.
+
+    - src.utils.langfuse_logger가 있으면 해당 로거를 감싼 tracer를 반환
+    - 없거나 초기화 실패 시 no-op tracer를 반환
+    """
+    try:
+        from src.utils.langfuse_logger import get_langfuse_logger  # type: ignore
+
+        logger = get_langfuse_logger()
+        return _LoggerBackedTracer(logger)
+    except Exception:
+        return _NoOpTracer()
