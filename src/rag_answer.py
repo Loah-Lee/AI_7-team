@@ -39,9 +39,133 @@ _MONEY_RE = re.compile(r"\b\d[\d,]*(?:\.\d+)?\s*(?:원|만원|천원|억원)\b")
 _MONEY_LOOSE_RE = re.compile(r"\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b")
 _BUDGET_KEYWORD_RE = re.compile(r"(사업예산|사업비|총사업비|예정가격|기초금액|금액|예산)")
 _DATE_RE = re.compile(r"\b\d{4}[./-]\d{1,2}[./-]\d{1,2}\b|\b\d{1,2}\s*월\s*\d{1,2}\s*일\b")
+# 접수일자 표기에서 자주 등장하는 YYMMDD(예: 240131) 형식
+_DATE_COMPACT_RE = re.compile(r"\b\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\b")
 _PERIOD_RE = re.compile(r"\b\d+\s*(?:개월|개월간|일|일간|년)\b")
 _CONTACT_RE = re.compile(r"(?:\d{2,3}-\d{3,4}-\d{4}|@|담당자|문의처|연락처|전화)")
 _MONEY_VALUE_RE = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(원|만원|천원|억원)")
+_ORG_SUFFIX_RE = re.compile(
+    r"(공사|공단|재단|재단법인|사단법인|법인|대학교|대학|병원|의료원|정보원|진흥원|연구원|협회|위원회|조직위원회|사무국|센터|서비스|은행|공항|학교)$"
+)
+_ORG_STOPWORDS = {
+    "무엇",
+    "어떤",
+    "얼마",
+    "얼마나",
+    "언제",
+    "왜",
+    "어떻게",
+    "질문",
+    "답변",
+    "문서",
+    "요약",
+    "설명",
+}
+_PLACEHOLDER_PREFIXES = (
+    "요약 생성을 위해 관련 문맥을 확보했습니다",
+    "정확한 값 추출에는 실패했습니다",
+)
+_FACTOID_STOPWORDS = {
+    "무엇",
+    "어떤",
+    "얼마",
+    "얼마나",
+    "어디",
+    "언제",
+    "누가",
+    "해주세요",
+    "알려줘",
+    "질문",
+    "답변",
+    "문서",
+    "기준",
+}
+
+
+def _dedupe_keep_order(items: Sequence[str]) -> List[str]:
+    out: List[str] = []
+    seen: set[str] = set()
+    for item in items:
+        s = str(item or "").strip()
+        if not s:
+            continue
+        if s in seen:
+            continue
+        seen.add(s)
+        out.append(s)
+    return out
+
+
+def _normalize_query_token(token: str) -> str:
+    t = (token or "").strip().lower()
+    if not t:
+        return ""
+    # 한국어 조사/어미를 단순 제거해 질의 핵심어를 정규화
+    suffixes = [
+        "입니다",
+        "입니까",
+        "일까요",
+        "일지",
+        "인가요",
+        "인가",
+        "은",
+        "는",
+        "이",
+        "가",
+        "을",
+        "를",
+        "에",
+        "의",
+        "와",
+        "과",
+        "로",
+        "으로",
+        "도",
+        "만",
+    ]
+    for sfx in suffixes:
+        if len(t) > len(sfx) + 1 and t.endswith(sfx):
+            t = t[: -len(sfx)]
+            break
+    return t
+
+
+def _query_focus_terms(query: str) -> List[str]:
+    generic = {
+        "문서",
+        "기준",
+        "항목",
+        "내용",
+        "질문",
+        "답변",
+        "표",
+        "테이블",
+        "이미지",
+        "그림",
+        "사진",
+        "도표",
+        "값",
+        "일자",
+        "날짜",
+        "언제",
+        "무엇",
+    }
+    out: List[str] = []
+    for raw in re.findall(r"[0-9A-Za-z가-힣]+", query or ""):
+        tok = _normalize_query_token(raw)
+        if len(tok) < 2:
+            continue
+        if tok in _FACTOID_STOPWORDS or tok in generic:
+            continue
+        out.append(tok)
+    return _dedupe_keep_order(out)
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name, "")
+    if not raw:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _get_client():
@@ -213,18 +337,35 @@ class ChromaRetriever:
         # 2) 부족하면 전체 검색으로 보완
         results = []
         if org:
-            filtered = search_chroma(
-                query=q_search,
-                persist_dir=self._persist_dir,
-                collection_name=self._collection_name,
-                model=self._model,
-                top_k=k,
-                fetch_k=max(k * 50, 500),
-                org=org,
-            )
+            filtered = []
+            selected_org = org
+            for cand in _org_filter_candidates(org, q):
+                filtered = search_chroma(
+                    query=q_search,
+                    persist_dir=self._persist_dir,
+                    collection_name=self._collection_name,
+                    model=self._model,
+                    top_k=k,
+                    fetch_k=max(k * 50, 500),
+                    org=cand,
+                )
+                if filtered:
+                    selected_org = cand
+                    break
             mode = self._org_filter_mode
             if mode == "hard":
                 results = filtered
+                if not results:
+                    # 기관 힌트가 빗나간 경우 전체 검색으로 최소한의 recall을 확보한다.
+                    results = search_chroma(
+                        query=q_search,
+                        persist_dir=self._persist_dir,
+                        collection_name=self._collection_name,
+                        model=self._model,
+                        top_k=k,
+                        fetch_k=max(k * 30, 200),
+                        org=None,
+                    )
             else:
                 unfiltered = search_chroma(
                     query=q_search,
@@ -240,26 +381,23 @@ class ChromaRetriever:
                 else:
                     # adaptive:
                     # 기관 힌트 신뢰도가 높거나 기관 필터 결과가 충분하면 hard처럼 동작.
-                    conf = _org_confidence(q, org)
+                    conf = _org_confidence(q, selected_org)
                     enough = len(filtered) >= max(5, k // 4)
                     if conf >= 0.9 or enough:
                         results = filtered
                     else:
                         results = filtered + unfiltered
         else:
-            if self._org_hard_filter:
-                # 기관 필수 모드에서는 무기관 질의에 대해 검색을 수행하지 않는다.
-                results = []
-            else:
-                results = search_chroma(
-                    query=q_search,
-                    persist_dir=self._persist_dir,
-                    collection_name=self._collection_name,
-                    model=self._model,
-                    top_k=k,
-                    fetch_k=max(k * 30, 200),
-                    org=None,
-                )
+            # 기관 힌트가 없더라도 검색을 수행해 0-retrieval을 줄인다.
+            results = search_chroma(
+                query=q_search,
+                persist_dir=self._persist_dir,
+                collection_name=self._collection_name,
+                model=self._model,
+                top_k=k,
+                fetch_k=max(k * 30, 200),
+                org=None,
+            )
 
         scored: List[tuple[ChunkRecord, float, int]] = []
         seen: set[tuple[str, int]] = set()
@@ -550,18 +688,19 @@ def _parse_json_object(text: str) -> Dict[str, object]:
 
 def _question_kind(query: str) -> str:
     q = query.strip()
-    if re.search(r"개요|요약|설명|무엇|어떤", q):
-        return "overview"
     if re.search(r"비율|퍼센트|%", q):
         return "percent"
-    if re.search(r"예산|금액|비용|얼마", q):
-        return "money"
     if re.search(r"마감|일자|언제|날짜", q):
         return "date"
-    if re.search(r"기간|며칠|몇\s*개월", q):
+    is_frequency_query = bool(re.search(r"얼마나\s*(자주|빈도|횟수|주기)", q))
+    if re.search(r"기간|며칠|몇\s*개월|몇\s*회", q) or is_frequency_query:
         return "period"
     if re.search(r"문의|연락처|전화|이메일|담당자", q):
         return "contact"
+    if re.search(r"예산|금액|비용", q) or (re.search(r"얼마", q) and "얼마나" not in q):
+        return "money"
+    if re.search(r"개요|요약|정리|설명", q):
+        return "overview"
     return "generic"
 
 
@@ -585,6 +724,48 @@ def _noise_hits(text: str) -> int:
     if t.lstrip().startswith("!["):
         hits += 1
     return hits
+
+
+def _sanitize_context_text(text: str) -> str:
+    if not text:
+        return ""
+    t = text.replace("\r", "\n")
+    t = re.sub(r"```[\s\S]*?```", " ", t)
+    t = re.sub(r"!\[[^\]]*\]\([^)]+\)", " ", t)
+    t = re.sub(r"\.\./data_assets/[^\s)]+", " ", t)
+    t = re.sub(r"\]\(\.\./data_assets/[^\)\s]+\)", " ", t)
+    t = re.sub(r"\{[\s\S]{0,200}?\"(?:summary|headers|rows|type)\"[\s\S]{0,200}?\}", " ", t)
+
+    kept: List[str] = []
+    for line in t.split("\n"):
+        s = line.strip()
+        if not s:
+            continue
+        if "../data_assets/" in s:
+            continue
+        if _noise_hits(s) >= 2:
+            continue
+        kept.append(s)
+    out = re.sub(r"\s+", " ", " ".join(kept)).strip()
+    return out[:2200]
+
+
+def _sanitize_contexts_for_answer(contexts: Sequence[ChunkRecord]) -> List[ChunkRecord]:
+    out: List[ChunkRecord] = []
+    for c in contexts:
+        clean_text = _sanitize_context_text(c.text or "")
+        if not clean_text:
+            clean_text = re.sub(r"\s+", " ", (c.text or "")).strip()[:600]
+        out.append(
+            ChunkRecord(
+                source_path=c.source_path,
+                chunk_index=c.chunk_index,
+                chunk_id=c.chunk_id,
+                text=clean_text,
+                metadata=c.metadata if isinstance(c.metadata, dict) else None,
+            )
+        )
+    return out
 
 
 def _has_value_hint(text: str, kind: str) -> bool:
@@ -708,13 +889,113 @@ def _apply_mmr_sparse(
 
 
 def _extract_org_hint(query: str) -> str | None:
-    tokens = query.strip().split()
+    q = re.sub(r"\s+", " ", (query or "").strip())
+    if not q:
+        return None
+
+    def _clean_org_token(token: str) -> str:
+        tok = (token or "").strip()
+        tok = tok.replace("㈜", "(주)")
+        tok = tok.strip("`\"'“”‘’[]{}<>.,:;!?")
+        tok = tok.replace("(주)", "").replace("주식회사", "").strip()
+        if tok and not tok.startswith("("):
+            tok = re.sub(r"\s*\([^)]*\)\s*$", "", tok).strip() or tok
+        if len(tok) >= 2:
+            tok = re.sub(r"(의|에서|와|과|및|은|는|이|가|을|를)$", "", tok)
+        if "_" in tok:
+            tok = tok.split("_", 1)[0]
+        return tok.strip()
+
+    def _looks_like_org_token(token: str) -> bool:
+        tok = _clean_org_token(token)
+        if not tok or tok in _ORG_STOPWORDS or len(tok) < 2:
+            return False
+        if tok.startswith(("한국", "대한", "국립", "국가", "재단법인", "사단법인", "(재)", "(사)", "주식회사")):
+            return True
+        if _ORG_SUFFIX_RE.search(tok):
+            return True
+        if re.fullmatch(r"[A-Za-z][A-Za-z0-9.&-]{2,}", tok):
+            return True
+        if tok.endswith("사") and tok.startswith(("한국", "대한", "아시아")):
+            return True
+        return False
+
+    head = q
+    head_match = re.match(r"^(.{1,80}?)(?:의|에서|와|과|및)\b", q)
+    if head_match:
+        head = head_match.group(1).strip()
+
+    raw_tokens = [t for t in head.split() if t.strip()]
+    tokens = [_clean_org_token(t) for t in raw_tokens]
+    tokens = [t for t in tokens if t]
     if not tokens:
         return None
-    cand = tokens[0].strip()
-    if re.search(r"(공사|공단|재단|대학교|대학|병원|정보원|원)$", cand) or cand.startswith("한국"):
-        return cand
+
+    if tokens[0] in {"재단법인", "사단법인", "(재)", "(사)", "주식회사"} and len(tokens) >= 2:
+        max_n = min(6, len(tokens))
+        for n in range(2, max_n + 1):
+            cand = " ".join(tokens[:n]).strip()
+            if _looks_like_org_token(tokens[n - 1]) and len(cand) >= 3:
+                return cand
+        return " ".join(tokens[: min(3, len(tokens))]).strip()
+
+    for n in range(min(3, len(tokens)), 0, -1):
+        cand = " ".join(tokens[:n]).strip()
+        if _looks_like_org_token(tokens[n - 1]) or (n == 1 and _looks_like_org_token(cand)):
+            return cand
+
+    for token in tokens[:5]:
+        if _looks_like_org_token(token):
+            return token
     return None
+
+
+def _org_filter_candidates(org_hint: str | None, query: str) -> List[str]:
+    base = re.sub(r"\s+", " ", (org_hint or "").strip())
+    if not base:
+        return []
+
+    q = re.sub(r"\s+", " ", (query or "").strip())
+    out: List[str] = []
+
+    def _add(v: str) -> None:
+        vv = re.sub(r"\s+", " ", (v or "").strip())
+        if vv and vv not in out:
+            out.append(vv)
+
+    _add(base)
+
+    # 법인 표기 변형: (사)/(재) + 기관명 형태를 보조 후보로 추가한다.
+    # 일부 원문은 전각 괄호/문장부호((사）)를 사용하므로 함께 시도한다.
+    if not re.match(r"^\((?:사|재)[\)）]", base):
+        compact = base.replace(" ", "")
+        for p in ("(사)", "(사）", "(재)", "(재）"):
+            _add(f"{p}{base}")
+            _add(f"{p}{compact}")
+            _add(f"{p} {base}")
+
+    if "(주)" in base:
+        _add(base.replace("(주)", ""))
+    elif "주식회사" in base:
+        _add(base.replace("주식회사", ""))
+    else:
+        if base and f"{base}(주)" in q:
+            _add(f"{base}(주)")
+        if base and f"{base} (주)" in q:
+            _add(f"{base} (주)")
+
+    if "(용역)" in base:
+        _add(base.replace("(용역)", ""))
+    if base and re.search(rf"{re.escape(base)}\s*용역", q):
+        _add(f"{base} (용역)")
+
+    legal_prefixes = {"재단법인", "사단법인", "(재)", "(사)", "주식회사"}
+    toks = [t for t in base.split() if t]
+    if toks and toks[0] in legal_prefixes and len(toks) >= 3:
+        _add(" ".join(toks[:2]))
+        _add(" ".join(toks[1:3]))
+
+    return out
 
 
 def _org_confidence(query: str, org: str | None) -> float:
@@ -724,9 +1005,14 @@ def _org_confidence(query: str, org: str | None) -> float:
     o = (org or "").strip()
     if not q or not o:
         return 0.0
-    if q.startswith(o + " ") and re.search(r"(공사|공단|재단|대학교|대학|병원|정보원|연구원|협회|위원회)$", o):
+    if (
+        q.startswith(o + " ")
+        or q.startswith(o + "의")
+        or q.startswith(o + "에서")
+        or q.startswith(o + "(")
+    ) and _ORG_SUFFIX_RE.search(o):
         return 1.0
-    if q.startswith(o + " ") and len(o) >= 3:
+    if q.startswith(o) and len(o) >= 3:
         return 0.9
     if o in q and len(o) >= 3:
         return 0.7
@@ -750,7 +1036,9 @@ def _pick_matches(text: str, kind: str) -> List[str]:
                 return loose
         return []
     if kind == "date":
-        return _DATE_RE.findall(text)
+        matches = _DATE_RE.findall(text)
+        matches.extend(_DATE_COMPACT_RE.findall(text))
+        return _dedupe_keep_order(matches)
     if kind == "period":
         return _PERIOD_RE.findall(text)
 
@@ -758,6 +1046,93 @@ def _pick_matches(text: str, kind: str) -> List[str]:
     for pattern in (_PERCENT_RE, _MONEY_RE, _DATE_RE, _PERIOD_RE):
         matches.extend(pattern.findall(text))
     return matches
+
+
+def _factoid_tokens(query: str) -> List[str]:
+    tokens = []
+    for tok in re.findall(r"[0-9A-Za-z가-힣]+", (query or "").lower()):
+        if len(tok) < 2:
+            continue
+        if tok in _FACTOID_STOPWORDS:
+            continue
+        tokens.append(tok)
+    return tokens[:16]
+
+
+def _match_window(text: str, value: str, radius: int = 120) -> str:
+    t = text or ""
+    v = value or ""
+    if not t:
+        return ""
+    if not v:
+        return t[: radius * 2]
+    idx = t.find(v)
+    if idx < 0:
+        return t[: radius * 2]
+    s = max(0, idx - radius)
+    e = min(len(t), idx + len(v) + radius)
+    return t[s:e]
+
+
+def _is_factoid_match_relevant(query: str, text: str, value: str, kind: str) -> bool:
+    window = _match_window(text, value)
+    merged = window if kind == "date" else f"{window} {text[:400]}"
+    tokens = _factoid_tokens(query)
+    overlap = sum(1 for t in tokens if t and t in merged.lower())
+
+    if kind == "money":
+        if not _BUDGET_KEYWORD_RE.search(merged):
+            return False
+    if kind == "period":
+        if re.search(r"(얼마나\s*(자주|빈도|주기)|주기|빈도|횟수|월\s*1회|매월|매주|매일)", query):
+            if not re.search(r"(월\s*\d+\s*회|\d+\s*회|매월|매주|매일|주기|빈도)", merged):
+                return False
+        if "교육" in query and "교육" not in merged:
+            return False
+    if kind == "date":
+        has_date_signal = bool(
+            _DATE_RE.search(merged)
+            or _DATE_COMPACT_RE.search(merged)
+            or re.search(r"(마감|제출|접수|착수|종료)", merged)
+        )
+        if not has_date_signal:
+            return False
+        # 특정 키워드 하드코딩 대신 질의 핵심어와의 동적 문맥 일치를 요구한다.
+        focus_terms = _query_focus_terms(query)
+        if focus_terms:
+            overlap = sum(1 for t in focus_terms if t in merged.lower())
+            min_required = 1 if len(focus_terms) <= 2 else 2
+            if overlap < min_required:
+                return False
+    if kind == "percent":
+        if not (_PERCENT_RE.search(merged) or _FRACTION_OF_100_RE.search(merged)):
+            return False
+
+    return overlap >= 1
+
+
+def _score_date_candidate(query: str, text: str, value: str) -> float:
+    w = _match_window(text or "", value or "", radius=140)
+    score = 0.0
+
+    if re.fullmatch(r"\d{6}", value or ""):
+        score += 2.0
+    elif re.search(r"\d{4}[./-]\d{1,2}[./-]\d{1,2}", value or ""):
+        score += 0.4
+    elif re.search(r"\d{1,2}\s*월\s*\d{1,2}\s*일", value or ""):
+        score += 0.2
+
+    focus_terms = _query_focus_terms(query)
+    if focus_terms:
+        overlap = sum(1 for t in focus_terms if t in w.lower())
+        score += 0.45 * overlap
+        if overlap == 0:
+            score -= 1.2
+
+    if re.search(r"기간\s*필터", w):
+        score -= 1.6
+
+    return score
 
 
 def _parse_top_n_for_rank_query(query: str, default: int = 3) -> int:
@@ -897,24 +1272,19 @@ def _rule_based_answer(query: str, contexts: Sequence[ChunkRecord]) -> Dict[str,
         }
 
     kind = _question_kind(query)
-    # 개요/설명형 질의는 규칙 기반 값 추출을 건너뛰고 LLM 생성으로 넘긴다.
+    use_factoid_guard = _env_flag("RAG_EXP5_FACTOID_GUARD", default=True)
+    # 개요/설명형 질의는 규칙 기반 placeholder를 만들지 않고 LLM 생성으로 넘긴다.
     if kind in {"overview", "generic"}:
-        preview = re.sub(r"\s+", " ", contexts[0].text).strip()[:160]
-        if preview:
-            return {
-                "status": "partial",
-                "answer": f"요약 생성을 위해 관련 문맥을 확보했습니다: {preview}",
-                "citations": [1],
-            }
         return {
-            "status": "partial",
-            "answer": "요약 생성을 위해 관련 문맥을 확보했습니다.",
-            "citations": [1],
+            "status": "skip",
+            "answer": "",
+            "citations": [],
         }
 
     percent_keywords = ["입찰보증금", "입찰 보증금", "입찰금액", "입찰 금액", "보증금"]
     percent_exclude = ["기술능력", "평가", "배점", "협상적격"]
     percent_candidates: List[Tuple[int, str]] = []
+    date_candidates: List[Tuple[float, int, str]] = []
 
     for i, c in enumerate(contexts, start=1):
         matches = _pick_matches(c.text, kind)
@@ -926,14 +1296,34 @@ def _rule_based_answer(query: str, contexts: Sequence[ChunkRecord]) -> Dict[str,
             if any(k in text for k in percent_exclude) and not any(k in text for k in percent_keywords):
                 continue
             if any(k in text for k in percent_keywords):
+                if use_factoid_guard and not _is_factoid_match_relevant(query, text, matches[0], kind):
+                    continue
                 percent_candidates.append((i, matches[0]))
                 continue
 
+        if kind == "date":
+            for value in matches:
+                if use_factoid_guard and not _is_factoid_match_relevant(query, c.text, value, kind):
+                    continue
+                date_candidates.append((_score_date_candidate(query, c.text, value), i, value))
+            continue
+
+        if use_factoid_guard and not _is_factoid_match_relevant(query, c.text, matches[0], kind):
+            continue
         return {
             "status": "ok",
             "answer": f"근거 문구에서 확인된 값은 `{matches[0]}` 입니다.",
             "citations": [i],
         }
+
+    if kind == "date" and date_candidates:
+        best_score, best_idx, best_val = max(date_candidates, key=lambda x: x[0])
+        if best_score >= 0.0:
+            return {
+                "status": "ok",
+                "answer": f"근거 문구에서 확인된 값은 `{best_val}` 입니다.",
+                "citations": [best_idx],
+            }
 
     if kind == "percent" and percent_candidates:
         idx, val = percent_candidates[0]
@@ -943,19 +1333,10 @@ def _rule_based_answer(query: str, contexts: Sequence[ChunkRecord]) -> Dict[str,
             "citations": [idx],
         }
 
-    # 수치 추출은 실패했어도 컨텍스트가 있으면 partial로 처리한다.
-    preview = re.sub(r"\s+", " ", contexts[0].text).strip()[:160]
-    if preview:
-        return {
-            "status": "partial",
-            "answer": f"정확한 값 추출에는 실패했습니다. 관련 근거: {preview}",
-            "citations": [1],
-        }
-
     return {
-        "status": "partial",
-        "answer": "정확한 값 추출에는 실패했습니다. 관련 문맥은 확인되었습니다.",
-        "citations": [1],
+        "status": "skip",
+        "answer": "",
+        "citations": [],
     }
 
 
@@ -965,11 +1346,44 @@ def generate_answer(
     *,
     answer_model: str,
 ) -> Dict[str, object]:
-    rule_ans = _rule_based_answer(query, contexts)
+    kind = _question_kind(query)
+    cleaned_contexts = _sanitize_contexts_for_answer(contexts)
+    rule_contexts: Sequence[ChunkRecord] = cleaned_contexts
+    # 날짜 질의는 질의 기반 동적 문맥 매칭으로 원문에서 우선 추출한다.
+    if kind == "date":
+        rule_contexts = contexts
+    rule_ans = _rule_based_answer(query, rule_contexts)
     if rule_ans["status"] == "ok":
+        return rule_ans
+    if not cleaned_contexts and rule_ans["status"] == "not_found":
         return rule_ans
 
     client = _get_client()
+    use_structured_complex = _env_flag("RAG_EXP6_STRUCTURED_COMPLEX", default=False)
+    is_complex_query = bool(
+        re.search(r"(비교|차이|각각|모두|동시에|종합|요약|충족|의무|절차|요구사항)", query)
+        and len(query) >= 30
+    )
+
+    instruction_parts = [
+        "반드시 JSON으로만 답하세요.",
+        "키는 status, answer, citations를 사용하세요.",
+        "status는 'ok', 'partial', 'not_found' 중 하나만 사용하세요.",
+        "정확한 값은 없지만 관련 문맥이 있으면 partial로 답하세요.",
+        "근거가 전혀 없으면 answer를 '문서에 해당 정보가 없습니다.'로 반환하세요.",
+    ]
+    if kind in {"money", "percent", "date", "period", "contact"}:
+        instruction_parts.append(
+            "사실형 질의에서는 질문의 핵심 값(숫자/기간/비율/연락처)을 답변 첫 문장에 직접 제시하세요."
+        )
+    if use_structured_complex and is_complex_query:
+        instruction_parts.append(
+            "복합/비교 질의이므로 answer를 다음 순서로 작성하세요: 1) 문서A 핵심 요구사항, 2) 문서B 핵심 요구사항, 3) 차이점 요약."
+        )
+        instruction_parts.append(
+            "각 섹션에는 최소 2개 이상 핵심 항목을 포함하고, 누락 없이 간결하게 정리하세요."
+        )
+
     payload = {
         "query": query,
         "contexts": [
@@ -979,15 +1393,9 @@ def generate_answer(
                 "chunk_index": c.chunk_index,
                 "text": c.text[:1800],
             }
-            for i, c in enumerate(contexts)
+            for i, c in enumerate(cleaned_contexts)
         ],
-        "instruction": (
-            "반드시 JSON으로만 답하세요. "
-            "키는 status, answer, citations를 사용하세요. "
-            "status는 'ok', 'partial', 'not_found' 중 하나만 사용하세요. "
-            "정확한 값은 없지만 관련 문맥이 있으면 partial로 답하세요. "
-            "근거가 전혀 없으면 answer를 '문서에 해당 정보가 없습니다.'로 반환하세요."
-        ),
+        "instruction": " ".join(instruction_parts),
     }
 
     response = client.responses.create(
@@ -1013,24 +1421,29 @@ def generate_answer(
                 idx = int(item)
             except Exception:
                 continue
-            if 1 <= idx <= len(contexts):
+            if 1 <= idx <= len(cleaned_contexts):
                 citations.append(idx)
 
     if status not in {"ok", "partial", "not_found"}:
         status = "partial" if answer else "not_found"
+
+    if any(answer.startswith(prefix) for prefix in _PLACEHOLDER_PREFIXES):
+        answer = ""
+        status = "not_found"
+
     if not answer:
-        if rule_ans["status"] in {"ok", "partial"}:
+        if rule_ans["status"] == "ok":
             return rule_ans
         answer = "문서에 해당 정보가 없습니다." if status == "not_found" else ""
 
     if "문서에 해당 정보가 없습니다" in answer:
-        if rule_ans["status"] in {"ok", "partial"}:
+        if rule_ans["status"] == "ok":
             return rule_ans
         status = "not_found"
-    elif status == "not_found" and rule_ans["status"] in {"ok", "partial"}:
+    elif status == "not_found" and rule_ans["status"] == "ok":
         return rule_ans
 
-    if not citations and rule_ans["citations"]:
+    if not citations and rule_ans["status"] == "ok" and rule_ans["citations"]:
         citations = list(rule_ans["citations"])
 
     return {

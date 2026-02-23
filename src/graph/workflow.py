@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Sequence
 
 from ..evaluation.eval_harness import load_joined_metadata
 from ..retrievers.rich_tfidf_search import load_chunks_rich
@@ -170,6 +171,115 @@ class RAGChatbot:
         except Exception:
             return None
 
+    @staticmethod
+    def _status_score(status: str) -> int:
+        s = (status or "").strip().lower()
+        if s == "ok":
+            return 2
+        if s == "partial":
+            return 1
+        return 0
+
+    @staticmethod
+    def _has_substantive_answer(answer: str) -> bool:
+        txt = (answer or "").strip()
+        return bool(txt and "문서에 해당 정보가 없습니다" not in txt)
+
+    @classmethod
+    def _is_better_result(
+        cls,
+        candidate_state: ChatState,
+        candidate_contexts: Sequence[ChunkRecord],
+        current_state: ChatState,
+        current_contexts: Sequence[ChunkRecord],
+    ) -> bool:
+        candidate_score = cls._status_score(candidate_state.status)
+        current_score = cls._status_score(current_state.status)
+        if candidate_score != current_score:
+            return candidate_score > current_score
+
+        candidate_has_answer = cls._has_substantive_answer(candidate_state.answer)
+        current_has_answer = cls._has_substantive_answer(current_state.answer)
+        if candidate_has_answer != current_has_answer:
+            return candidate_has_answer
+
+        if candidate_score == 0:
+            return False
+        return len(candidate_contexts) > len(current_contexts)
+
+    @staticmethod
+    def _sources_from_contexts(contexts: Sequence[ChunkRecord], limit: int = 8) -> List[str]:
+        out: List[str] = []
+        seen: set[str] = set()
+        for c in contexts:
+            src = (c.source_path or "").strip()
+            if not src or src in seen:
+                continue
+            seen.add(src)
+            out.append(src)
+            if len(out) >= limit:
+                break
+        return out
+
+    @staticmethod
+    def _to_context_payload(contexts: Sequence[ChunkRecord]) -> List[Dict[str, object]]:
+        return [
+            {
+                "source_path": c.source_path,
+                "chunk_index": c.chunk_index,
+                "chunk_id": c.chunk_id,
+                "text": c.text,
+                "metadata": c.metadata if isinstance(c.metadata, dict) else None,
+            }
+            for c in contexts
+        ]
+
+    def _run_answer_pass(
+        self,
+        *,
+        base_state: ChatState,
+        query: str,
+        model: str,
+        retriever,
+        chunks: Sequence[ChunkRecord],
+        retrieval_query: str,
+        retrieve_k: int,
+        context_k: int,
+        source_filter: set[str] | None = None,
+    ) -> tuple[ChatState, List[ChunkRecord]]:
+        raw: List[ChunkRecord] = []
+        if retriever is not None:
+            raw = retriever.retrieve(retrieval_query, chunks, k=retrieve_k)
+        if source_filter:
+            raw = [c for c in raw if c.source_path in source_filter]
+
+        expanded = _expand_candidates_with_neighbors(
+            raw,
+            chunks,
+            target_k=max(retrieve_k, min(retrieve_k + 80, retrieve_k * 2)),
+            neighbor_window=1,
+        )
+        if source_filter:
+            expanded = [c for c in expanded if c.source_path in source_filter]
+
+        reranked, _ = _rerank(query, expanded, rerank_mode=self.rerank, llm_model=model)
+        if source_filter:
+            reranked = [c for c in reranked if c.source_path in source_filter]
+
+        contexts = _expand_contexts_with_neighbors(
+            reranked, chunks, context_k=context_k, neighbor_window=1
+        )
+        if source_filter:
+            contexts = [c for c in contexts if c.source_path in source_filter]
+
+        pass_state = ChatState(intent=base_state.intent, org=base_state.org)
+        pass_state = generate_answer_node(
+            pass_state,
+            self._to_context_payload(contexts),
+            model=model,
+        )
+        return pass_state, contexts
+
     def answer(self, query: str, model: str = "gpt-5-nano") -> Dict[str, object]:
         intent = parse_query(query)
         org = parse_org(query)
@@ -178,13 +288,16 @@ class RAGChatbot:
         is_money_rank = intent.query_type == "money_rank"
         use_asset = intent.query_type == "asset" and self.asset_retriever is not None
         if self.retriever_kind == "chroma" and not org.matched and not is_money_rank:
-            return {
-                "status": "need_org",
-                "answer": "정확한 검색을 위해 기관명을 먼저 입력해주세요. 예: `한국농어촌공사`, `고려대학교`",
-                "citations": [],
-                "top1": {"source_path": "", "chunk_index": -1},
-                "retrieval_mode": "asset" if use_asset else "default",
-            }
+            token_count = len(re.findall(r"[0-9A-Za-z가-힣]+", query or ""))
+            if token_count <= 8:
+                return {
+                    "status": "need_org",
+                    "answer": "정확한 검색을 위해 기관명을 먼저 입력해주세요. 예: `한국농어촌공사`, `고려대학교`",
+                    "citations": [],
+                    "top1": {"source_path": "", "chunk_index": -1},
+                    "retrieval_mode": "asset" if use_asset else "default",
+                    "retrieved_contexts": [],
+                }
         active_retriever = self.asset_retriever if use_asset else self.retriever
         if is_money_rank:
             if self.money_rank_retriever is not None:
@@ -201,38 +314,68 @@ class RAGChatbot:
             retrieve_k = max(self.top_k, 240)
             context_k = max(self.context_k, 120)
 
-        raw: List[ChunkRecord] = active_retriever.retrieve(retrieval_query, active_chunks, k=retrieve_k)
-        expanded = _expand_candidates_with_neighbors(
-            raw,
-            active_chunks,
-            target_k=max(retrieve_k, min(retrieve_k + 80, retrieve_k * 2)),
-            neighbor_window=1,
+        base_mode = "asset" if use_asset else ("money_rank" if is_money_rank else "default")
+        primary_state, primary_contexts = self._run_answer_pass(
+            base_state=state,
+            query=query,
+            model=model,
+            retriever=active_retriever,
+            chunks=active_chunks,
+            retrieval_query=retrieval_query,
+            retrieve_k=retrieve_k,
+            context_k=context_k,
         )
-        reranked, _ = _rerank(query, expanded, rerank_mode=self.rerank, llm_model=model)
-        contexts = _expand_contexts_with_neighbors(
-            reranked, active_chunks, context_k=context_k, neighbor_window=1
+
+        final_state = primary_state
+        final_contexts = primary_contexts
+        retrieval_mode = base_mode
+
+        should_try_asset_fallback = (
+            not use_asset
+            and self.asset_retriever is not None
+            and (not primary_contexts or self._status_score(primary_state.status) == 0)
         )
-        state = generate_answer_node(
-            state,
-            [
+        if should_try_asset_fallback:
+            source_hints = self._sources_from_contexts(primary_contexts)
+            if source_hints:
+                # 2차는 같은 source에 한정한 asset 검색만 수행한다(레이턴시 최적화).
+                fallback_state, fallback_contexts = self._run_answer_pass(
+                    base_state=state,
+                    query=query,
+                    model=model,
+                    retriever=self.asset_retriever,
+                    chunks=self.asset_chunks,
+                    retrieval_query=retrieval_query,
+                    retrieve_k=retrieve_k,
+                    context_k=context_k,
+                    source_filter=set(source_hints),
+                )
+                if self._is_better_result(
+                    fallback_state,
+                    fallback_contexts,
+                    final_state,
+                    final_contexts,
+                ):
+                    final_state = fallback_state
+                    final_contexts = fallback_contexts
+                    retrieval_mode = "asset_fallback"
+
+        return {
+            "status": final_state.status or "not_found",
+            "answer": final_state.answer or "문서에 해당 정보가 없습니다.",
+            "citations": final_state.citations,
+            "top1": {
+                "source_path": final_contexts[0].source_path if final_contexts else "",
+                "chunk_index": final_contexts[0].chunk_index if final_contexts else -1,
+            },
+            "retrieval_mode": retrieval_mode,
+            "retrieved_contexts": [
                 {
                     "source_path": c.source_path,
                     "chunk_index": c.chunk_index,
-                    "chunk_id": c.chunk_id,
                     "text": c.text,
                     "metadata": c.metadata if isinstance(c.metadata, dict) else None,
                 }
-                for c in contexts
+                for c in final_contexts
             ],
-            model=model,
-        )
-        return {
-            "status": state.status or "not_found",
-            "answer": state.answer or "문서에 해당 정보가 없습니다.",
-            "citations": state.citations,
-            "top1": {
-                "source_path": contexts[0].source_path if contexts else "",
-                "chunk_index": contexts[0].chunk_index if contexts else -1,
-            },
-            "retrieval_mode": "asset" if use_asset else ("money_rank" if is_money_rank else "default"),
         }
