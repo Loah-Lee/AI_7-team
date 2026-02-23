@@ -1,161 +1,162 @@
-# AI_7-team: RFP-RAG-Analyzer
-> **100여 개의 RFP(제안요청서) 분석 및 요약을 위한 RAG 시스템 구축 프로젝트**
+# AI_7-team: BiddingMate RAG (Chroma 기준)
+> 본 문서는 **현재 코드 기준 최신 Chroma 운영 흐름**을 정리한 README입니다.  
+> 목적: 데이터 구축부터 평가 리포트까지 각 파트의 핵심 로직, 설계 근거, 관련 파일 경로를 빠르게 확인.
 
-본 프로젝트는 복잡한 입찰 공고문(RFP)을 효율적으로 분석하여 컨설턴트의 의사결정을 돕는 AI 도구를 개발합니다.
+## 1) 현재 운영 기본값 (요약)
 
----
+- 서비스 챗봇 기본:
+  - `retriever=chroma`, `rerank=none`, `top_k=50`, `context_k=20`
+  - 근거: `app/main.py`, `src/graph/workflow.py`
+- Chroma 운영 옵션:
+  - `org_filter_mode=hard`, `noise_mode=hard`, `mmr=True`, `query_rewrite=True`
+  - 근거: `src/graph/workflow.py`, `src/rag_answer.py`
+- 평가 기본:
+  - 데이터셋 `eval_resources/eval_dataset.yaml`
+  - `top_k=5`, `context_k=20`
+  - `answer_model=gpt-5-nano`, `judge_model=gpt-5-mini`
+  - 근거: `scripts/eval_retrieval.py`
 
-## 프로젝트 구조
+## 2) E2E 아키텍처 (데이터 구축 → 생성/평가)
 
-```
-/Users/apple/AI_7-team
-├─ app/                Streamlit 진입점/래퍼(main.py 포함)
-├─ src/                핵심 코드
-├─ scripts/            유틸 스크립트
-├─ tests/              로컬 전용(커밋 금지)
-├─ docs/               문서
-├─ eval_resources/     평가 문서/리소스
-├─ configs/            설정/평가 파일(default.yaml 포함)
-├─ data/
-│  └─ pdf_raw/         본작업 입력 원본(PDF/HWP→PDF, 로컬)
-├─ data_index/
-│  ├─ dense_B/         B 파이프라인 Dense 인덱스(로컬)
-│  └─ chroma_B/        B 파이프라인 Chroma 인덱스(로컬)
-├─ notebooks/          rich 파이프라인 산출물(로컬)
-├─ results/            실험 결과(로컬)
-├─ README.md
-└─ CODEX_CONSTITUTION.md
-```
+| 파트 | 핵심 로직 | 근거(왜 이렇게 동작) | 핵심 파일 |
+|---|---|---|---|
+| 1. 문서 파싱/자산 추출 | PDF 텍스트 추출 + 이미지 asset 추출 + HWP 자동 PDF 변환(`soffice`) | 원문 구조/이미지 근거를 동시에 보존해야 후속 검색·답변 품질이 안정적 | `src/parsers/rich_pdf_extract.py` |
+| 2. 이미지/표 캡션 보강(선택) | 이미지별 LLM 캡션/표 텍스트 추출 후 markdown의 `PLACEHOLDER` 대체 | 표/이미지 기반 질의의 검색 가능 토큰을 늘려 recall 개선 | `src/parsers/rich_caption_assets.py` |
+| 3. 구조 기반 청킹 | 목차/섹션/리스트 경계를 우선 반영해 chunk 생성, metadata(`section_title`, `page_refs`, `assets`) 포함 | 단순 길이 분할보다 질의-근거 정합성이 좋아져 retrieval precision 개선 | `src/parsers/rich_chunk.py` |
+| 4. Chroma 인덱싱 | OpenAI 임베딩(`text-embedding-3-small`)으로 JSONL 청크를 Chroma에 upsert, 임베딩 lock 파일로 모델 일치 강제 | 인덱싱/검색 임베딩 불일치 차원 오류를 예방하고 재현성 확보 | `src/retrievers/chroma_store.py`, `src/retrievers/vectorstore.py`, `src/retrievers/build_chroma_index.py` |
+| 5. 리트리버(핵심) | 기관 힌트 추출→기관 필터 검색 우선→fallback, Chroma score + lexical score + keyword/signal bonus + noise penalty, 필요 시 sparse MMR | 범용 질의·기관 질의를 동시에 커버하면서 source recall과 정밀도의 균형을 맞춤 | `src/rag_answer.py` (`ChromaRetriever.retrieve`) |
+| 6. 오케스트레이션 | query type 파싱(`money_rank`, `asset` 등), 기본/자산/금액순위 경로 분기, 후보/컨텍스트 neighbor 확장 후 답변 생성 | 질의 유형별 실패 패턴이 달라 단일 경로보다 분기 처리 시 정답률이 높음 | `src/graph/nodes.py`, `src/graph/workflow.py` |
+| 7. 프롬프트/답변 생성 | 규칙 기반 factoid 추출 우선, 실패 시 JSON 강제 LLM 생성(`status/answer/citations`), placeholder 응답 제거 | 값 추출형 질의에서 불필요한 장문 생성/환각을 줄이고 citation 일관성 확보 | `src/rag_answer.py` (`_rule_based_answer`, `generate_answer`, `generate_money_rank_answer`) |
+| 8. 앱 응답/UI | image-only 질의 시 답변 텍스트 내 이미지 경로를 실제 파일로 resolve 후 바로 렌더 | “설명 대신 이미지 바로 제시” 요구 대응 | `app/main.py` |
+| 9. 평가/리포트 | eval dataset 일괄 실행→LLM Judge 4지표 채점→`eval_results_current.json`→HTML 리포트 생성 | 실험별 성능을 동일 입력셋으로 비교하고 추적 가능 | `scripts/eval_retrieval.py`, `src/evaluation/llm_judge.py`, `scripts/build_eval_report.py` |
 
-주의:
-- `data/`, `data_index/`, `notebooks/`, `results/`는 **로컬 전용, 커밋 금지**
-- `notebooks/`는 저장소에는 `.gitkeep`만 유지
-- `tests/`는 로컬 전용, 커밋 금지
+## 3) 파트별 상세 파일 맵
 
----
+- 파싱/청킹
+  - `src/parsers/rich_pdf_extract.py`
+  - `src/parsers/rich_caption_assets.py`
+  - `src/parsers/rich_chunk.py`
+- 인덱스 구축
+  - `scripts/rebuild_db.py`
+  - `src/retrievers/build_chroma_index.py`
+  - `src/retrievers/chroma_store.py`
+  - `src/retrievers/vectorstore.py`
+- 검색/생성
+  - `src/graph/workflow.py`
+  - `src/graph/nodes.py`
+  - `src/rag_answer.py`
+- 평가/리포트
+  - `scripts/eval_retrieval.py`
+  - `src/evaluation/llm_judge.py`
+  - `scripts/build_eval_report.py`
+  - `eval_resources/eval_dataset.yaml`
+- 실행 앱
+  - `app/main.py`
 
-## 기본 파이프라인
+## 4) 실행 순서 (Chroma 최신 기준)
 
-1. rich 추출(B)  
-`data/pdf_raw/` → `notebooks/data_rich/`, `notebooks/data_assets/`
-
-2. rich 청킹(B)  
-`notebooks/data_rich/` → `notebooks/data_chunks_rich/`
-
-3. Dense 인덱스 생성(B)  
-`notebooks/data_chunks_rich/` → `data_index/dense_B/`
-
-4. 평가(B)  
-Hybrid(B) + rerank none 기준으로 평가  
-입력 쿼리: `configs/eval_queries_v2_rich.jsonl`
-
-참고:
-- A 파이프라인(`data_text/`, `data_chunks/`, `data_index/dense_A`)은 현재 중단(legacy)
-- 시나리오 B 기준으로 Chroma 임베딩은 OpenAI(`text-embedding-3-small`)만 사용
-
----
-
-## 실행 예시
-
-```
-# rich 추출(B): 입력 data/pdf_raw, 출력 notebooks/data_rich + notebooks/data_assets
-python -c "from pathlib import Path; from src.parsers.rich_pdf_extract import extract_rich; print(extract_rich(input_dir=Path('data/pdf_raw'), output_root=Path('notebooks/data_rich'), assets_root=Path('notebooks/data_assets')))"
-
-# rich 청킹(B): 입력 notebooks/data_rich, 출력 notebooks/data_chunks_rich
-python -c "from pathlib import Path; from src.parsers.rich_chunk import chunk_rich; chunk_rich(input_dir=Path('notebooks/data_rich'), output_dir=Path('notebooks/data_chunks_rich'))"
-
-# Dense 인덱스(B): 출력 data_index/dense_B
-python -m src.retrievers.build_dense_index --variant B
-
-# 캡션(선택): 미완료 항목만 재개, 결과는 notebooks/data_rich/*.md 반영
-python -m src.parsers.rich_caption_assets --only-failed --workers 12
-
-# 평가(B) (Hybrid + none): 결과는 notebooks/runs/<timestamp>/results.csv
-python -c "from pathlib import Path; from src.evaluation.eval_harness import run_eval; run_eval(input_path=Path('configs/eval_queries_v2_rich.jsonl'), retriever='hybrid', variant='B', rerank_mode='none', hybrid_alpha=1.0, k=10, table_multiplier=1.0)"
-
-# 평가(B) 설정파일 기반 실행: configs/eval_runtime_b.json 사용
-python -m src.run_eval_b
-
-# Streamlit 실행
-streamlit run /Users/apple/AI_7-team/app/main.py
-streamlit run /Users/apple/AI_7-team/app/streamlit_app.py
-streamlit run /Users/apple/AI_7-team/app/gold_app.py
-
-# 벡터 DB 재구축(스크립트)
-python /Users/apple/AI_7-team/scripts/rebuild_db.py --dense --chroma
-
-# Chroma 실험(청킹 500/60 + 별도 컬렉션/저장소, OpenAI 임베딩)
-python /Users/apple/AI_7-team/scripts/rebuild_db.py --chunk-rich --chroma --chunk-size 500 --overlap 60 --chunk-output-dir notebooks/data_chunks_rich_500_60 --chroma-dir data_index/chroma_B_500_60 --collection rfp_b_500_60_oai --model text-embedding-3-small
-```
-
----
-
-## 평가 기준
-
-- 정성 점수(qual_score_top1_avg)는 0~2 범위의 평균
-  - 0: 관련 없음
-  - 1: 부분 일치/근거 불충분
-  - 2: 키워드+값+섹션 일치
-- 현재 운영 기준 설정: **Hybrid(B) + none**
-  - `hybrid_alpha=1.0`, `topk=50`, `context_k=20`, `table_multiplier=1.0`
-  - `gold_bonus`의 metadata 가중치는 본문 토큰 동시 매칭일 때만 약하게 적용(meta_tuned)
-- 평가 입력 파일: `configs/eval_queries_v2_rich.jsonl` (B 기준 gold)
-- 운영 파라미터 파일: `configs/eval_runtime_b.json`
-
-주의:
-- 현재 결합식은 `score = alpha * lexical + (1-alpha) * dense`.
-- 따라서 `hybrid_alpha=1.0`은 **lexical-only baseline**이며 dense 벡터 검색은 실질 비활성이다.
-- 가이드 충족을 위해서는 `alpha<1` 비교 또는 `retriever=chroma/dense` 비교 결과를 함께 관리한다.
-
----
-
-## E2E 점검 루틴 (B)
+### 4-1. 환경 준비
 
 ```bash
-# 1) gold 재생성
-python -m src.evaluation.build_eval_gold_rich --input configs/eval_queries_v2_rich.jsonl --output configs/eval_queries_v2_rich.jsonl --top-k 3
-
-# 2) 평가 실행(운영 파라미터 고정)
-python -m src.run_eval_b
-
-# 3) 실패 질의 리포트 생성
-python -c "import pandas as pd; from pathlib import Path; p=sorted(Path('notebooks/runs').glob('*'))[-1]/'results.csv'; df=pd.read_csv(p); cols=['query_id','query','recall@10','mrr','top1_source_path','top1_chunk_index','qual_reason_top1']; out=Path('results/fail_queries_rag.csv'); out.parent.mkdir(parents=True, exist_ok=True); df[df['recall@10']==0][cols].to_csv(out, index=False); print(out)"
+cd /Users/apple/AI_7-team
+pip install -r requirements.txt
 ```
 
----
+- 필수: `OPENAI_API_KEY`
+- 선택:
+  - `LLM_JUDGE_TIMEOUT_SEC` (기본 90초)
+  - `RAG_EXP5_FACTOID_GUARD` (기본 true)
+  - `RAG_EXP6_STRUCTURED_COMPLEX` (기본 false)
 
-## Streamlit 대시보드
+### 4-2. 데이터 구축
 
-- 파일: `app/main.py`(기본), `app/streamlit_app.py`, `app/gold_app.py`
-- 기능:
-  - 평가 요약
-  - 쿼리별 Top1 텍스트
-  - Gold 기반 Top2 텍스트
-  - 원본 경로 + 표 샘플 + 이미지 썸네일
-  - 쿼리/골드 매칭 테이블
-- 실행:
+```bash
+# 1) rich 추출 (PDF/HWP -> markdown + assets)
+python -c "from pathlib import Path; from src.parsers.rich_pdf_extract import extract_rich; print(extract_rich(input_dir=Path('data/pdf_raw'), output_root=Path('notebooks/data_rich'), assets_root=Path('notebooks/data_assets')))"
 
+# 2) (선택) 이미지/표 캡션
+python -m src.parsers.rich_caption_assets --only-failed --workers 8
+
+# 3) 구조 기반 청킹
+python -c "from pathlib import Path; from src.parsers.rich_chunk import chunk_rich; chunk_rich(input_dir=Path('notebooks/data_rich'), output_dir=Path('notebooks/data_chunks_rich'), chunk_size=1000, overlap=100)"
+
+# 4) Chroma 인덱스 생성 (운영 컬렉션명에 맞춤)
+python scripts/rebuild_db.py --chroma --chunk-output-dir notebooks/data_chunks_rich --chroma-dir data_index/chroma_B --collection rfp_b_oai_clean_v1 --model text-embedding-3-small
 ```
-pip install -r /Users/apple/AI_7-team/requirements.txt
+
+참고:
+- `scripts/rebuild_db.py`의 기본 collection은 `rfp_b_oai`지만,
+  운영/평가 기본은 `rfp_b_oai_clean_v1`이므로 collection 명을 명시하는 것을 권장.
+
+### 4-3. 서비스 실행
+
+```bash
 streamlit run /Users/apple/AI_7-team/app/main.py
 ```
 
----
+### 4-4. 평가 + HTML 리포트 생성
 
-## 운영 규칙
+```bash
+# Chroma 평가 (동일 eval dataset)
+python scripts/eval_retrieval.py \
+  --dataset eval_resources/eval_dataset.yaml \
+  --retriever chroma \
+  --rerank none \
+  --top_k 5 \
+  --context_k 20 \
+  --answer-model gpt-5-nano \
+  --judge-model gpt-5-mini \
+  --chroma-collection rfp_b_oai_clean_v1 \
+  --label current
 
-- `data/`, `data_index/`, `notebooks/`, `results/`는 **로컬 전용** (커밋 금지)
-- `tests/`는 **로컬 전용** (커밋 금지)
-- `.env`는 **커밋 금지**
-- 평가 재실행 시 `notebooks/runs/`에 새 결과가 생성됨
-- 본작업 기준 경로: `data/pdf_raw` → `notebooks/data_rich`/`notebooks/data_chunks_rich` → `data_index/dense_B`
+# eval_resources/eval_results_current.json -> eval_resources/eval_report.html
+python scripts/build_eval_report.py
+```
 
----
+### 4-5. Lexical 비교 평가(동일 쿼리)
 
-## 트러블슈팅
+```bash
+python scripts/eval_retrieval.py \
+  --dataset eval_resources/eval_dataset.yaml \
+  --retriever tfidf \
+  --rerank none \
+  --top_k 5 \
+  --context_k 20 \
+  --answer-model gpt-5-nano \
+  --judge-model gpt-5-mini \
+  --label lexical
+```
 
-- OpenAI 호출 실패 시
-  - DNS 문제 가능 → `networksetup -getdnsservers "Wi-Fi"` 확인
-  - 필요 시 DNS 수동 설정: `1.1.1.1`, `1.0.0.1`
-- Dense 인덱스 오류:
-  - `data_index/dense_B` 재생성
+- JSON 결과는 `results/main_eval_<timestamp>/` 및 `eval_resources/`에 저장.
+- HTML 출력 파일(`eval_report.html`, `eval_lexical_report.html`)은 `eval_resources/`에서 확인.
+
+## 5) 프롬프트/생성 설계 포인트
+
+- 질문 유형 감지:
+  - 금액/비율/기간/연락처/이미지/순위 질의를 분기 처리
+  - 파일: `src/graph/nodes.py`, `src/rag_answer.py`
+- 규칙 기반 우선:
+  - factoid 질의는 regex + relevance guard로 빠르게 값 추출
+  - 파일: `src/rag_answer.py` (`_rule_based_answer`)
+- LLM 생성 형식 고정:
+  - JSON 응답(`status`, `answer`, `citations`) 강제
+  - placeholder 문구 제거 처리 포함
+  - 파일: `src/rag_answer.py` (`generate_answer`)
+- 참고:
+  - `src/prompts/templates.py`의 템플릿은 현재 런타임 핵심 경로가 아님(실제 지시문은 `generate_answer`에서 동적으로 구성).
+
+## 6) 운영 시 체크리스트
+
+- 인덱스 모델/컬렉션 일치 확인
+  - 인덱싱과 검색이 같은 collection/model 조합인지 확인
+  - 파일: `src/retrievers/chroma_store.py`
+- 평가 결과 파일 갱신 확인
+  - `eval_resources/eval_results_current.json`이 최신인지 확인 후 HTML 생성
+- need_org 응답 대응
+  - 기관명 없는 짧은 질의는 `need_org`가 의도된 동작
+  - 파일: `src/graph/workflow.py`
+
+## 7) 저장소 운영 규칙
+
+- 커밋 금지(로컬 전용): `data/`, `data_index/`, `notebooks/`, `results/`, `.env`, `tests/`
+- 평가 산출물은 실험 비교용으로 남기되, 불필요한 대용량 중간 산출물은 정리 권장
