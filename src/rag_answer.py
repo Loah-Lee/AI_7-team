@@ -9,7 +9,7 @@ import unicodedata
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
 from .evaluation.eval_harness import (
     ChunkRecord,
@@ -38,12 +38,18 @@ _FRACTION_OF_100_RE = re.compile(r"(?:100|백)\s*분의\s*(\d+(?:\.\d+)?)")
 _MONEY_RE = re.compile(r"\b\d[\d,]*(?:\.\d+)?\s*(?:원|만원|천원|억원)\b")
 _MONEY_LOOSE_RE = re.compile(r"\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b")
 _BUDGET_KEYWORD_RE = re.compile(r"(사업예산|사업비|총사업비|예정가격|기초금액|금액|예산)")
+_MONEY_OBJECT_RE = re.compile(r"(비용|금액|예산|사업비|보증금|가격)")
+_MONEY_STANDALONE_RE = re.compile(
+    r"(?<![가-힣A-Za-z0-9])(?:예산|금액|비용|보증금|사업비|총사업비|예정가격|기초금액|입찰금액|계약금액|청구금액|투입비)"
+    r"(?:은|는|이|가|을|를|의|에|으로|로|도|만)?(?![가-힣A-Za-z0-9])"
+)
 _DATE_RE = re.compile(r"\b\d{4}[./-]\d{1,2}[./-]\d{1,2}\b|\b\d{1,2}\s*월\s*\d{1,2}\s*일\b")
 # 접수일자 표기에서 자주 등장하는 YYMMDD(예: 240131) 형식
 _DATE_COMPACT_RE = re.compile(r"\b\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\b")
 _PERIOD_RE = re.compile(r"\b\d+\s*(?:개월|개월간|일|일간|년)\b")
 _CONTACT_RE = re.compile(r"(?:\d{2,3}-\d{3,4}-\d{4}|@|담당자|문의처|연락처|전화)")
 _MONEY_VALUE_RE = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(원|만원|천원|억원)")
+_ALNUM_CODE_RE = re.compile(r"\b[A-Za-z가-힣0-9]{1,10}-[A-Za-z0-9가-힣]{1,10}(?:-[A-Za-z0-9가-힣]{1,10})?\b")
 _ORG_SUFFIX_RE = re.compile(
     r"(공사|공단|재단|재단법인|사단법인|법인|대학교|대학|병원|의료원|정보원|진흥원|연구원|협회|위원회|조직위원회|사무국|센터|서비스|은행|공항|학교)$"
 )
@@ -159,6 +165,344 @@ def _query_focus_terms(query: str) -> List[str]:
             continue
         out.append(tok)
     return _dedupe_keep_order(out)
+
+
+def _normalize_compact(text: str) -> str:
+    return re.sub(r"\s+", "", (text or "").strip().lower())
+
+
+def _query_target_segment(query: str) -> str:
+    q = (query or "").strip()
+    if not q:
+        return q
+    m = re.search(r"(?:문서|사업)?에서[, ]*(.+)$", q)
+    if m and m.group(1).strip():
+        return m.group(1).strip()
+    return q
+
+
+def _query_numeric_spans(query: str) -> List[str]:
+    out: List[str] = []
+    q = query or ""
+    for m in re.finditer(r"\d[\d,]*(?:\s*(?:~|→|-)\s*\d[\d,]*)?", q):
+        token = re.sub(r"\s+", "", m.group(0))
+        if len(token) >= 2:
+            out.append(token)
+    return _dedupe_keep_order(out)
+
+
+def _query_table_terms(query: str) -> List[str]:
+    target = _query_target_segment(query)
+    base = _query_focus_terms(target)
+    for token in _query_numeric_spans(target):
+        base.append(token)
+    return _dedupe_keep_order(base)
+
+
+def _overlap_count(text: str, terms: Sequence[str]) -> float:
+    hay = _normalize_compact(text)
+    if not hay:
+        return 0.0
+    hay_alt = hay.replace("0", "o")
+    score = 0.0
+    generic_terms = {"항목", "내용", "문서", "사업", "기준", "값", "값은", "선수", "지표"}
+    for term in terms:
+        tok = _normalize_compact(term)
+        if len(tok) < 2:
+            continue
+        tok_alt = tok.replace("0", "o")
+        if tok in hay or tok_alt in hay_alt:
+            if tok in generic_terms:
+                w = 0.35
+            elif re.search(r"[a-z]", tok):
+                w = 1.6
+            elif len(tok) >= 4:
+                w = 1.2
+            else:
+                w = 1.0
+            score += w
+    return score
+
+
+def _preferred_plane_side(query: str) -> str:
+    q = query or ""
+    if re.search(r"오른쪽\s*평면도", q):
+        return "오른쪽"
+    if re.search(r"왼쪽\s*평면도", q):
+        return "왼쪽"
+    return ""
+
+
+def _terminal_field_token(query: str) -> str:
+    q = _query_target_segment(query)
+    m_field = re.search(
+        r"(수량|번호|기간|일자|날짜|비율|치수|길이|가로|세로|tatk|tdef|tprb)\s*은",
+        q,
+        re.IGNORECASE,
+    )
+    if m_field:
+        return _normalize_compact(m_field.group(1))
+
+    patterns = [
+        r"([0-9A-Za-z가-힣]+)\s*값(?:은|는)",
+        r"([0-9A-Za-z가-힣]+)\s*(?:은|는)\??$",
+    ]
+    for pat in patterns:
+        m = re.search(pat, q)
+        if not m:
+            continue
+        tok = _normalize_compact(m.group(1))
+        if len(tok) >= 2 and tok not in {"무엇", "얼마", "몇", "값"}:
+            return tok
+    return ""
+
+
+def _extract_image_alt_json_objects(text: str) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    s = text or ""
+    i = 0
+    while True:
+        start = s.find("![{", i)
+        if start < 0:
+            break
+        j = start + 2  # points to '{'
+        depth = 0
+        in_str = False
+        esc = False
+        end = -1
+        while j < len(s):
+            ch = s[j]
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+            else:
+                if ch == '"':
+                    in_str = True
+                elif ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end = j
+                        break
+            j += 1
+        if end < 0:
+            i = start + 3
+            continue
+        raw = s[start + 2 : end + 1]
+        try:
+            obj = json.loads(raw)
+            if isinstance(obj, dict):
+                out.append(obj)
+        except Exception:
+            pass
+        i = end + 1
+    return out
+
+
+def _extract_code_blocks(text: str) -> List[str]:
+    return re.findall(r"```(?:[^\n`]*)\n?([\s\S]*?)```", text or "")
+
+
+def _parse_tsv_table_block(block: str) -> Dict[str, object] | None:
+    rows: List[List[str]] = []
+    for line in (block or "").splitlines():
+        raw = line.rstrip()
+        if not raw.strip():
+            continue
+        if "\t" not in raw:
+            continue
+        cells = [c.strip() for c in raw.split("\t")]
+        rows.append(cells)
+    if len(rows) < 2:
+        return None
+    headers = rows[0]
+    body = rows[1:]
+    max_len = max(len(headers), *(len(r) for r in body))
+    headers = headers + [""] * (max_len - len(headers))
+    norm_rows: List[List[str]] = []
+    for row in body:
+        norm_rows.append(row + [""] * (max_len - len(row)))
+    return {"type": "table", "title": "", "headers": headers, "rows": norm_rows}
+
+
+def _extract_table_payloads(text: str) -> List[Dict[str, object]]:
+    out: List[Dict[str, object]] = []
+    for obj in _extract_image_alt_json_objects(text):
+        if str(obj.get("type", "")).strip().lower() == "table":
+            out.append(obj)
+    for block in _extract_code_blocks(text):
+        parsed = _parse_tsv_table_block(block)
+        if parsed is not None:
+            out.append(parsed)
+    return out
+
+
+def _value_kind_bonus(value: str, kind: str) -> float:
+    v = value or ""
+    if kind == "period":
+        return 0.5 if _PERIOD_RE.search(v) else -0.2
+    if kind == "date":
+        return 0.5 if (_DATE_RE.search(v) or _DATE_COMPACT_RE.search(v)) else -0.2
+    if kind == "money":
+        return 0.6 if _MONEY_RE.search(v) else -0.3
+    if kind == "percent":
+        return 0.5 if (_PERCENT_RE.search(v) or _FRACTION_OF_100_RE.search(v)) else -0.2
+    if re.search(r"\d", v):
+        return 0.3
+    return 0.0
+
+
+def _is_value_seeking_query(query: str) -> bool:
+    q = query or ""
+    return bool(
+        re.search(
+            r"(값|수량|번호|코드|일자|날짜|기간|비율|치수|가로|세로|폭|높이|길이|얼마|몇)",
+            q,
+        )
+    )
+
+
+def _score_factoid_candidate(query: str, text: str, value: str, kind: str) -> float:
+    w = _match_window(text or "", value or "", radius=150)
+    wl = w.lower()
+    target_query = _query_target_segment(query)
+    focus_terms = _query_focus_terms(target_query)
+    overlap = sum(1 for t in focus_terms if t and t in wl)
+    score = 0.5 * overlap + _value_kind_bonus(value, kind)
+
+    q = target_query
+    if kind == "period":
+        if "최소" in q and "최소" in w:
+            score += 1.0
+        if "평균" in q and "평균" in w:
+            score += 1.0
+        if "최대" in q and "최대" in w:
+            score += 1.0
+        for span in _query_numeric_spans(q):
+            if span and span in _normalize_compact(w):
+                score += 0.8
+                break
+    if _is_value_seeking_query(q) and not re.search(r"\d|[A-Za-z]", value or ""):
+        score -= 0.6
+    if len((value or "").strip()) > 120:
+        score -= 0.7
+    return score
+
+
+def _extract_table_value_candidates(query: str, kind: str, text: str) -> List[Tuple[float, str]]:
+    candidates: List[Tuple[float, str]] = []
+    tables = _extract_table_payloads(text)
+    if not tables:
+        return candidates
+
+    target_query = _query_target_segment(query)
+    terms = _query_table_terms(target_query)
+    if not terms:
+        return candidates
+    preferred_side = _preferred_plane_side(target_query)
+    terminal_field = _terminal_field_token(target_query)
+
+    for table in tables:
+        headers_raw = table.get("headers")
+        rows_raw = table.get("rows")
+        headers: List[str] = []
+        if isinstance(headers_raw, list):
+            headers = [str(h or "").strip() for h in headers_raw]
+        rows: List[List[str]] = []
+        if isinstance(rows_raw, list):
+            for r in rows_raw:
+                if isinstance(r, list):
+                    rows.append([str(x or "").strip() for x in r])
+                elif isinstance(r, dict):
+                    rows.append([str(v or "").strip() for _, v in sorted(r.items())])
+        if not rows:
+            continue
+
+        col_scores: Dict[int, float] = {}
+        if headers:
+            for ci, h in enumerate(headers):
+                score = _overlap_count(h, terms)
+                if preferred_side and preferred_side in h:
+                    score += 2
+                if terminal_field and terminal_field in _normalize_compact(h):
+                    score += 3
+                col_scores[ci] = score
+        best_col = -1
+        best_col_score = 0.0
+        if col_scores:
+            best_col, best_col_score = max(col_scores.items(), key=lambda x: x[1])
+
+        for row in rows:
+            if not row:
+                continue
+            row_text = " | ".join(row)
+            row_score = _overlap_count(row_text, terms)
+            if row_score <= 0:
+                continue
+
+            picked_idx = -1
+            if best_col >= 0 and best_col_score > 0 and best_col < len(row):
+                picked_idx = best_col
+            else:
+                label_idx = -1
+                label_score = 0
+                for ci, cell in enumerate(row):
+                    s = _overlap_count(cell, terms)
+                    if s > label_score:
+                        label_score = s
+                        label_idx = ci
+                if label_idx >= 0 and (label_idx + 1) < len(row):
+                    picked_idx = label_idx + 1
+                elif len(row) > 1:
+                    picked_idx = 1
+
+            if picked_idx < 0 or picked_idx >= len(row):
+                continue
+            value = str(row[picked_idx] or "").strip()
+            if not value:
+                continue
+            if picked_idx == 0 and len(row) > 1:
+                # 다열 표의 첫 열은 보통 row key이므로 값 후보에서 제외
+                continue
+
+            score = (1.6 * row_score) + (1.2 * max(0, best_col_score)) + _value_kind_bonus(value, kind)
+            if "|" in value and ("분할" in target_query or "구간" in target_query):
+                score += 0.6
+            if "번호" in target_query and re.fullmatch(r"\d{1,2}", value):
+                score -= 1.6
+            if "번호" in target_query:
+                if _ALNUM_CODE_RE.search(value) or re.search(r"\b\d{4}-\d{2,4}\b", value):
+                    score += 2.0
+                if len(value) > 30:
+                    score -= 2.2
+            if "수량" in target_query and not re.search(r"(식|개|건|명|대)", value):
+                score -= 1.0
+            if "tatk" in target_query.lower():
+                if re.fullmatch(r"\d+(?:\.\d+)?", value):
+                    score += 0.6
+                else:
+                    score -= 1.0
+            if ("가로" in target_query or "세로" in target_query or "치수" in target_query) and not re.search(
+                r"\d",
+                value,
+            ):
+                score -= 1.0
+            if len(value) > 120:
+                score -= 0.7
+            candidates.append((score, value))
+
+    # 동일 값은 최고 점수만 유지
+    by_value: Dict[str, float] = {}
+    for score, value in candidates:
+        prev = by_value.get(value)
+        if prev is None or score > prev:
+            by_value[value] = score
+    return sorted([(s, v) for v, s in by_value.items()], key=lambda x: x[0], reverse=True)
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -697,19 +1041,28 @@ def _question_kind(query: str) -> str:
         return "period"
     if re.search(r"문의|연락처|전화|이메일|담당자", q):
         return "contact"
-    if re.search(r"예산|금액|비용", q) or (re.search(r"얼마", q) and "얼마나" not in q):
+    if _MONEY_STANDALONE_RE.search(q) or (
+        re.search(r"얼마", q) and "얼마나" not in q and _MONEY_OBJECT_RE.search(q)
+    ):
         return "money"
-    if re.search(r"개요|요약|정리|설명", q):
-        return "overview"
+    if re.search(r"(개요|요약|정리|설명)", q):
+        if not _is_value_seeking_query(q):
+            return "overview"
     return "generic"
 
 
 def _extract_signal_terms(query: str) -> List[str]:
-    return [
+    raw_terms = [
         t.lower().strip("-_/")
         for t in re.findall(r"[0-9A-Za-z][0-9A-Za-z\\-_/]{2,}", query or "")
         if len(t.strip("-_/")) >= 3
-    ][:6]
+    ]
+    # 한글 핵심어(예: 확정요청번호, 접수일자)도 signal rerank에 반영한다.
+    for t in _query_focus_terms(_query_target_segment(query)):
+        tok = (t or "").lower().strip()
+        if len(tok) >= 2:
+            raw_terms.append(tok)
+    return _dedupe_keep_order(raw_terms)[:10]
 
 
 def _noise_hits(text: str) -> int:
@@ -1041,6 +1394,12 @@ def _pick_matches(text: str, kind: str) -> List[str]:
         return _dedupe_keep_order(matches)
     if kind == "period":
         return _PERIOD_RE.findall(text)
+    if kind == "generic":
+        matches: List[str] = []
+        matches.extend(_ALNUM_CODE_RE.findall(text))
+        matches.extend(re.findall(r"\b\d+(?:\.\d+)?\s*(?:식|건|명|개)\b", text))
+        matches.extend(re.findall(r"\b\d+(?:\.\d+)?\b", text))
+        return _dedupe_keep_order(matches)
 
     matches: List[str] = []
     for pattern in (_PERCENT_RE, _MONEY_RE, _DATE_RE, _PERIOD_RE):
@@ -1274,17 +1633,34 @@ def _rule_based_answer(query: str, contexts: Sequence[ChunkRecord]) -> Dict[str,
     kind = _question_kind(query)
     use_factoid_guard = _env_flag("RAG_EXP5_FACTOID_GUARD", default=True)
     # 개요/설명형 질의는 규칙 기반 placeholder를 만들지 않고 LLM 생성으로 넘긴다.
-    if kind in {"overview", "generic"}:
+    if kind == "overview":
         return {
             "status": "skip",
             "answer": "",
             "citations": [],
         }
 
+    table_candidates: List[Tuple[float, int, str]] = []
+    for i, c in enumerate(contexts, start=1):
+        for score, value in _extract_table_value_candidates(query, kind, c.text):
+            if use_factoid_guard and kind in {"money", "period", "percent", "date"}:
+                if not _is_factoid_match_relevant(query, c.text, value, kind):
+                    continue
+            table_candidates.append((score + 0.8, i, value))
+    if table_candidates:
+        best_score, best_idx, best_val = max(table_candidates, key=lambda x: x[0])
+        if best_score >= 2.2:
+            return {
+                "status": "ok",
+                "answer": f"근거 문구에서 확인된 값은 `{best_val}` 입니다.",
+                "citations": [best_idx],
+            }
+
     percent_keywords = ["입찰보증금", "입찰 보증금", "입찰금액", "입찰 금액", "보증금"]
     percent_exclude = ["기술능력", "평가", "배점", "협상적격"]
-    percent_candidates: List[Tuple[int, str]] = []
+    percent_candidates: List[Tuple[float, int, str]] = []
     date_candidates: List[Tuple[float, int, str]] = []
+    generic_candidates: List[Tuple[float, int, str]] = []
 
     for i, c in enumerate(contexts, start=1):
         matches = _pick_matches(c.text, kind)
@@ -1295,26 +1671,31 @@ def _rule_based_answer(query: str, contexts: Sequence[ChunkRecord]) -> Dict[str,
             text = c.text
             if any(k in text for k in percent_exclude) and not any(k in text for k in percent_keywords):
                 continue
-            if any(k in text for k in percent_keywords):
-                if use_factoid_guard and not _is_factoid_match_relevant(query, text, matches[0], kind):
+            for value in matches:
+                if use_factoid_guard and not _is_factoid_match_relevant(query, text, value, kind):
                     continue
-                percent_candidates.append((i, matches[0]))
-                continue
+                score = _score_factoid_candidate(query, text, value, kind)
+                if any(k in text for k in percent_keywords):
+                    score += 0.8
+                percent_candidates.append((score, i, value))
+            continue
 
         if kind == "date":
             for value in matches:
                 if use_factoid_guard and not _is_factoid_match_relevant(query, c.text, value, kind):
                     continue
-                date_candidates.append((_score_date_candidate(query, c.text, value), i, value))
+                score = _score_date_candidate(query, c.text, value) + _score_factoid_candidate(
+                    query, c.text, value, kind
+                )
+                date_candidates.append((score, i, value))
             continue
 
-        if use_factoid_guard and not _is_factoid_match_relevant(query, c.text, matches[0], kind):
-            continue
-        return {
-            "status": "ok",
-            "answer": f"근거 문구에서 확인된 값은 `{matches[0]}` 입니다.",
-            "citations": [i],
-        }
+        for value in matches:
+            if use_factoid_guard and kind != "generic":
+                if not _is_factoid_match_relevant(query, c.text, value, kind):
+                    continue
+            score = _score_factoid_candidate(query, c.text, value, kind)
+            generic_candidates.append((score, i, value))
 
     if kind == "date" and date_candidates:
         best_score, best_idx, best_val = max(date_candidates, key=lambda x: x[0])
@@ -1326,12 +1707,22 @@ def _rule_based_answer(query: str, contexts: Sequence[ChunkRecord]) -> Dict[str,
             }
 
     if kind == "percent" and percent_candidates:
-        idx, val = percent_candidates[0]
+        _, idx, val = max(percent_candidates, key=lambda x: x[0])
         return {
             "status": "ok",
             "answer": f"근거 문구에서 확인된 값은 `{val}` 입니다.",
             "citations": [idx],
         }
+
+    if generic_candidates:
+        best_score, best_idx, best_val = max(generic_candidates, key=lambda x: x[0])
+        min_score = 1.2 if kind == "generic" else 0.0
+        if best_score >= min_score:
+            return {
+                "status": "ok",
+                "answer": f"근거 문구에서 확인된 값은 `{best_val}` 입니다.",
+                "citations": [best_idx],
+            }
 
     return {
         "status": "skip",
@@ -1348,10 +1739,8 @@ def generate_answer(
 ) -> Dict[str, object]:
     kind = _question_kind(query)
     cleaned_contexts = _sanitize_contexts_for_answer(contexts)
-    rule_contexts: Sequence[ChunkRecord] = cleaned_contexts
-    # 날짜 질의는 질의 기반 동적 문맥 매칭으로 원문에서 우선 추출한다.
-    if kind == "date":
-        rule_contexts = contexts
+    # 사실형 질의는 표/코드블록 신호를 보존한 원문 context에서 규칙 추출을 먼저 수행한다.
+    rule_contexts: Sequence[ChunkRecord] = contexts if kind != "overview" else cleaned_contexts
     rule_ans = _rule_based_answer(query, rule_contexts)
     if rule_ans["status"] == "ok":
         return rule_ans
