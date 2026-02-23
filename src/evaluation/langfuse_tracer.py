@@ -1,38 +1,110 @@
+"""Langfuse 메트릭 수집."""
+
 from __future__ import annotations
 
-from typing import Any, Dict
+import os
+import warnings
+from typing import Any
 
-from ..utils.langfuse_logger import get_langfuse_logger
+try:
+    from langfuse import Langfuse
+    LANGFUSE_AVAILABLE = True
+except ImportError:
+    Langfuse = None  # type: ignore
+    LANGFUSE_AVAILABLE = False
+
+try:
+    from src.utils.env import get_langfuse_keys, load_env
+    UTILS_AVAILABLE = True
+except ImportError:
+    UTILS_AVAILABLE = False
 
 
-class _LangfuseTracer:
-    def __init__(self) -> None:
-        self._logger = get_langfuse_logger()
+def get_langfuse_client() -> Any | None:
+    """Langfuse 클라이언트를 초기화한다.
 
-    def trace(self, name: str, payload: Dict[str, Any]) -> None:
-        try:
-            self._logger.log_trace(name=name, payload=payload)
-        except Exception:
-            return
+    환경변수에 키가 없으면 None을 반환한다.
 
-    def start_span(self, name: str, payload: Dict[str, Any]) -> Any:
-        try:
-            start_span = getattr(self._logger, "start_span", None)
-            if callable(start_span):
-                return start_span(name=name, payload=payload)
-        except Exception:
-            return None
+    Returns:
+        Langfuse 인스턴스 또는 None.
+    """
+    if not LANGFUSE_AVAILABLE:
+        warnings.warn(
+            "Langfuse is not installed. Install it with: pip install langfuse",
+            ImportWarning,
+            stacklevel=2,
+        )
         return None
 
-    def end_span(self, span: Any, name: str, payload: Dict[str, Any]) -> None:
-        try:
-            end_span = getattr(self._logger, "end_span", None)
-            if callable(end_span):
-                end_span(span=span, name=name, payload=payload)
-                return
-        except Exception:
-            return
+    if UTILS_AVAILABLE:
+        load_env()
+        keys = get_langfuse_keys()
+    else:
+        # Fallback to direct env vars
+        keys = {
+            "public_key": os.getenv("LANGFUSE_PUBLIC_KEY", ""),
+            "secret_key": os.getenv("LANGFUSE_SECRET_KEY", ""),
+            "host": os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com"),
+        }
+
+    if not keys["public_key"] or not keys["secret_key"]:
+        return None
+
+    return Langfuse(
+        public_key=keys["public_key"],
+        secret_key=keys["secret_key"],
+        host=keys["host"],
+    )
 
 
-def get_langfuse_tracer() -> _LangfuseTracer:
-    return _LangfuseTracer()
+def log_score(
+    trace_id: str,
+    name: str,
+    value: float,
+    comment: str | None = None,
+) -> None:
+    """Langfuse에 평가 점수를 기록한다.
+
+    Args:
+        trace_id: 트레이스 ID.
+        name: 메트릭 이름 (e.g., "aicr", "hallucination_rate").
+        value: 점수 값.
+        comment: 부가 설명.
+    """
+    client = get_langfuse_client()
+    if client is None:
+        return
+
+    client.score(
+        trace_id=trace_id,
+        name=name,
+        value=value,
+        comment=comment,
+    )
+
+
+def log_retrieval_metrics(
+    trace_id: str,
+    retrieved_docs: list[dict],
+) -> None:
+    """검색 결과의 요약 지표를 Langfuse에 기록한다.
+
+    기록 항목:
+    - retrieval_count: 검색된 청크 수
+    - retrieval_avg_score: 평균 유사도 점수
+    - retrieval_max_score: 최고 유사도 점수
+
+    Args:
+        trace_id: 트레이스 ID.
+        retrieved_docs: RetrievedDoc 딕셔너리 리스트.
+    """
+    if not trace_id:
+        return
+
+    count = len(retrieved_docs)
+    log_score(trace_id, "retrieval_count", float(count))
+
+    scores = [doc.get("score", 0.0) for doc in retrieved_docs if doc.get("score")]
+    if scores:
+        log_score(trace_id, "retrieval_avg_score", round(sum(scores) / len(scores), 4))
+        log_score(trace_id, "retrieval_max_score", round(max(scores), 4))
