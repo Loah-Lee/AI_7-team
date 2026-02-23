@@ -80,7 +80,7 @@ def get_chatbot():
     from src.graph.workflow import RAGChatbot
 
     return RAGChatbot(
-        retriever="hybrid",
+        retriever="chroma",
         rerank="none",
         top_k=50,
         context_k=20,
@@ -107,16 +107,18 @@ def render_metric_card(value: int | str, label: str) -> None:
 
 
 def render_header() -> None:
+    retriever_label = "chroma"
     st.markdown(
-        '<div class="main-header">🤖 입찰메이트 RAG 챗봇 <span class="version-badge">hybrid</span></div>',
+        f'<div class="main-header">🤖 입찰메이트 RAG 챗봇 <span class="version-badge">{retriever_label}</span></div>',
         unsafe_allow_html=True,
     )
     st.markdown(
         """
         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem;">
-            <span class="feature-tag">Hybrid Retrieval</span>
+            <span class="feature-tag">Chroma Retrieval</span>
             <span class="feature-tag">TopK 50</span>
             <span class="feature-tag">Context 20</span>
+            <span class="feature-tag">Noise Hard + MMR + Rewrite</span>
             <span class="feature-tag">Citations</span>
         </div>
         """,
@@ -261,6 +263,8 @@ def process_user_query(chatbot, query: str) -> None:
 
         st.markdown(result.get("answer", "답변 생성 실패"))
         st.caption(f"status: {result.get('status', 'unknown')}")
+        if result.get("retrieval_mode"):
+            st.caption(f"retrieval_mode: {result.get('retrieval_mode')}")
         if effective_query != query:
             st.caption(f"effective_query: {effective_query}")
         top1 = result.get("top1", {}) or {}

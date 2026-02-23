@@ -6,6 +6,7 @@ import json
 import os
 import re
 import unicodedata
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
@@ -35,8 +36,11 @@ from .retrievers.rich_tfidf_search import (
 _PERCENT_RE = re.compile(r"\b\d+(?:\.\d+)?\s*%")
 _FRACTION_OF_100_RE = re.compile(r"(?:100|백)\s*분의\s*(\d+(?:\.\d+)?)")
 _MONEY_RE = re.compile(r"\b\d[\d,]*(?:\.\d+)?\s*(?:원|만원|천원|억원)\b")
+_MONEY_LOOSE_RE = re.compile(r"\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b")
+_BUDGET_KEYWORD_RE = re.compile(r"(사업예산|사업비|총사업비|예정가격|기초금액|금액|예산)")
 _DATE_RE = re.compile(r"\b\d{4}[./-]\d{1,2}[./-]\d{1,2}\b|\b\d{1,2}\s*월\s*\d{1,2}\s*일\b")
 _PERIOD_RE = re.compile(r"\b\d+\s*(?:개월|개월간|일|일간|년)\b")
+_CONTACT_RE = re.compile(r"(?:\d{2,3}-\d{3,4}-\d{4}|@|담당자|문의처|연락처|전화)")
 
 
 def _get_client():
@@ -84,6 +88,13 @@ def _build_retriever(
     chroma_collection: str,
     chroma_model: str,
     chroma_org_filter: bool,
+    chroma_org_filter_mode: str,
+    chroma_score_weight: float,
+    lexical_score_weight: float,
+    chroma_noise_mode: str,
+    chroma_mmr: bool,
+    chroma_mmr_lambda: float,
+    chroma_query_rewrite: bool,
 ):
     kind = retriever_kind.lower()
     if kind == "tfidf":
@@ -95,6 +106,13 @@ def _build_retriever(
             collection_name=chroma_collection,
             model=chroma_model,
             org_hard_filter=chroma_org_filter,
+            org_filter_mode=chroma_org_filter_mode,
+            chroma_score_weight=chroma_score_weight,
+            lexical_score_weight=lexical_score_weight,
+            noise_mode=chroma_noise_mode,
+            use_mmr=chroma_mmr,
+            mmr_lambda=chroma_mmr_lambda,
+            query_rewrite=chroma_query_rewrite,
         )
 
     if kind in {"dense", "hybrid"}:
@@ -127,13 +145,35 @@ class ChromaRetriever:
         collection_name: str,
         model: str,
         org_hard_filter: bool = False,
+        org_filter_mode: str = "hard",
+        chroma_score_weight: float = 0.7,
+        lexical_score_weight: float = 0.3,
+        noise_mode: str = "soft",
+        use_mmr: bool = False,
+        mmr_lambda: float = 0.85,
+        query_rewrite: bool = False,
     ) -> None:
         self._persist_dir = persist_dir
         self._collection_name = collection_name
         self._model = model
         self._org_hard_filter = bool(org_hard_filter)
-        self._chroma_weight = 0.7
-        self._lexical_weight = 0.3
+        mode = str(org_filter_mode or "").strip().lower()
+        if mode not in {"hard", "soft", "adaptive"}:
+            mode = "hard" if self._org_hard_filter else "soft"
+        self._org_filter_mode = mode
+        cw = max(0.0, float(chroma_score_weight))
+        lw = max(0.0, float(lexical_score_weight))
+        if cw + lw <= 0:
+            cw, lw = 0.7, 0.3
+        denom = cw + lw
+        self._chroma_weight = cw / denom
+        self._lexical_weight = lw / denom
+        self._noise_mode = str(noise_mode or "soft").lower()
+        if self._noise_mode not in {"off", "soft", "hard"}:
+            self._noise_mode = "soft"
+        self._use_mmr = bool(use_mmr)
+        self._mmr_lambda = max(0.0, min(1.0, float(mmr_lambda)))
+        self._query_rewrite = bool(query_rewrite)
 
         self._lexical_chunks: List[LexicalChunkRecord] = [
             LexicalChunkRecord(
@@ -151,10 +191,21 @@ class ChromaRetriever:
         self._lexical_idx_map: Dict[Tuple[str, int], int] = {
             (c.source_path, c.chunk_index): i for i, c in enumerate(self._lexical_chunks)
         }
+        self._lexical_chunk_map: Dict[Tuple[str, int], LexicalChunkRecord] = {
+            (c.source_path, c.chunk_index): c for c in self._lexical_chunks
+        }
+        source_to_indices: Dict[str, set[int]] = defaultdict(set)
+        for c in self._lexical_chunks:
+            source_to_indices[c.source_path].add(c.chunk_index)
+        self._source_index_set: Dict[str, set[int]] = {
+            source: idxs for source, idxs in source_to_indices.items()
+        }
 
     def retrieve(self, query: str, chunks: Sequence[ChunkRecord], k: int) -> List[ChunkRecord]:
         q = unicodedata.normalize("NFC", query or "").strip()
+        q_search = _rewrite_query_for_retrieval(q) if self._query_rewrite else q
         org = _extract_org_hint(q)
+        kind = _question_kind(q)
 
         # 2-pass 검색:
         # 1) 기관 후보가 있으면 기관 필터 결과를 우선
@@ -162,7 +213,7 @@ class ChromaRetriever:
         results = []
         if org:
             filtered = search_chroma(
-                query=q,
+                query=q_search,
                 persist_dir=self._persist_dir,
                 collection_name=self._collection_name,
                 model=self._model,
@@ -170,11 +221,12 @@ class ChromaRetriever:
                 fetch_k=max(k * 50, 500),
                 org=org,
             )
-            if self._org_hard_filter:
+            mode = self._org_filter_mode
+            if mode == "hard":
                 results = filtered
             else:
                 unfiltered = search_chroma(
-                    query=q,
+                    query=q_search,
                     persist_dir=self._persist_dir,
                     collection_name=self._collection_name,
                     model=self._model,
@@ -182,17 +234,31 @@ class ChromaRetriever:
                     fetch_k=max(k * 30, 200),
                     org=None,
                 )
-                results = filtered + unfiltered
+                if mode == "soft":
+                    results = filtered + unfiltered
+                else:
+                    # adaptive:
+                    # 기관 힌트 신뢰도가 높거나 기관 필터 결과가 충분하면 hard처럼 동작.
+                    conf = _org_confidence(q, org)
+                    enough = len(filtered) >= max(5, k // 4)
+                    if conf >= 0.9 or enough:
+                        results = filtered
+                    else:
+                        results = filtered + unfiltered
         else:
-            results = search_chroma(
-                query=q,
-                persist_dir=self._persist_dir,
-                collection_name=self._collection_name,
-                model=self._model,
-                top_k=k,
-                fetch_k=max(k * 30, 200),
-                org=None,
-            )
+            if self._org_hard_filter:
+                # 기관 필수 모드에서는 무기관 질의에 대해 검색을 수행하지 않는다.
+                results = []
+            else:
+                results = search_chroma(
+                    query=q_search,
+                    persist_dir=self._persist_dir,
+                    collection_name=self._collection_name,
+                    model=self._model,
+                    top_k=k,
+                    fetch_k=max(k * 30, 200),
+                    org=None,
+                )
 
         scored: List[tuple[ChunkRecord, float, int]] = []
         seen: set[tuple[str, int]] = set()
@@ -220,6 +286,48 @@ class ChromaRetriever:
             )
             scored.append((chunk, score, pos))
 
+        if kind == "money" and scored:
+            scored = self._expand_money_neighbor_candidates(scored)
+
+        # 질의 내 영문/숫자 고신호 토큰(IP-NAVI 등)을 별도로 추적해
+        # 해당 토큰이 실제 source/text에 나타나는 청크를 우선한다.
+        signal_terms = _extract_signal_terms(q)
+        signal_match_count: Dict[Tuple[str, int], int] = {}
+        signal_any_match = False
+        for c, _, _ in scored:
+            key = (c.source_path, c.chunk_index)
+            hay = f"{c.source_path}\n{c.text}".lower()
+            cnt = sum(1 for t in signal_terms if t and t in hay)
+            signal_match_count[key] = cnt
+            if cnt > 0:
+                signal_any_match = True
+
+        # 캡션/테이블 JSON 잔재처럼 값 추출에 방해가 되는 노이즈 청크를 감점한다.
+        # hard 모드에서는 강한 노이즈 청크를 사전에 제거한다.
+        if self._noise_mode == "hard":
+            hard_filtered: List[tuple[ChunkRecord, float, int]] = []
+            for c, s, pos in scored:
+                hits = _noise_hits(c.text)
+                threshold = 1 if kind == "money" else 2
+                if hits >= threshold and not _has_value_hint(c.text, kind):
+                    continue
+                hard_filtered.append((c, s, pos))
+            if hard_filtered:
+                scored = hard_filtered
+
+        noise_penalty_map: Dict[Tuple[str, int], float] = {}
+        for c, _, _ in scored:
+            key = (c.source_path, c.chunk_index)
+            hits = _noise_hits(c.text)
+            if self._noise_mode == "off":
+                noise_penalty_map[key] = 0.0
+            elif self._noise_mode == "hard":
+                unit_pen = 0.16 if kind == "money" else 0.10
+                noise_penalty_map[key] = -unit_pen * hits
+            else:
+                unit_pen = 0.22 if kind == "money" else 0.18
+                noise_penalty_map[key] = -unit_pen * hits
+
         lexical_score_map: Dict[Tuple[str, int], float] = {}
         if scored and self._lexical_chunks:
             all_lexical_scores = tfidf_scores(
@@ -245,23 +353,27 @@ class ChromaRetriever:
         # 소스 내에서 값/키워드 근거가 풍부한 청크를 우선하도록 조정
         def _keyword_bonus(qtext: str, text: str, source_path: str, org_hint: str | None) -> float:
             bonus = 0.0
-            kind = _question_kind(qtext)
-            if kind == "percent":
+            q_kind = _question_kind(qtext)
+            if q_kind == "percent":
                 if _PERCENT_RE.search(text) or _FRACTION_OF_100_RE.search(text):
                     bonus += 1.2
                 else:
                     bonus -= 0.2
-            elif kind == "money":
+            elif q_kind == "money":
                 if _MONEY_RE.search(text):
                     bonus += 1.2
+                elif _BUDGET_KEYWORD_RE.search(text) and _MONEY_LOOSE_RE.search(text):
+                    bonus += 0.8
+                elif _BUDGET_KEYWORD_RE.search(text):
+                    bonus += 0.2
                 else:
                     bonus -= 0.2
-            elif kind == "date":
+            elif q_kind == "date":
                 if _DATE_RE.search(text):
                     bonus += 1.0
                 else:
                     bonus -= 0.1
-            elif kind == "period":
+            elif q_kind == "period":
                 if _PERIOD_RE.search(text):
                     bonus += 1.0
                 else:
@@ -287,13 +399,28 @@ class ChromaRetriever:
 
         reranked = []
         for c, s, pos in scored:
+            key = (c.source_path, c.chunk_index)
             lex = lexical_score_map.get((c.source_path, c.chunk_index), 0.0)
             kb = _keyword_bonus(q, c.text, c.source_path, org)
             sb = source_best.get(c.source_path, 0.0)
+            signal_bonus = 0.0
+            if signal_terms and signal_any_match:
+                cnt = signal_match_count.get(key, 0)
+                signal_bonus = min(0.25 * cnt, 0.75) if cnt > 0 else -0.30
+            noise_pen = noise_penalty_map.get(key, 0.0)
             base = (self._chroma_weight * s) + (self._lexical_weight * lex)
-            final = base + (0.26 * kb) + (0.12 * sb) - (0.0001 * pos)
+            final = base + (0.26 * kb) + (0.12 * sb) + signal_bonus + noise_pen - (0.0001 * pos)
             reranked.append((c, final))
         reranked.sort(key=lambda x: x[1], reverse=True)
+
+        if self._use_mmr and len(reranked) > 1:
+            reranked = _apply_mmr_sparse(
+                reranked,
+                k=max(k, 1),
+                lambda_mult=self._mmr_lambda,
+                idx_map=self._lexical_idx_map,
+                vectors=self._lexical_vectors,
+            )
 
         out: List[ChunkRecord] = []
         for c, _ in reranked:
@@ -301,6 +428,48 @@ class ChromaRetriever:
             if len(out) >= k:
                 break
         return out[:k]
+
+    def _expand_money_neighbor_candidates(
+        self, scored: List[tuple[ChunkRecord, float, int]]
+    ) -> List[tuple[ChunkRecord, float, int]]:
+        expanded = list(scored)
+        seen = {(c.source_path, c.chunk_index) for c, _, _ in expanded}
+        top_seed = min(len(scored), 12)
+        offsets = (-2, -1, 1, 2, 3)
+        next_pos = len(expanded)
+
+        for i in range(top_seed):
+            c, s, _ = scored[i]
+            src = c.source_path
+            base_idx = c.chunk_index
+            idx_set = self._source_index_set.get(src)
+            if idx_set is None:
+                continue
+            for d in offsets:
+                cand_idx = base_idx + d
+                key = (src, cand_idx)
+                if cand_idx < 0 or cand_idx not in idx_set or key in seen:
+                    continue
+                rec = self._lexical_chunk_map.get(key)
+                if rec is None:
+                    continue
+                text = rec.text or ""
+                if not (_BUDGET_KEYWORD_RE.search(text) or _MONEY_RE.search(text) or _MONEY_LOOSE_RE.search(text)):
+                    continue
+                neighbor = ChunkRecord(
+                    source_path=rec.source_path,
+                    chunk_index=rec.chunk_index,
+                    chunk_id=rec.chunk_id,
+                    text=rec.text,
+                    metadata=rec.metadata if isinstance(rec.metadata, dict) else None,
+                )
+                # 인접 청크는 의미 보강용 후보이므로 소폭 낮은 초기점수를 부여한다.
+                adj_score = s - (0.06 * abs(d))
+                expanded.append((neighbor, adj_score, next_pos))
+                next_pos += 1
+                seen.add(key)
+
+        return expanded
 
 
 def _rerank(
@@ -395,6 +564,148 @@ def _question_kind(query: str) -> str:
     return "generic"
 
 
+def _extract_signal_terms(query: str) -> List[str]:
+    return [
+        t.lower().strip("-_/")
+        for t in re.findall(r"[0-9A-Za-z][0-9A-Za-z\\-_/]{2,}", query or "")
+        if len(t.strip("-_/")) >= 3
+    ][:6]
+
+
+def _noise_hits(text: str) -> int:
+    t = (text or "").lower()
+    hits = 0
+    if '"summary"' in t and "]]" in t:
+        hits += 1
+    if "../data_assets/" in t:
+        hits += 1
+    if '"type": "table"' in t or '"type":"table"' in t:
+        hits += 1
+    if t.lstrip().startswith("!["):
+        hits += 1
+    return hits
+
+
+def _has_value_hint(text: str, kind: str) -> bool:
+    t = text or ""
+    if kind == "percent":
+        return bool(_PERCENT_RE.search(t) or _FRACTION_OF_100_RE.search(t))
+    if kind == "money":
+        if _MONEY_RE.search(t):
+            return True
+        return bool(_BUDGET_KEYWORD_RE.search(t) and _MONEY_LOOSE_RE.search(t))
+    if kind == "date":
+        return bool(_DATE_RE.search(t))
+    if kind == "period":
+        return bool(_PERIOD_RE.search(t))
+    if kind == "contact":
+        return bool(_CONTACT_RE.search(t))
+    if kind == "overview":
+        return bool(re.search(r"(사업개요|과업\s*개요|추진\s*배경|사업\s*목적|주요\s*업무)", t))
+    return bool(re.search(r"(예산|금액|기간|마감|문의|담당|연락처|입찰|평가)", t))
+
+
+def _rewrite_query_for_retrieval(query: str) -> str:
+    q = (query or "").strip()
+    if not q:
+        return q
+
+    kind = _question_kind(q)
+    additions: List[str] = []
+    if kind == "money":
+        additions += ["사업예산", "사업비", "총사업비", "예정가격", "기초금액", "금액"]
+    elif kind == "date":
+        additions += ["제안서 제출 마감일", "접수마감", "공고일", "제출일"]
+    elif kind == "period":
+        additions += ["사업기간", "수행기간", "계약기간", "개월", "일"]
+    elif kind == "percent":
+        additions += ["입찰보증금 비율", "평가비율", "기술평가 비중", "가격평가 비중"]
+    elif kind == "contact":
+        additions += ["문의처", "담당자", "연락처", "전화", "이메일"]
+
+    for t in _extract_signal_terms(q):
+        additions.append(t)
+
+    seen = set()
+    deduped: List[str] = []
+    for tok in additions:
+        s = tok.strip()
+        if not s:
+            continue
+        key = s.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(s)
+    if not deduped:
+        return q
+    return f"{q} {' '.join(deduped)}"
+
+
+def _sparse_cosine(a: Dict[str, float], b: Dict[str, float]) -> float:
+    if not a or not b:
+        return 0.0
+    dot = 0.0
+    for k, v in a.items():
+        dot += v * b.get(k, 0.0)
+    if dot == 0.0:
+        return 0.0
+    norm_a = sum(v * v for v in a.values()) ** 0.5
+    norm_b = sum(v * v for v in b.values()) ** 0.5
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+def _apply_mmr_sparse(
+    ranked: List[Tuple[ChunkRecord, float]],
+    *,
+    k: int,
+    lambda_mult: float,
+    idx_map: Dict[Tuple[str, int], int],
+    vectors: Sequence[Dict[str, float]],
+) -> List[Tuple[ChunkRecord, float]]:
+    if not ranked:
+        return []
+    if len(ranked) <= 1 or k <= 1:
+        return ranked[:k]
+
+    rels = [s for _, s in ranked]
+    min_rel, max_rel = min(rels), max(rels)
+    denom = (max_rel - min_rel) if max_rel > min_rel else 1.0
+    rel_norm = [(s - min_rel) / denom for _, s in ranked]
+
+    selected: List[int] = [0]
+    remaining = set(range(1, len(ranked)))
+
+    while remaining and len(selected) < k:
+        best_i = None
+        best_score = -1e9
+        for i in list(remaining):
+            c_i, _ = ranked[i]
+            idx_i = idx_map.get((c_i.source_path, c_i.chunk_index), -1)
+            vec_i = vectors[idx_i] if 0 <= idx_i < len(vectors) else {}
+
+            max_sim = 0.0
+            for j in selected:
+                c_j, _ = ranked[j]
+                idx_j = idx_map.get((c_j.source_path, c_j.chunk_index), -1)
+                vec_j = vectors[idx_j] if 0 <= idx_j < len(vectors) else {}
+                sim = _sparse_cosine(vec_i, vec_j)
+                if sim > max_sim:
+                    max_sim = sim
+            mmr_score = lambda_mult * rel_norm[i] - (1.0 - lambda_mult) * max_sim
+            if mmr_score > best_score:
+                best_score = mmr_score
+                best_i = i
+        if best_i is None:
+            break
+        selected.append(best_i)
+        remaining.discard(best_i)
+
+    return [ranked[i] for i in selected][:k]
+
+
 def _extract_org_hint(query: str) -> str | None:
     tokens = query.strip().split()
     if not tokens:
@@ -405,6 +716,22 @@ def _extract_org_hint(query: str) -> str | None:
     return None
 
 
+def _org_confidence(query: str, org: str | None) -> float:
+    if not org:
+        return 0.0
+    q = (query or "").strip()
+    o = (org or "").strip()
+    if not q or not o:
+        return 0.0
+    if q.startswith(o + " ") and re.search(r"(공사|공단|재단|대학교|대학|병원|정보원|연구원|협회|위원회)$", o):
+        return 1.0
+    if q.startswith(o + " ") and len(o) >= 3:
+        return 0.9
+    if o in q and len(o) >= 3:
+        return 0.7
+    return 0.4
+
+
 def _pick_matches(text: str, kind: str) -> List[str]:
     if kind == "percent":
         matches: List[str] = []
@@ -413,7 +740,14 @@ def _pick_matches(text: str, kind: str) -> List[str]:
         matches.extend(_PERCENT_RE.findall(text))
         return matches
     if kind == "money":
-        return _MONEY_RE.findall(text)
+        strict = _MONEY_RE.findall(text)
+        if strict:
+            return strict
+        if _BUDGET_KEYWORD_RE.search(text):
+            loose = _MONEY_LOOSE_RE.findall(text)
+            if loose:
+                return loose
+        return []
     if kind == "date":
         return _DATE_RE.findall(text)
     if kind == "period":
@@ -838,6 +1172,13 @@ def main() -> int:
     parser.add_argument("--chroma-collection", default="rfp_b_oai")
     parser.add_argument("--chroma-model", default="text-embedding-3-small")
     parser.add_argument("--chroma-org-filter", action="store_true")
+    parser.add_argument("--chroma-org-filter-mode", choices=["hard", "soft", "adaptive"], default="hard")
+    parser.add_argument("--chroma-score-weight", type=float, default=0.7)
+    parser.add_argument("--lexical-score-weight", type=float, default=0.3)
+    parser.add_argument("--chroma-noise-mode", choices=["off", "soft", "hard"], default="soft")
+    parser.add_argument("--chroma-mmr", action="store_true")
+    parser.add_argument("--chroma-mmr-lambda", type=float, default=0.85)
+    parser.add_argument("--chroma-query-rewrite", action="store_true")
     parser.add_argument(
         "--joined-chunks",
         default=str(Path("notebooks") / "data_chunks_rich_joined.jsonl"),
@@ -860,6 +1201,13 @@ def main() -> int:
         chroma_collection=args.chroma_collection,
         chroma_model=args.chroma_model,
         chroma_org_filter=bool(args.chroma_org_filter),
+        chroma_org_filter_mode=str(args.chroma_org_filter_mode),
+        chroma_score_weight=float(args.chroma_score_weight),
+        lexical_score_weight=float(args.lexical_score_weight),
+        chroma_noise_mode=str(args.chroma_noise_mode),
+        chroma_mmr=bool(args.chroma_mmr),
+        chroma_mmr_lambda=float(args.chroma_mmr_lambda),
+        chroma_query_rewrite=bool(args.chroma_query_rewrite),
     )
 
     if args.query:

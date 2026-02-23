@@ -47,8 +47,12 @@ SCENARIO POLICY (GUIDE ALIGNMENT)
   1) naive baseline (lexical: TF-IDF/BM25 계열)
   2) vector retrieval (DenseIndex 또는 Chroma)
   3) hybrid retrieval (lexical + vector 결합)
-- `hybrid_alpha=1.0`은 결합식상 lexical-only baseline으로 해석한다(실질 dense 비활성).
+- `hybrid_alpha`는 **HybridRetriever 경로에서만** 의미가 있다.
+  - HybridRetriever에서 `hybrid_alpha=1.0`은 lexical-only baseline으로 해석한다(실질 dense 비활성).
+  - ChromaRetriever 경로에서는 `hybrid_alpha`를 사용하지 않는다.
 - 따라서 성능 보고 시에는 lexical-only 결과와 함께, `alpha<1` 또는 `retriever=chroma/dense` 결과를 반드시 병기한다.
+- Chroma 운영 기본값은 기관명 기반 검색을 전제로 한다.
+  - 기관명이 없는 질의는 검색을 수행하지 않고, 기관명 재입력을 요청한다.
 
 NOTEBOOKS RULES (LOCAL-ONLY)
 - notebooks/ 아래 산출물은 로컬 전용이며 **절대 커밋하지 않는다**.

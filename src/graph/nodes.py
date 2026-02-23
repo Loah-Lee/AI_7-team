@@ -11,7 +11,9 @@ from .state import ChatState, OrgInfo, QueryIntent
 def parse_query(query: str) -> QueryIntent:
     q = query.strip()
     query_type = "generic"
-    if re.search(r"비율|퍼센트|%", q):
+    if re.search(r"(표|테이블|이미지|그림|도표|캡션|첨부|원문\s*(표|이미지)|근거\s*(이미지|표))", q):
+        query_type = "asset"
+    elif re.search(r"비율|퍼센트|%", q):
         query_type = "percent"
     elif re.search(r"예산|금액|비용|얼마", q):
         query_type = "money"

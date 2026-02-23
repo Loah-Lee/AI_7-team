@@ -27,7 +27,10 @@
   1) lexical baseline
   2) vector retrieval(Dense/Chroma)
   3) hybrid retrieval
-- `hybrid_alpha=1.0`은 lexical-only baseline으로 분류한다.
+- `hybrid_alpha`는 HybridRetriever에서만 사용한다.
+  - HybridRetriever 기준 `hybrid_alpha=1.0`은 lexical-only baseline으로 분류한다.
+  - ChromaRetriever에는 `hybrid_alpha`가 적용되지 않는다.
+- Chroma 운영 모드에서는 기관명 없는 질의를 검색하지 않고, 기관명 재입력을 요청한다.
 
 ---
 

@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.parsers.rich_chunk import chunk_rich
 from src.retrievers.build_dense_index import main as build_dense_main
+from src.retrievers.build_asset_chunks import build_asset_chunks
 from src.retrievers.chroma_store import build_chroma_index
 
 
@@ -18,6 +19,8 @@ def main() -> int:
     parser.add_argument("--chunk-rich", action="store_true")
     parser.add_argument("--dense", action="store_true")
     parser.add_argument("--chroma", action="store_true")
+    parser.add_argument("--asset-chunks", action="store_true")
+    parser.add_argument("--chroma-asset", action="store_true")
     parser.add_argument("--chunk-input-dir", default=str(Path("notebooks") / "data_rich"))
     parser.add_argument("--chunk-output-dir", default=str(Path("notebooks") / "data_chunks_rich"))
     parser.add_argument("--chunk-size", type=int, default=1000)
@@ -25,6 +28,8 @@ def main() -> int:
     parser.add_argument("--chroma-input-dir", "--input-dir", dest="chroma_input_dir", default=None)
     parser.add_argument("--chroma-dir", default=str(Path("data_index") / "chroma_B"))
     parser.add_argument("--collection", default="rfp_b_oai")
+    parser.add_argument("--asset-chunks-dir", default=str(Path("notebooks") / "data_chunks_rich_asset_v1"))
+    parser.add_argument("--asset-collection", default="rfp_b_assets_oai_v1")
     parser.add_argument("--model", default="text-embedding-3-small")
     parser.add_argument("--batch-size", type=int, default=128)
     args = parser.parse_args()
@@ -47,6 +52,12 @@ def main() -> int:
     if args.dense:
         build_dense_main()
 
+    if args.asset_chunks:
+        build_asset_chunks(
+            input_dir=Path(args.chunk_output_dir) if args.chunk_rich else Path("notebooks") / "data_chunks_rich",
+            output_dir=Path(args.asset_chunks_dir),
+        )
+
     if args.chroma:
         default_chunked_dir = Path("notebooks") / "data_chunks_rich"
         chroma_input_dir = (
@@ -58,6 +69,15 @@ def main() -> int:
             input_dir=chroma_input_dir,
             persist_dir=Path(args.chroma_dir),
             collection_name=args.collection,
+            model=args.model,
+            batch_size=args.batch_size,
+        )
+
+    if args.chroma_asset:
+        build_chroma_index(
+            input_dir=Path(args.asset_chunks_dir),
+            persist_dir=Path(args.chroma_dir),
+            collection_name=args.asset_collection,
             model=args.model,
             batch_size=args.batch_size,
         )
