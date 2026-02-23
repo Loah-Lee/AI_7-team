@@ -30,7 +30,42 @@
 | 8. 앱 응답/UI | image-only 질의 시 답변 텍스트 내 이미지 경로를 실제 파일로 resolve 후 바로 렌더 | “설명 대신 이미지 바로 제시” 요구 대응 | `app/main.py` |
 | 9. 평가/리포트 | eval dataset 일괄 실행→LLM Judge 4지표 채점→`eval_results_current.json`→HTML 리포트 생성 | 실험별 성능을 동일 입력셋으로 비교하고 추적 가능 | `scripts/eval_retrieval.py`, `src/evaluation/llm_judge.py`, `scripts/build_eval_report.py` |
 
-## 3) 파트별 상세 파일 맵
+## 3) 단계별 핵심 파라미터 (값 + 근거)
+
+| 단계 | 파라미터 | 현재 사용 값 | 값 근거(코드 위치) | 비고/의도 |
+|---|---|---|---|---|
+| 파싱 | `input_dir` | `data/pdf_raw` (실행 예시 기준) | README 실행 명령(`extract_rich(input_dir=Path('data/pdf_raw'))`) | 실제 운영 원본 문서 루트 |
+| 파싱 | `output_root`, `assets_root` | `notebooks/data_rich`, `notebooks/data_assets` | `src/parsers/rich_pdf_extract.py` (`extract_rich` 시그니처) | 텍스트/이미지 근거 분리 저장 |
+| 파싱 | `auto_convert_hwp` | `True` | `src/parsers/rich_pdf_extract.py` (`extract_rich`) | HWP 포함 입력을 자동 수용 |
+| 파싱 | `hwp->pdf timeout` | `180s` | `src/parsers/rich_pdf_extract.py` (`_convert_hwp_to_pdf(timeout_s=180)`) | 변환 실패 시 과도 대기 방지 |
+| 캡션(선택) | `workers` | `8` | `src/parsers/rich_caption_assets.py` (`--workers` 기본값) | 처리량/안정성 균형 |
+| 캡션(선택) | caption 모델 | `gpt-5-mini` | `src/parsers/rich_caption_assets.py` (`_request_caption`) | 표/이미지 설명 품질 우선 |
+| 청킹 | `chunk_size` | `1000` | `src/parsers/rich_chunk.py` (`chunk_rich` 기본값), `scripts/rebuild_db.py` (`--chunk-size`) | 문맥 보존과 검색 단위 균형 |
+| 청킹 | `overlap` | `100` | `src/parsers/rich_chunk.py` (`chunk_rich` 기본값), `scripts/rebuild_db.py` (`--overlap`) | 경계 정보 손실 완화 |
+| 인덱싱 | embedding 모델 | `text-embedding-3-small` | `src/retrievers/chroma_store.py` (`build_chroma_index` 기본값), `scripts/rebuild_db.py` (`--model`) | Chroma 인덱스/검색 일관성 |
+| 인덱싱 | `batch_size` | `128` | `src/retrievers/chroma_store.py`, `scripts/rebuild_db.py` (`--batch-size`) | 임베딩 호출 효율 |
+| 인덱싱 | 컬렉션명 | 운영: `rfp_b_oai_clean_v1` | 서비스/평가: `src/graph/workflow.py`, `scripts/eval_retrieval.py`; 인덱서 기본: `rfp_b_oai`(`scripts/rebuild_db.py`) | 운영값과 인덱서 기본값이 달라 명시 필요 |
+| 서비스(기본) | `retriever`, `rerank` | `chroma`, `none` | `app/main.py` (`RAGChatbot(...)`), `src/graph/workflow.py` | 불필요한 추가 변동 최소화 |
+| 서비스(기본) | `top_k`, `context_k` | `50`, `20` | `app/main.py`, `src/graph/workflow.py` 기본값 | recall 확보 후 생성 컨텍스트 압축 |
+| Chroma 검색 | `org_filter_mode` | `hard` | `src/graph/workflow.py` 기본값, `scripts/eval_retrieval.py` 생성시 강제 | 기관 질의 precision 강화 |
+| Chroma 검색 | score 결합 가중치 | `chroma:0.7`, `lexical:0.3` | `src/graph/workflow.py` 기본값, `src/rag_answer.py` (`ChromaRetriever.__init__`) | 벡터 주도 + lexical 보정 |
+| Chroma 검색 | `noise_mode` | `hard` | `src/graph/workflow.py` 기본값, `scripts/eval_retrieval.py` 강제 | 테이블 JSON 잔재/placeholder 노이즈 억제 |
+| Chroma 검색 | `mmr`, `mmr_lambda` | `True`, `0.85` | `src/graph/workflow.py` 기본값 | 중복 청크 완화 + 상위 relevance 유지 |
+| Chroma 검색 | `query_rewrite` | `True` | `src/graph/workflow.py` 기본값 | 질의 타입별 확장 키워드 주입 |
+| 생성 | `answer_model` | 기본 `gpt-5-nano` | `src/graph/workflow.py` (`answer(model='gpt-5-nano')`), `scripts/eval_retrieval.py` (`--answer-model`) | 응답 지연/비용 절감 |
+| 생성 | factoid guard | `RAG_EXP5_FACTOID_GUARD=True`(기본) | `src/rag_answer.py` (`_env_flag(..., default=True)`) | 규칙 기반 값 추출 오탐 억제 |
+| 생성 | structured complex | `RAG_EXP6_STRUCTURED_COMPLEX=False`(기본) | `src/rag_answer.py` (`_env_flag(..., default=False)`) | 기본은 단문 응답, 필요 시만 구조화 |
+| 특수 질의 | money-rank 확장 | `retrieve_k >= 240`, `context_k >= 120` | `src/graph/workflow.py` (`answer` 내 money_rank 분기) | 순위 질의에서 후보 풀 확장 |
+| 평가 | `top_k`, `context_k` | `5`, `20` | `scripts/eval_retrieval.py` (`--top_k`, `--context_k` 기본값) | 리포트 기준 고정 비교 |
+| 평가 | `judge_model` | `gpt-5-mini` | `scripts/eval_retrieval.py` (`--judge-model` 기본값), `src/evaluation/llm_judge.py` | Judge 품질/비용 균형 |
+| 평가 | Judge timeout | `90s` (환경변수로 override) | `src/evaluation/llm_judge.py` (`LLM_JUDGE_TIMEOUT_SEC`, 기본 90) | 타임아웃으로 평가 중단 리스크 관리 |
+| 비교 실험(legacy/hybrid) | `hybrid_alpha` | `1.0` | `src/graph/workflow.py` (`_build_retriever(... hybrid_alpha=1.0)`) | 하이브리드 경로에서는 lexical-only baseline 의미 |
+
+주의:
+- `alpha`(`hybrid_alpha`)는 **현재 서비스 기본(chroma)** 경로의 핵심 튜닝 파라미터가 아니라, hybrid/dense 비교 실험에서 의미가 있습니다.
+- 인덱싱 collection 기본값(`rfp_b_oai`)과 서비스/평가 기본값(`rfp_b_oai_clean_v1`)이 다르므로, 인덱싱 시 collection을 명시해야 운영과 일치합니다.
+
+## 4) 파트별 상세 파일 맵
 
 - 파싱/청킹
   - `src/parsers/rich_pdf_extract.py`
@@ -53,9 +88,9 @@
 - 실행 앱
   - `app/main.py`
 
-## 4) 실행 순서 (Chroma 최신 기준)
+## 5) 실행 순서 (Chroma 최신 기준)
 
-### 4-1. 환경 준비
+### 5-1. 환경 준비
 
 ```bash
 cd /Users/apple/AI_7-team
@@ -68,7 +103,7 @@ pip install -r requirements.txt
   - `RAG_EXP5_FACTOID_GUARD` (기본 true)
   - `RAG_EXP6_STRUCTURED_COMPLEX` (기본 false)
 
-### 4-2. 데이터 구축
+### 5-2. 데이터 구축
 
 ```bash
 # 1) rich 추출 (PDF/HWP -> markdown + assets)
@@ -88,13 +123,13 @@ python scripts/rebuild_db.py --chroma --chunk-output-dir notebooks/data_chunks_r
 - `scripts/rebuild_db.py`의 기본 collection은 `rfp_b_oai`지만,
   운영/평가 기본은 `rfp_b_oai_clean_v1`이므로 collection 명을 명시하는 것을 권장.
 
-### 4-3. 서비스 실행
+### 5-3. 서비스 실행
 
 ```bash
 streamlit run /Users/apple/AI_7-team/app/main.py
 ```
 
-### 4-4. 평가 + HTML 리포트 생성
+### 5-4. 평가 + HTML 리포트 생성
 
 ```bash
 # Chroma 평가 (동일 eval dataset)
@@ -113,7 +148,7 @@ python scripts/eval_retrieval.py \
 python scripts/build_eval_report.py
 ```
 
-### 4-5. Lexical 비교 평가(동일 쿼리)
+### 5-5. Lexical 비교 평가(동일 쿼리)
 
 ```bash
 python scripts/eval_retrieval.py \
@@ -130,7 +165,7 @@ python scripts/eval_retrieval.py \
 - JSON 결과는 `results/main_eval_<timestamp>/` 및 `eval_resources/`에 저장.
 - HTML 출력 파일(`eval_report.html`, `eval_lexical_report.html`)은 `eval_resources/`에서 확인.
 
-## 5) 프롬프트/생성 설계 포인트
+## 6) 프롬프트/생성 설계 포인트
 
 - 질문 유형 감지:
   - 금액/비율/기간/연락처/이미지/순위 질의를 분기 처리
@@ -145,7 +180,7 @@ python scripts/eval_retrieval.py \
 - 참고:
   - `src/prompts/templates.py`의 템플릿은 현재 런타임 핵심 경로가 아님(실제 지시문은 `generate_answer`에서 동적으로 구성).
 
-## 6) 운영 시 체크리스트
+## 7) 운영 시 체크리스트
 
 - 인덱스 모델/컬렉션 일치 확인
   - 인덱싱과 검색이 같은 collection/model 조합인지 확인
@@ -156,7 +191,7 @@ python scripts/eval_retrieval.py \
   - 기관명 없는 짧은 질의는 `need_org`가 의도된 동작
   - 파일: `src/graph/workflow.py`
 
-## 7) 저장소 운영 규칙
+## 8) 저장소 운영 규칙
 
 - 커밋 금지(로컬 전용): `data/`, `data_index/`, `notebooks/`, `results/`, `.env`, `tests/`
 - 평가 산출물은 실험 비교용으로 남기되, 불필요한 대용량 중간 산출물은 정리 권장
