@@ -96,15 +96,6 @@ LLM-as-Judge 기반 End-to-End 평가 체계.
 - **single_doc**: top-K에 해당 source가 있으면 1.0
 - **multi_doc/comparison (Strict Match)**: `ground_truth.sources`의 **모든** source가 top-K 안에 있어야 1.0. 하나라도 누락이면 0.0
 
-### Recall@K (Page) | 검색 재현율 — 페이지 단위
-
-> top-K 검색 결과에 정답 문서의 **정확한 페이지**가 **포함된** 질문의 비율
-
-- 범위: 0.0 ~ 1.0
-- 계산: `(per-query Recall@K_page > 0인 질문 수) / 전체 질문 수`
-- 매칭: source + page 모두 일치해야 hit
-- Source-level보다 엄격하며, 실제 검색 정밀도를 더 정확히 반영
-
 ### MRR (Source) | 평균 역순위 — 문서 단위
 
 > 정답 문서(source 기준)가 검색 결과에서 **몇 번째**에 위치하는지의 역수 평균
@@ -113,19 +104,12 @@ LLM-as-Judge 기반 End-to-End 평가 체계.
 - 계산: `mean(1/rank)` (정답 없으면 0)
 - **multi_doc/comparison**: rank = 마지막으로 발견된 source의 위치 (모든 source를 포함하기 위한 최소 rank). 하나라도 미발견이면 0
 
-### MRR (Page) | 평균 역순위 — 페이지 단위
-
-> 정답 문서의 **정확한 페이지**가 검색 결과에서 **몇 번째**에 위치하는지의 역수 평균
-
-- 범위: 0.0 ~ 1.0
-- 계산: `mean(1/rank_page)` (source + page 모두 일치해야 hit)
-
 ### Recall@K (per-query) | 질문별 검색 재현율
 
 > 개별 질문에서 top-K에 정답이 포함되면 1.0, 아니면 0.0
 
-- **Source level**: 파일명만 매칭 → 같은 PDF의 다른 페이지가 검색돼도 1.0
-- **Page level**: source + page 모두 매칭 → 정확한 페이지가 검색돼야 1.0
+- **single_doc**: 해당 source가 top-K에 있으면 1.0
+- **multi_doc/comparison (Strict Match)**: `sources` 리스트의 **모든** source가 top-K 안에 있어야 1.0. 하나라도 누락이면 0.0
 
 ---
 
@@ -189,4 +173,4 @@ open eval_resources/eval_report.html
 
 - 위치: `eval_resources/eval_dataset.yaml`
 - 구성: 20개 질문 (single_doc 12, multi_doc 4, comparison 4)
-- 각 항목: question, expected_answer, ground_truth(source, page), query_type, metadata_filter
+- 각 항목: question, expected_answer, ground_truth(sources: list), query_type, metadata_filter

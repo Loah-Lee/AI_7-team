@@ -242,8 +242,7 @@ def generate_eval_set(num_pairs: int = 20, model: str | None = None) -> list[dic
                 "question": parsed["question"],
                 "expected_answer": parsed["expected_answer"],
                 "ground_truth": {
-                    "source": chunk["source"],
-                    "page": chunk.get("page"),
+                    "sources": [chunk["source"]],
                 },
                 "query_type": "single_doc",
                 "metadata_filter": (
@@ -291,15 +290,13 @@ def generate_eval_set(num_pairs: int = 20, model: str | None = None) -> list[dic
                     print(f"  [SKIP] JSON 파싱 실패 ({qtype} #{i+1})")
                     continue
 
-                # sources: 두 청크의 source를 모두 기록 (any-match recall 계산용)
+                # sources: 두 청크의 source를 모두 기록 (strict match — 전부 필요)
                 gt_sources = list(dict.fromkeys([chunk1["source"], chunk2["source"]]))
                 eval_items.append({
                     "id": f"eval_{len(eval_items)+1:03d}",
                     "question": parsed["question"],
                     "expected_answer": parsed["expected_answer"],
                     "ground_truth": {
-                        "source": chunk1["source"],
-                        "page": chunk1.get("page"),
                         "sources": gt_sources,
                     },
                     "query_type": qtype,

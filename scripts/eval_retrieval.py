@@ -2,7 +2,7 @@
 
 전체 RAG 파이프라인(build_graph().invoke())을 실행한 뒤
 LLM Judge가 Correctness, Answer Coverage, Faithfulness, Context Relevance를 채점한다.
-Retrieval 보조 지표(Recall@K, MRR)도 병행 계산.
+Retrieval 보조 지표(Recall@K, MRR — Source 단위)도 병행 계산.
 
 실행: uv run python scripts/eval_retrieval.py --label current --top_k 5
 """
@@ -93,8 +93,6 @@ def evaluate_e2e(
     context_relevance_scores: list[int] = []
     recalls: list[float] = []
     hit_positions: list[int | None] = []
-    recalls_page: list[float] = []
-    hit_positions_page: list[int | None] = []
 
     total = len(eval_items)
 
@@ -102,10 +100,7 @@ def evaluate_e2e(
         question = item["question"]
         expected_answer = item.get("expected_answer", "")
         gt = item.get("ground_truth", {})
-        gt_source = gt.get("source", "")
-        # multi_doc: sources 리스트 지원 (없으면 단일 source로 폴백)
-        gt_sources: list[str] | str = gt.get("sources") or gt_source
-        gt_page = gt.get("page")
+        gt_sources: list[str] = gt.get("sources", [])
         metadata_filter = item.get("metadata_filter")
 
         print(f"\n[{i}/{total}] {question[:60]}...")
@@ -126,7 +121,7 @@ def evaluate_e2e(
         evidence = state.get("evidence", "")
         retrieved_docs = state.get("retrieved_docs", [])
 
-        # 2) Retrieval 지표 (보조)
+        # 2) Retrieval 지표 (보조 — Source 단위)
         retrieved_for_metrics = [
             {
                 "source": doc.get("source", "unknown"),
@@ -135,26 +130,21 @@ def evaluate_e2e(
             }
             for doc in retrieved_docs
         ]
+        retrieved_sources = list(dict.fromkeys(
+            doc.get("source", "unknown") for doc in retrieved_docs
+        ))
 
-        # source-level: multi_doc는 여러 source any-match
         recall = calculate_recall_at_k(retrieved_for_metrics, gt_sources, k=top_k)
         hit_pos = calculate_hit_position(retrieved_for_metrics, gt_sources)
         recalls.append(recall)
         hit_positions.append(hit_pos)
-
-        # page-level: 첫 번째(대표) source + page 기준
-        recall_page = calculate_recall_at_k(retrieved_for_metrics, gt_source, ground_truth_page=gt_page, k=top_k)
-        hit_pos_page = calculate_hit_position(retrieved_for_metrics, gt_source, ground_truth_page=gt_page)
-        recalls_page.append(recall_page)
-        hit_positions_page.append(hit_pos_page)
 
         # 3) LLM Judge 채점
         context_text = evidence if evidence else "\n\n".join(
             doc.get("content", "") for doc in retrieved_docs
         )
 
-        page_tag = f"Hit@{hit_pos_page}" if hit_pos_page else "MISS"
-        print(f"  → Retrieval: {'Hit@' + str(hit_pos) if hit_pos else 'MISS'} (source) / {page_tag} (page) | {len(retrieved_docs)}개 문서")
+        print(f"  → Retrieval: {'Hit@' + str(hit_pos) if hit_pos else 'MISS'} | {len(retrieved_docs)}개 문서")
         print(f"  → LLM Judge 채점 중...")
 
         judge_result = judge_rag_response(
@@ -189,12 +179,9 @@ def evaluate_e2e(
             "context_relevance": judge_result["context_relevance"],
             "hit_position": hit_pos,
             "recall_at_k": recall,
-            "hit_position_page": hit_pos_page,
-            "recall_at_k_page": recall_page,
             "num_retrieved": len(retrieved_docs),
-            "ground_truth_source": gt_source,
-            "ground_truth_sources": gt_sources if isinstance(gt_sources, list) else [gt_source],
-            "ground_truth_page": gt_page,
+            "ground_truth_sources": gt_sources,
+            "retrieved_sources": retrieved_sources,
             "latencies": state.get("latencies", {}),
         })
 
@@ -206,8 +193,6 @@ def evaluate_e2e(
     avg_context_relevance = sum(context_relevance_scores) / n if n else 0.0
     recall_at_k_source = calculate_recall_at_k_summary(recalls)
     mrr = calculate_mrr(hit_positions)
-    recall_at_k_page = calculate_recall_at_k_summary(recalls_page)
-    mrr_page = calculate_mrr(hit_positions_page)
 
     return {
         "summary": {
@@ -220,8 +205,6 @@ def evaluate_e2e(
             "avg_context_relevance": round(avg_context_relevance, 2),
             "recall_at_k_source": round(recall_at_k_source, 4),
             "mrr_source": round(mrr, 4),
-            "recall_at_k_page": round(recall_at_k_page, 4),
-            "mrr_page": round(mrr_page, 4),
         },
         "per_query": per_query_results,
     }
@@ -275,12 +258,9 @@ def main() -> None:
     print(f"    Answer Coverage:   {summary['avg_answer_coverage']:.2f}")
     print(f"    Faithfulness:      {summary['avg_faithfulness']:.2f}")
     print(f"    Context Relevance: {summary['avg_context_relevance']:.2f}")
-    print(f"  [Retrieval 보조 지표 — Source Level]")
+    print(f"  [Retrieval 보조 지표 — Source Level (Strict Match)]")
     print(f"    Recall@{args.top_k}:       {summary['recall_at_k_source']:.4f}")
     print(f"    MRR:               {summary['mrr_source']:.4f}")
-    print(f"  [Retrieval 보조 지표 — Page Level]")
-    print(f"    Recall@{args.top_k}:       {summary['recall_at_k_page']:.4f}")
-    print(f"    MRR:               {summary['mrr_page']:.4f}")
     print(f"  평가 건수: {summary['num_evaluated']}/{summary['num_queries']}")
     print(f"  소요 시간: {elapsed:.1f}초")
     print(f"{'=' * 60}")

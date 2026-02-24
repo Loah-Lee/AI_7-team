@@ -326,18 +326,6 @@ const cardDefs = [
       <div class="tt-kv"><strong>범위:</strong> 0.0 ~ 1.0</div>
       <div class="tt-kv"><strong>매칭:</strong> 파일명(source)만 일치하면 hit</div>
       <span class="tt-formula">mean(1/rank) — 정답 없으면 0</span>`}},
-  {{label:'Recall@5 (Page)',ko:'검색 재현율·페이지',value:((S.recall_at_k_page||0)*100).toFixed(0)+'%',max:'',color:'var(--cyan)',
-    tooltip:`<div class="tt-title">Recall@K (Page) · 검색 재현율 — 페이지 단위</div>
-      <div class="tt-desc">top-K 검색 결과에 정답 문서의 정확한 페이지가 포함된 질문의 비율</div>
-      <div class="tt-kv"><strong>범위:</strong> 0.0 ~ 1.0</div>
-      <div class="tt-kv"><strong>매칭:</strong> source + page 모두 일치해야 hit (Source보다 엄격)</div>
-      <span class="tt-formula">(Recall@K_page > 0인 질문 수) / 전체 질문 수</span>`}},
-  {{label:'MRR (Page)',ko:'평균 역순위·페이지',value:(S.mrr_page||0).toFixed(2),max:'',color:'var(--yellow)',
-    tooltip:`<div class="tt-title">MRR (Page) · 평균 역순위 — 페이지 단위</div>
-      <div class="tt-desc">정답 문서의 정확한 페이지가 검색 결과에서 몇 번째에 위치하는지의 역수 평균</div>
-      <div class="tt-kv"><strong>범위:</strong> 0.0 ~ 1.0</div>
-      <div class="tt-kv"><strong>매칭:</strong> source + page 모두 일치해야 hit</div>
-      <span class="tt-formula">mean(1/rank_page) — 정답 없으면 0</span>`}},
   {{label:'Avg Latency',ko:'평균 응답시간',value:'{_lat_value}',max:'',color:'var(--cyan)',
     tooltip:`{_lat_tooltip}`}},
   {{label:'평가 건수',ko:'',value:S.num_evaluated+'/'+S.num_queries,max:'',color:'var(--text)',tooltip:null}},
@@ -525,13 +513,13 @@ PQ.forEach(q => {{
         <span><strong>검색 문서:</strong> ${{q.num_retrieved||0}}개</span>
         <span><strong>Hit (source):</strong> <span class="${{hit?'hit-yes':'hit-no'}}">${{hit?'Hit@'+hit:'MISS'}}</span></span>
         <span><strong>Recall@K (source):</strong> ${{(q.recall_at_k*100).toFixed(0)}}%</span>
-        <span><strong>Hit (page):</strong> <span class="${{q.hit_position_page?'hit-yes':'hit-no'}}">${{q.hit_position_page?'Hit@'+q.hit_position_page:'MISS'}}</span></span>
-        <span><strong>Recall@K (page):</strong> ${{((q.recall_at_k_page||0)*100).toFixed(0)}}%</span>
       </div>
-      <div class="meta-row">
-        <span><strong>정답 문서:</strong> ${{q.ground_truth_source||'N/A'}}</span>
-        <span><strong>정답 페이지:</strong> ${{q.ground_truth_page!=null?q.ground_truth_page:'N/A'}}</span>
-        ${{q.ground_truth_sources&&q.ground_truth_sources.length>1?`<span><strong>정답 소스(전체):</strong> ${{q.ground_truth_sources.join(' / ')}}</span>`:''}}
+      <div class="meta-row" style="flex-direction:column;gap:0.4rem">
+        <span><strong>정답 문서:</strong> ${{(q.ground_truth_sources||[]).map(s=>`<code style="font-size:0.76rem;background:rgba(59,130,246,0.1);color:#93c5fd;padding:0.1rem 0.4rem;border-radius:3px">${{s}}</code>`).join(' ')}}</span>
+        <span><strong>검색된 문서:</strong> ${{(q.retrieved_sources||[]).map(s=>{{
+          const isHit = (q.ground_truth_sources||[]).includes(s);
+          return `<code style="font-size:0.76rem;background:${{isHit?'rgba(34,197,94,0.12)':'rgba(239,68,68,0.08)'}};color:${{isHit?'#86efac':'#fca5a5'}};padding:0.1rem 0.4rem;border-radius:3px">${{s}}</code>`;
+        }}).join(' ')}}</span>
       </div>
       <div class="meta-row latency-row">
         ${{q.latencies?`<span><strong>지연시간:</strong> analyze=${{(q.latencies.analyze_query||0).toFixed(1)}}s | retrieve=${{(q.latencies.retrieve||0).toFixed(2)}}s | evidence=${{(q.latencies.extract_evidence||0).toFixed(1)}}s | generate=${{(q.latencies.generate||0).toFixed(1)}}s</span>`:''}}</span>
