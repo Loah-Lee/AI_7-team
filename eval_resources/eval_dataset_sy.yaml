@@ -4,10 +4,10 @@
     작성되었음을 서약하고, 업체 간 상호 비난이나 담합 등 불공정 거래행위를 하지 않으며, 제안서 평가결과에 대해 이의를 제기하지 않을 것을 서약합니다.
   ground_truth:
     source: 한국생산기술연구원_EIP3.0 고압가스 안전관리 시스템 구축 용역.md
-    page: 86
+    page: 112
     sources:
     - source: 한국생산기술연구원_EIP3.0 고압가스 안전관리 시스템 구축 용역.md
-      page: 86
+      page: 112
   query_type: single_doc
   metadata_filter: {}
 - id: eval_002
@@ -18,10 +18,10 @@
     제1호에 따른 업무를 영위하는 자이다.
   ground_truth:
     source: 한국농어촌공사_아세안+3 식량안보정보시스템(AFSIS) 3단계 협력(캄보디아.md
-    page: 152
+    page: 83
     sources:
     - source: 한국농어촌공사_아세안+3 식량안보정보시스템(AFSIS) 3단계 협력(캄보디아.md
-      page: 152
+      page: 83
   query_type: single_doc
   metadata_filter: {}
 - id: eval_003
@@ -31,10 +31,10 @@
     침해 가능성 없음’과 ‘민간 소프트웨어 시장 침해 가능성을 최소화하여 사업 추진’이다.
   ground_truth:
     source: 대한적십자사 의료원_적십자병원 병원정보 재해복구시스템 구축 용역 .md
-    page: 1
+    page: 54
     sources:
     - source: 대한적십자사 의료원_적십자병원 병원정보 재해복구시스템 구축 용역 .md
-      page: 1
+      page: 54
   query_type: single_doc
   metadata_filter: {}
 - id: eval_004
@@ -43,10 +43,10 @@
     6월까지입니다.
   ground_truth:
     source: 한국농수산식품유통공사_농산물가격안정기금 정부예산회계연계시스템 .md
-    page: 3
+    page: 5
     sources:
     - source: 한국농수산식품유통공사_농산물가격안정기금 정부예산회계연계시스템 .md
-      page: 3
+      page: 5
   query_type: single_doc
   metadata_filter: {}
 - id: eval_005
@@ -55,10 +55,10 @@
   expected_answer: 종합의견에 따르면 민간 소프트웨어 시장 침해 가능성은 없다.
   ground_truth:
     source: 한국수자원조사기술원_수문자료정보관리시스템(HDIMS) 재구축 용역(3단계.md
-    page: 9
+    page: 99
     sources:
     - source: 한국수자원조사기술원_수문자료정보관리시스템(HDIMS) 재구축 용역(3단계.md
-      page: 9
+      page: 99
   query_type: single_doc
   metadata_filter: {}
 - id: eval_006
@@ -67,10 +67,10 @@
     연계 기반 개선사업 PMC 용역이다. ⑤ 종합의견의 적정 사업기간 표기는 '적정 사업기간'과 '개월'로 표기되어 있다.
   ground_truth:
     source: KOICA 전자조달_[긴급] [지문] [국제] 우즈베키스탄 열린 의정활동 상하원 .md
-    page: 1
+    page: 156
     sources:
     - source: KOICA 전자조달_[긴급] [지문] [국제] 우즈베키스탄 열린 의정활동 상하원 .md
-      page: 1
+      page: 156
   query_type: single_doc
   metadata_filter: {}
 - id: eval_007
@@ -80,10 +80,10 @@
     하며, 매뉴얼 내용의 유효성 확인은 유지보수 업체가 담당한다.
   ground_truth:
     source: 축산물품질평가원_꿀 품질평가 전산시스템 기능개선 사업.md
-    page: 70
+    page: 41
     sources:
     - source: 축산물품질평가원_꿀 품질평가 전산시스템 기능개선 사업.md
-      page: 70
+      page: 41
   query_type: single_doc
   metadata_filter: {}
 - id: eval_008
@@ -91,10 +91,10 @@
   expected_answer: 국민연금공단의 정보시스템 고시 개정 관련 소프트웨어 개발사업의 적정 사업기간은 6개월로 산정되었습니다.
   ground_truth:
     source: 국민연금공단_사업장 사회보험료 지원 고시 개정에 따른 정보시스템 보.md
-    page: 49
+    page: 83
     sources:
     - source: 국민연금공단_사업장 사회보험료 지원 고시 개정에 따른 정보시스템 보.md
-      page: 49
+      page: 83
   query_type: single_doc
   metadata_filter: {}
 - id: eval_009
@@ -103,10 +103,10 @@
     개발기간은 6개월입니다.
   ground_truth:
     source: 한국사학진흥재단_대학재정정보시스템(기본재산 및 기채 사후관리) 고.md
-    page: 47
+    page: 110
     sources:
     - source: 한국사학진흥재단_대학재정정보시스템(기본재산 및 기채 사후관리) 고.md
-      page: 47
+      page: 110
   query_type: single_doc
   metadata_filter: {}
 - id: eval_010
@@ -116,10 +116,10 @@
     직원이다.
   ground_truth:
     source: 중앙선거관리위원회_2025년도 행정정보시스템 위탁운영사업.md
-    page: 27
+    page: 7
     sources:
     - source: 중앙선거관리위원회_2025년도 행정정보시스템 위탁운영사업.md
-      page: 27
+      page: 7
   query_type: single_doc
   metadata_filter: {}
 - id: eval_011
@@ -128,10 +128,10 @@
     3월 8일이다.
   ground_truth:
     source: 한국철도공사 (용역)_모바일오피스 시스템 고도화 용역(총체 및 1차).md
-    page: 159
+    page: 187
     sources:
     - source: 한국철도공사 (용역)_모바일오피스 시스템 고도화 용역(총체 및 1차).md
-      page: 159
+      page: 187
   query_type: single_doc
   metadata_filter: {}
 - id: eval_012
@@ -141,10 +141,10 @@
     약 8개월로 표기되어 있습니다.
   ground_truth:
     source: 국립중앙의료원_(긴급)「2024년도 차세대 응급의료 상황관리시스템 구축.md
-    page: 43
+    page: 104
     sources:
     - source: 국립중앙의료원_(긴급)「2024년도 차세대 응급의료 상황관리시스템 구축.md
-      page: 43
+      page: 104
   query_type: single_doc
   metadata_filter: {}
 - id: eval_013
@@ -160,7 +160,7 @@
   ground_truth:
     sources:
     - source: 세종테크노파크_세종테크노파크 인사정보 전산시스템 구축 용역 입찰공.md
-      page: 54
+      page: 111
     - source: 서울특별시_2024년 지도정보 플랫폼 및 전문활용 연계 시스템 고도화 용.md
       page: 34
   query_type: multi_doc
@@ -180,9 +180,9 @@
   ground_truth:
     sources:
     - source: (재)예술경영지원센터_통합 정보시스템 구축 사전 컨설팅.md
-      page: 10
+      page: 31
     - source: 재단법인경기도일자리재단_2025년 통합접수시스템 운영.md
-      page: 65
+      page: 114
   query_type: multi_doc
   metadata_filter: {}
 - id: eval_015
@@ -196,9 +196,9 @@
   ground_truth:
     sources:
     - source: 수협중앙회_수협중앙회 수산물사이버직매장 시스템 재구축 ISMP 수립 입.md
-      page: 27
+      page: 91
     - source: 문화체육관광부 국립민속박물관_2024년 국립민속박물관 민속아카이브 자.md
-      page: 52
+      page: 51
   query_type: multi_doc
   metadata_filter: {}
 - id: eval_016
@@ -215,9 +215,9 @@
   ground_truth:
     sources:
     - source: 그랜드코리아레저(주)_2024년도 GKL  그룹웨어 시스템 구축 용역.md
-      page: 62
+      page: 154
     - source: (사)벤처기업협회_2024년 벤처확인종합관리시스템 기능 고도화 용역사업 .md
-      page: 58
+      page: 138
   query_type: multi_doc
   metadata_filter: {}
 - id: eval_017
@@ -234,9 +234,9 @@
   ground_truth:
     sources:
     - source: 광주과학기술원_실시간통합연구비관리시스템(RCMS)  연계 모듈 변경 사업.md
-      page: 4
+      page: 14
     - source: 국방과학연구소_기록관리시스템 통합 활용 및 보안 환경 구축.md
-      page: 34
+      page: 14
   query_type: comparison
   metadata_filter: {}
 - id: eval_018
@@ -253,7 +253,7 @@
   ground_truth:
     sources:
     - source: 재단법인 한국장애인문화예술원_2024년 장애인문화예술정보시스템 이음.md
-      page: 10
+      page: 24
     - source: 대전대학교_대전대학교 2024학년도 다층적 융합 학습경험 플랫폼(MILE) 전.md
       page: 17
   query_type: comparison
@@ -274,9 +274,9 @@
   ground_truth:
     sources:
     - source: 한국해양조사협회_2024년 항해용 간행물 품질관리 업무보조 시스템 구축.md
-      page: 24
+      page: 93
     - source: (사)벤처기업협회_2024년 벤처확인종합관리시스템 기능 고도화 용역사업 .md
-      page: 103
+      page: 140
   query_type: comparison
   metadata_filter: {}
 - id: eval_020
@@ -288,8 +288,8 @@
   ground_truth:
     sources:
     - source: 인천광역시_도시계획위원회 통합관리시스템 구축용역.md
-      page: 77
+      page: 3
     - source: 문화체육관광부 국립민속박물관_2024년 국립민속박물관 민속아카이브 자.md
-      page: 12
+      page: 59
   query_type: comparison
   metadata_filter: {}

@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable, List, Tuple
 
 
 def _log_start(input_path: Path, output_path: Path) -> None:
@@ -48,6 +48,22 @@ _TOC_ITEM_RE = re.compile(
     r"^\s*(?:[0-9]+[.)]|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\.)\s+.+(?:[-·\.]{3,}\s*\d+|\s+\d+)$"
 )
 _MD_HEADER_RE = re.compile(r"^\s*#{1,6}\s+")
+_SECTION_ENUM_RE = re.compile(
+    r"^\s*(?:\(\d+\)|\([ivxIVX]+\)|[A-Za-z][.)]|[가-힣][.)]|[①-⑳]|[ㄱ-ㅎ][.)])\s+"
+)
+_SECTION_ARTICLE_RE = re.compile(r"^\s*제\s*\d+\s*조\b")
+
+
+def _is_section_header_line(line: str) -> bool:
+    norm = line.replace("\u00a0", " ")
+    if _MD_HEADER_RE.match(norm) or _SECTION_RE.match(norm) or _SECTION_ARTICLE_RE.match(norm):
+        return True
+    if _SECTION_ENUM_RE.match(norm):
+        tail = _SECTION_ENUM_RE.sub("", norm, count=1).strip()
+        # 열거형 목록 본문(장문)과 제목(단문)을 구분하기 위한 길이 제한
+        if 1 <= len(tail) <= 140:
+            return True
+    return False
 
 
 def _split_toc_block(text: str) -> tuple[str | None, str]:
@@ -65,7 +81,7 @@ def _split_toc_block(text: str) -> tuple[str | None, str]:
             if _TOC_ITEM_RE.match(norm):
                 toc_lines.append(line)
                 continue
-            if _MD_HEADER_RE.match(norm) or _SECTION_RE.match(norm):
+            if _is_section_header_line(norm):
                 in_toc = False
                 rest_lines.append(line)
                 continue
@@ -93,20 +109,61 @@ def _separate_list_items(text: str) -> str:
     return "\n".join(out)
 
 
-def _split_by_sections(text: str) -> List[str]:
+def _split_by_sections(text: str) -> List[Tuple[str, str]]:
     lines = text.splitlines()
-    sections: List[str] = []
+    sections: List[Tuple[str, str]] = []
     buf: List[str] = []
+    cur_title = ""
     for line in lines:
         norm = line.replace("\u00a0", " ")
-        if _MD_HEADER_RE.match(norm) or _SECTION_RE.match(norm):
+        if _is_section_header_line(norm):
             if buf:
-                sections.append("\n".join(buf).strip())
+                sections.append(("\n".join(buf).strip(), cur_title))
                 buf = []
+            cur_title = norm.strip()
         buf.append(line)
     if buf:
-        sections.append("\n".join(buf).strip())
-    return [s for s in sections if s]
+        sections.append(("\n".join(buf).strip(), cur_title))
+    return [(text, title) for text, title in sections if text]
+
+
+def _coalesce_small_chunks(
+    chunks: List[Tuple[str, str]],
+    *,
+    chunk_size: int,
+    min_chars: int,
+) -> List[Tuple[str, str]]:
+    if not chunks:
+        return []
+
+    merged: List[Tuple[str, str]] = []
+    buf_text = ""
+    buf_title = ""
+
+    for text, title in chunks:
+        cur = text.strip()
+        if not cur:
+            continue
+
+        if not buf_text:
+            buf_text = cur
+            buf_title = title
+            continue
+
+        should_merge = (len(buf_text) < min_chars) or (len(cur) < min_chars)
+        if should_merge and (len(buf_text) + 2 + len(cur) <= chunk_size):
+            buf_text = f"{buf_text}\n\n{cur}"
+            if not buf_title:
+                buf_title = title
+            continue
+
+        merged.append((buf_text, buf_title))
+        buf_text = cur
+        buf_title = title
+
+    if buf_text:
+        merged.append((buf_text, buf_title))
+    return merged
 
 
 def _pack_paragraphs(text: str, chunk_size: int, overlap: int) -> List[str]:
@@ -137,7 +194,7 @@ def _pack_paragraphs(text: str, chunk_size: int, overlap: int) -> List[str]:
     return chunks
 
 
-def _chunk_by_structure(text: str, chunk_size: int, overlap: int) -> List[str]:
+def _chunk_by_structure(text: str, chunk_size: int, overlap: int) -> List[Tuple[str, str]]:
     text = _separate_list_items(text)
     toc, rest = _split_toc_block(text)
     body = rest or text
@@ -145,18 +202,28 @@ def _chunk_by_structure(text: str, chunk_size: int, overlap: int) -> List[str]:
     sections = _split_by_sections(body)
     if toc:
         if sections:
-            sections[0] = f"{toc}\n\n{sections[0]}".strip()
+            sec_text, sec_title = sections[0]
+            merged = f"{toc}\n\n{sec_text}".strip()
+            sections[0] = (merged, sec_title or "목차")
         else:
-            sections = [toc]
+            sections = [(toc, "목차")]
 
-    chunks: List[str] = []
-    for section in sections:
-        if len(section) <= chunk_size:
-            chunks.append(section)
+    chunks: List[Tuple[str, str]] = []
+    for section_text, section_title in sections:
+        normalized_title = section_title or _extract_section_title(section_text)
+        if len(section_text) <= chunk_size:
+            chunks.append((section_text, normalized_title))
             continue
-        chunks.extend(_pack_paragraphs(section, chunk_size, overlap))
+        packed = _pack_paragraphs(section_text, chunk_size, overlap)
+        for p in packed:
+            chunks.append((p, normalized_title))
 
-    return [c for c in chunks if c]
+    merged = _coalesce_small_chunks(
+        chunks,
+        chunk_size=chunk_size,
+        min_chars=max(220, chunk_size // 4),
+    )
+    return [(chunk, title) for chunk, title in merged if chunk]
 
 
 def _iter_md_files(input_dir: Path) -> Iterable[Path]:
@@ -167,9 +234,43 @@ def _iter_md_files(input_dir: Path) -> Iterable[Path]:
     )
 
 
+def _extract_markdown_image_targets(text: str) -> List[str]:
+    out: List[str] = []
+    s = text or ""
+    i = 0
+    while i < len(s):
+        start = s.find("![", i)
+        if start < 0:
+            break
+        mid = s.find("](", start + 2)
+        if mid < 0:
+            i = start + 2
+            continue
+
+        j = mid + 2
+        depth = 1
+        while j < len(s):
+            ch = s[j]
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    target = s[mid + 2 : j].strip()
+                    if target:
+                        out.append(target)
+                    i = j + 1
+                    break
+            j += 1
+        else:
+            i = mid + 2
+            continue
+    return out
+
+
 def _extract_assets(text: str) -> List[str]:
     assets = []
-    for match in re.findall(r"!\[[^\]]*\]\(([^)]+)\)", text):
+    for match in _extract_markdown_image_targets(text):
         if "data_assets" in match:
             assets.append(match)
     return assets
@@ -187,7 +288,7 @@ def _chunk_id(text: str) -> str:
 def _extract_section_title(chunk: str) -> str:
     for line in chunk.splitlines():
         norm = line.replace("\u00a0", " ")
-        if _MD_HEADER_RE.match(norm) or _SECTION_RE.match(norm):
+        if _is_section_header_line(norm):
             return norm.strip()
     return ""
 
@@ -227,7 +328,7 @@ def chunk_rich(
 
             out_path.parent.mkdir(parents=True, exist_ok=True)
             with out_path.open("w", encoding="utf-8") as f:
-                for idx, chunk in enumerate(chunks):
+                for idx, (chunk, section_title) in enumerate(chunks):
                     record = {
                         "id": f"{rel_path.as_posix()}#{idx}",
                         "source_path": rel_path.as_posix(),
@@ -238,7 +339,7 @@ def chunk_rich(
                     assets = _extract_assets(chunk)
                     metadata = {
                         "doc_id": rel_path.stem,
-                        "section_title": _extract_section_title(chunk),
+                        "section_title": section_title or _extract_section_title(chunk),
                         "page_refs": _extract_page_refs(assets),
                     }
                     if assets:

@@ -106,6 +106,16 @@ def _ensure_fitz():
         ) from exc
 
 
+def _is_rendered_on_page(page, xref: int) -> bool:
+    """현재 페이지에서 실제로 렌더링된 이미지인지 확인한다."""
+    try:
+        rects = page.get_image_rects(xref)
+    except Exception:
+        # 좌표 조회가 실패하면 기존 동작과의 호환을 위해 저장을 허용한다.
+        return True
+    return bool(rects)
+
+
 def _extract_images(doc, doc_id: str, assets_root: Path) -> List[Path]:
     assets_dir = assets_root / doc_id
     assets_dir.mkdir(parents=True, exist_ok=True)
@@ -113,7 +123,7 @@ def _extract_images(doc, doc_id: str, assets_root: Path) -> List[Path]:
     saved: List[Path] = []
     for page_index in range(len(doc)):
         page = doc.load_page(page_index)
-        images = page.get_images(full=True)
+        images = [img for img in page.get_images(full=True) if _is_rendered_on_page(page, img[0])]
         for img_index, img in enumerate(images, start=1):
             xref = img[0]
             try:

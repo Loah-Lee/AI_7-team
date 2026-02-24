@@ -153,11 +153,19 @@ def judge_rag_response(
             "or install src.utils.env module."
         )
 
+    timeout_raw = os.getenv("LLM_JUDGE_TIMEOUT_SEC", "90").strip()
+    try:
+        request_timeout = max(15.0, float(timeout_raw))
+    except Exception:
+        request_timeout = 90.0
+
     llm = ChatOpenAI(
         model=model or llm_cfg.get("model", "gpt-5-mini"),
         temperature=0.0,
         max_tokens=4096,
         api_key=api_key,
+        timeout=request_timeout,
+        max_retries=0,
         model_kwargs={"response_format": {"type": "json_object"}},
     )
 
