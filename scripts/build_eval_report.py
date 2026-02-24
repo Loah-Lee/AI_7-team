@@ -318,7 +318,7 @@ const cardDefs = [
       <div class="tt-desc">top-K 검색 결과에 정답 문서(source 기준)가 포함된 질문의 비율</div>
       <div class="tt-kv"><strong>범위:</strong> 0.0 ~ 1.0</div>
       <div class="tt-kv"><strong>매칭:</strong> 파일명(source)만 일치하면 hit</div>
-      <div class="tt-kv"><strong>multi_doc/comparison:</strong> sources 리스트 중 하나라도 hit이면 1.0 (any-match)</div>
+      <div class="tt-kv"><strong>multi_doc/comparison (Strict):</strong> sources 리스트의 모든 source가 top-K에 있어야 1.0. 하나라도 누락 시 0.0</div>
       <span class="tt-formula">(Recall@K > 0인 질문 수) / 전체 질문 수</span>`}},
   {{label:'MRR (Source)',ko:'평균 역순위·문서',value:(S.mrr_source||0).toFixed(2),max:'',color:'var(--yellow)',
     tooltip:`<div class="tt-title">MRR (Source) · 평균 역순위 — 문서 단위</div>
