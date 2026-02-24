@@ -147,10 +147,13 @@ if __name__ == '__main__':
 
     if data_dir.exists():
         for file in data_dir.iterdir():
-            if file.suffix == '.hwp':
-                if not (pdf_dir / f'{file.stem}.pdf').exists():
+            if file.is_dir():
+                continue  # 디렉토리는 건너뜀
+            if file.suffix.lower() == '.hwp':
+                nfc_stem = unicodedata.normalize('NFC', file.stem)
+                if not (pdf_dir / f'{nfc_stem}.pdf').exists():
                     os.system(f"python '{PROJECT_ROOT / 'hwp_converter.py'}' '{file}' -o '{pdf_dir}'")
-            else:
+            elif file.suffix.lower() == '.pdf':
                 shutil.copy2(file, pdf_dir / file.name)
 
     pdf_files = sorted(pdf_dir.glob('*.pdf'))

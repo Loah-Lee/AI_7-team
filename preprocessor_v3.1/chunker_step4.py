@@ -40,8 +40,8 @@ from text_cleaner import (
 # Parameters
 # ---------------------------------------------------------------------------
 
-CHUNK_SIZE = 500
-CHUNK_OVERLAP = 100
+CHUNK_SIZE = 1000
+CHUNK_OVERLAP = 200
 
 # ---------------------------------------------------------------------------
 # Regex patterns
