@@ -1,4 +1,5 @@
 import csv
+import sys
 import argparse
 import json
 import os
@@ -7,6 +8,10 @@ import time
 import unicodedata
 from pathlib import Path
 from typing import List, Dict
+
+
+# 프로젝트 루트를 sys.path에 추가 (src.parsers.*, src.retrievers.* import용)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 ABSOLUTE_TIME_THRESHOLD = 60.0
 DYNAMIC_TIME_MULTIPLIER = 3.0
@@ -39,10 +44,10 @@ def _documents_to_parsed_markdown(docs: list, source_name: str, output_path: Pat
 
 
 def process_single_pdf(pdf_path: Path, output_dir: Path) -> Dict:
-    from pdf_loader import load_pdf
-    from auditor_step2 import audit_file
-    from chunker_step4 import process_file
-    from storage_step5 import (
+    from src.parsers.pdf_loader import load_pdf
+    from src.parsers.auditor import audit_file
+    from src.parsers.chunker import process_file
+    from src.retrievers.build_db import (
         compute_doc_id, assign_uids, build_hierarchy, apply_section_uids,
         upsert_hybrid_chunks, upsert_hierarchy_chroma
     )
@@ -139,8 +144,8 @@ if __name__ == '__main__':
     parser.add_argument('--input', '-i', type=str, default=None,
                         help='입력 폴더 경로 (기본값: <프로젝트 루트>/data)')
     args = parser.parse_args()
-    PROJECT_ROOT = Path(__file__).resolve().parent.parent
-    data_dir = Path(args.input).resolve() if args.input else PROJECT_ROOT / 'data'
+    from src.utils.config import PROJECT_ROOT, DATA_PATH
+    data_dir = Path(args.input).resolve() if args.input else DATA_PATH
     pdf_dir = PROJECT_ROOT / 'output' / 'temp_pdf'
     output_dir = PROJECT_ROOT / 'output'
     pdf_dir.mkdir(parents=True, exist_ok=True)
@@ -152,7 +157,7 @@ if __name__ == '__main__':
             if file.suffix.lower() == '.hwp':
                 nfc_stem = unicodedata.normalize('NFC', file.stem)
                 if not (pdf_dir / f'{nfc_stem}.pdf').exists():
-                    os.system(f"python '{PROJECT_ROOT / 'hwp_converter.py'}' '{file}' -o '{pdf_dir}'")
+                    os.system(f"python '{PROJECT_ROOT / 'src/parsers/hwp_converter.py'}' '{file}' -o '{pdf_dir}'")
             elif file.suffix.lower() == '.pdf':
                 shutil.copy2(file, pdf_dir / file.name)
 

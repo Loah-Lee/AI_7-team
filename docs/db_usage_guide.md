@@ -1,6 +1,6 @@
 # ChromaDB 하이브리드 저장소 사용 가이드
 
-**저장소**: `DB/chroma_db/` (프로젝트 루트 기준)  
+**저장소**: `chroma_db/` (프로젝트 루트 기준)  
 **엔진**: ChromaDB PersistentClient (로컬)  
 **벡터 타입**: Dense (SRoBERTa, 768차원) + Sparse (BM25 로컬)  
 **버전**: v3.1
@@ -25,7 +25,7 @@
 ### 저장 구조
 
 ```
-DB/chroma_db/
+chroma_db/
 ├── collections/
 │   ├── chunks/              # Dense 벡터 (768d) + Sparse 벡터 (JSON)
 │   └── hierarchy/           # Dense 벡터 (768d) + 섹션 메타데이터
@@ -42,13 +42,11 @@ DB/chroma_db/
 ### 초기화 코드
 
 ```python
-from pathlib import Path
 import chromadb
-from storage_step5 import client  # 기존 client 재사용
+from src.retrievers.build_db import client
+from src.utils.config import CHROMA_PATH
 
 # 또는 새로 초기화:
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CHROMA_PATH = str(PROJECT_ROOT / 'DB' / 'chroma_db')
 client = chromadb.PersistentClient(path=CHROMA_PATH)
 
 chunks_coll = client.get_collection("chunks")
@@ -209,7 +207,7 @@ hierarchy_coll = client.get_collection("hierarchy")
   apply_section_uids() → chunks에 section_uid 주입
          |
          v
-[storage_step5.py - upsert_hybrid_chunks]
+[build_db.py - upsert_hybrid_chunks]
   extract_nouns() → kiwipiepy 명사 추출
   bm25_ef() → Sparse 벡터 생성
   dense_ef → SRoBERTa Dense 벡터 생성
@@ -217,7 +215,7 @@ hierarchy_coll = client.get_collection("hierarchy")
   collection.upsert() → ChromaDB 저장
          |
          v
-DB/chroma_db/
+chroma_db/
   ├── chunks/    (Dense + Sparse)
   └── hierarchy/ (Dense)
 ```
@@ -229,13 +227,11 @@ DB/chroma_db/
 ### 초기화
 
 ```python
-from pathlib import Path
 import chromadb
-from storage_step5 import client, dense_ef
+from src.retrievers.build_db import client, dense_ef
+from src.utils.config import CHROMA_PATH
 import json
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CHROMA_PATH = str(PROJECT_ROOT / 'DB' / 'chroma_db')
 client = chromadb.PersistentClient(path=CHROMA_PATH)
 
 chunks_coll = client.get_collection("chunks", embedding_function=dense_ef)
@@ -415,8 +411,7 @@ where={"section_level2": {"$ne": "N/A"}}
 
 ```bash
 # ChromaDB 데이터 백업
-cp -r DB/chroma_db/ DB/chroma_db.backup/
-
+cp -r chroma_db/ chroma_db.backup/
 # 저장소 상태 확인
-ls -lh DB/chroma_db/
+ls -lh chroma_db/
 ```

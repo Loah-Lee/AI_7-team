@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
 """
-Chunker Step 4: 7-Step Document Processing Pipeline (v3)
-
+Chunker Step 4: 6-Step Document Processing Pipeline (v3.1)
 Input: output/step2_audited_{stem}.md (fallback: step1_parsed_{stem}.md)
 Output: output/chunks/chunk_{NNNNN}.json
-
-Pipeline (Steps 2–7):
+Pipeline (Steps 2–6):
   2. Table flattening  →  flatten_tables_in_text()
   3. Regex section hierarchy extraction
   4. Header insertion (# level 1, ## level 2)
   5. Page marker conversion  [[PAGE:N]] → [[[Page: N]]]
-  6. MarkdownHeaderTextSplitter
-  7. RecursiveCharacterTextSplitter
+  6. Section map + RecursiveCharacterTextSplitter
 """
 
 import json
@@ -21,13 +18,10 @@ from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 from datetime import datetime
 
-from langchain_text_splitters import (
-    MarkdownHeaderTextSplitter,
-    RecursiveCharacterTextSplitter,
-)
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from table_flattener import flatten_tables_in_text
-from text_cleaner import (
+from .table_flattener import flatten_tables_in_text
+from .text_cleaner import (
     _BULLET_RE,
     _BACKTICK_BULLET_RE,
     _BOLD_RE,
@@ -283,23 +277,10 @@ def step5_convert_page_markers(text: str) -> str:
     return _PAGE_MARKER_OLD_RE.sub(_replace, text)
 
 
-def _relocate_page_markers_before_headers(text: str) -> str:
-    """페이지 마커가 헤더 직전이면 헤더 뒤로 이동.
 
-    MarkdownHeaderTextSplitter가 페이지 마커를 올바른 섹션에 포함시키기 위함.
-    """
-    return re.sub(
-        r'\[\[\[Page:\s*(\d+)\]\]\]\n\n(#{1,2}\s+[^\n]+)',
-        r'\2\n\n[[[Page: \1]]]',
-        text,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Step 6: MarkdownHeaderTextSplitter
-# ---------------------------------------------------------------------------
 
 def _extract_page_range(text: str) -> Tuple[Optional[int], Optional[int]]:
+    """[[[Page: N]]] 마커에서 페이지 범위 추출."""
     pages = [int(m.group(1)) for m in _PAGE_MARKER_NEW_RE.finditer(text)]
     if pages:
         return min(pages), max(pages)
@@ -307,57 +288,152 @@ def _extract_page_range(text: str) -> Tuple[Optional[int], Optional[int]]:
 
 
 def _remove_page_markers(text: str) -> str:
+    """페이지 마커 제거 후 연속 빈줄 정리."""
     result = _PAGE_MARKER_NEW_RE.sub('', text)
     result = re.sub(r'\n{3,}', '\n\n', result)
     return result.strip()
 
-
-def step6_markdown_header_split(text: str) -> list:
-    headers_to_split_on = [
-        ("#", "Header 1"),
-        ("##", "Header 2"),
-    ]
-
-    splitter = MarkdownHeaderTextSplitter(
-        headers_to_split_on=headers_to_split_on,
-        strip_headers=False,
-    )
-
-    docs = splitter.split_text(text)
-
-    last_page_start = 1
-    last_page_end = 1
-
-    for doc in docs:
-        page_start, page_end = _extract_page_range(doc.page_content)
-
-        if page_start is not None:
-            last_page_start = page_start
-            doc.metadata['page_start'] = page_start
-        else:
-            doc.metadata['page_start'] = last_page_start
-
-        if page_end is not None:
-            last_page_end = page_end
-            doc.metadata['page_end'] = page_end
-        else:
-            doc.metadata['page_end'] = last_page_end
-
-        doc.page_content = _remove_page_markers(doc.page_content)
-
-    return docs
-
-
 # ---------------------------------------------------------------------------
-# Step 7: RecursiveCharacterTextSplitter
+# Step 6: Section map + RecursiveCharacterTextSplitter
+#   MarkdownHeaderTextSplitter 를 제거하고, 섹션 맵 기반으로 메타데이터 할당.
+#   헤더만 단독 chunk로 잘려나가는 문제를 방지한다.
 # ---------------------------------------------------------------------------
 
-def step7_recursive_split(docs: list) -> list:
+_H1_RE = re.compile(r'^# (.+)$', re.MULTILINE)
+_H2_RE = re.compile(r'^## (.+)$', re.MULTILINE)
+
+
+def _build_section_map(text: str) -> List[Tuple[int, str, str]]:
+    """텍스트의 # / ## 헤더를 스캔하여 섹션 맵을 생성.
+
+    Returns:
+        [(char_position, section_level1, section_level2), ...]
+        위치순 정렬. 각 항목은 '이 위치부터 다음 항목 전까지' 적용되는 섹션을 나타냄.
+    """
+    entries: List[Tuple[int, str, str]] = []
+    current_l1 = 'N/A'
+    current_l2 = 'N/A'
+
+    # 모든 헤더를 찾아서 위치순으로 정렬
+    headers: List[Tuple[int, int, str]] = []  # (position, level, heading_text)
+    for m in _H1_RE.finditer(text):
+        headers.append((m.start(), 1, m.group(1).strip()))
+    for m in _H2_RE.finditer(text):
+        headers.append((m.start(), 2, m.group(1).strip()))
+    headers.sort(key=lambda x: x[0])
+
+    # 문서 시작부터 첫 헤더 전까지의 기본 섹션
+    entries.append((0, current_l1, current_l2))
+
+    for pos, level, heading in headers:
+        if level == 1:
+            current_l1 = heading
+            current_l2 = 'N/A'  # L1 변경 시 L2 리셋
+        else:  # level == 2
+            current_l2 = heading
+        entries.append((pos, current_l1, current_l2))
+
+    return entries
+
+
+def _find_section(section_map: List[Tuple[int, str, str]], position: int) -> Tuple[str, str]:
+    """주어진 문자 위치가 속한 섹션의 (L1, L2) 반환.
+
+    section_map 은 위치순 정렬되어 있으므로 역순 검색.
+    """
+    result_l1 = 'N/A'
+    result_l2 = 'N/A'
+    for map_pos, l1, l2 in reversed(section_map):
+        if position >= map_pos:
+            result_l1 = l1
+            result_l2 = l2
+            break
+    return result_l1, result_l2
+
+
+def step6_section_split(text: str) -> List[Dict]:
+    """섹션 맵 구축 → 페이지 마커 제거 → RecursiveCharacterTextSplitter → 메타데이터 할당.
+
+    MarkdownHeaderTextSplitter를 대체하여 헤더가 본문과 분리되지 않도록 한다.
+
+    Returns:
+        [{'page_content': str, 'metadata': {'section_level1', 'section_level2',
+         'page_start', 'page_end'}}, ...]
+    """
+    # 1. 섹션 맵 구축 (페이지 마커 제거 전, 원본 위치 기준)
+    section_map = _build_section_map(text)
+
+    # 2. 페이지 범위 추출을 위한 전체 페이지 마커 수집
+    page_markers_by_pos: List[Tuple[int, int]] = []  # (char_pos, page_num)
+    for m in _PAGE_MARKER_NEW_RE.finditer(text):
+        page_markers_by_pos.append((m.start(), int(m.group(1))))
+
+    # 3. 페이지 마커 제거 후 텍스트 준비
+    clean_text = _remove_page_markers(text)
+
+    # 4. RecursiveCharacterTextSplitter로 분할
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
     )
-    return splitter.split_documents(docs)
+    raw_chunks = splitter.split_text(clean_text)
+
+    # 5. 각 chunk에 섹션/페이지 메타데이터 할당
+    results: List[Dict] = []
+    search_start = 0
+    last_page_start = 1
+    last_page_end = 1
+    for chunk_text in raw_chunks:
+        chunk_text = chunk_text.strip()
+        if not chunk_text:
+            continue
+
+        # chunk의 원본 위치 찾기 (clean_text에서 순차 검색)
+        chunk_pos = clean_text.find(chunk_text[:80], search_start)
+        if chunk_pos == -1:
+            chunk_pos = clean_text.find(chunk_text[:80])
+        if chunk_pos >= 0:
+            search_start = chunk_pos + 1
+
+        # clean_text 위치 ≈ 원본 text 위치 (페이지 마커 제거 오프셋은 소량)
+        orig_pos = chunk_pos if chunk_pos >= 0 else 0
+
+        # 섹션 할당
+        section_l1, section_l2 = _find_section(section_map, orig_pos)
+
+        chunk_end = orig_pos + len(chunk_text)
+        chunk_pages: List[int] = []
+        nearest_before: Optional[int] = None
+        for marker_pos, page_num in page_markers_by_pos:
+            if orig_pos <= marker_pos <= chunk_end:
+                chunk_pages.append(page_num)
+            elif marker_pos < orig_pos:
+                nearest_before = page_num
+        if chunk_pages:
+            page_start = min(chunk_pages)
+            page_end = max(chunk_pages)
+            last_page_start = page_start
+            last_page_end = page_end
+        elif nearest_before is not None:
+            page_start = nearest_before
+            page_end = nearest_before
+            last_page_start = page_start
+            last_page_end = page_end
+        else:
+            page_start = last_page_start
+            page_end = last_page_end
+
+        results.append({
+            'page_content': chunk_text,
+            'metadata': {
+                'section_level1': section_l1,
+                'section_level2': section_l2,
+                'page_start': page_start,
+                'page_end': page_end,
+            },
+        })
+
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -366,62 +442,53 @@ def step7_recursive_split(docs: list) -> list:
 
 def process_file(file_path: Path) -> List[Dict]:
     print(f"📄 Processing: {file_path.name}")
-
     document_title = unicodedata.normalize('NFC', file_path.stem)
     document_title = document_title.replace('step2_audited_', '')
     document_title = document_title.replace('step1_parsed_', '')
-
     text = file_path.read_text(encoding='utf-8')
     print(f"   Input: {len(text):,} chars")
-
     doc_meta, body = parse_frontmatter(text)
     doc_meta['document_title'] = document_title
-
     body = step2_flatten_tables(body)
     print(f"   Step 2 (table flatten): {len(body):,} chars")
-
     body = step2b_clean_text(body)
     print(f"   Step 2b (text clean): {len(body):,} chars")
-
     hierarchy = step3_extract_hierarchy(body)
     print(f"   Step 3 (hierarchy): {len(hierarchy)} headings")
-
     body = step4_insert_headers(body, hierarchy)
 
     body = step5_convert_page_markers(body)
-    body = _relocate_page_markers_before_headers(body)
-
-    docs = step6_markdown_header_split(body)
-    print(f"   Step 6 (header split): {len(docs)} sections")
-
-    final_docs = step7_recursive_split(docs)
-    print(f"   Step 7 (size split): {len(final_docs)} chunks")
+    # Step 6: 섹션 맵 + RecursiveCharacterTextSplitter (헤더 단독 분리 방지)
+    split_results = step6_section_split(body)
+    print(f"   Step 6 (section split): {len(split_results)} chunks")
+    source = doc_meta.get('source_file', 'Unknown')
+    name = source.rsplit('.', 1)[0] if '.' in source else source
+    institution = 'N/A'
+    project_name = 'N/A'
+    if '_' in name:
+        institution, project_name = name.split('_', 1)
 
     chunks: List[Dict] = []
-    for doc in final_docs:
-        content = doc.page_content.strip()
+    for item in split_results:
+        content = item['page_content']
         if not content:
             continue
-        source = doc_meta.get('source_file', 'Unknown')
-        name = source.rsplit(".", 1)[0] if "." in source else source
-        if "_" in name:
-            institution, project_name = name.split("_", 1)
+        meta = item['metadata']
         chunks.append({
             'page_content': content,
             'metadata': {
                 'document_title': doc_meta.get('document_title', 'Unknown'),
-                'source': doc_meta.get('source_file', 'Unknown'),
-                'section_level1': doc.metadata.get('Header 1', 'N/A'),
-                'section_level2': doc.metadata.get('Header 2', 'N/A'),
-                'page_start': doc.metadata.get('page_start', 1),
-                'page_end': doc.metadata.get('page_end', 1),
-                'institution': institution if institution else 'N/A',
-                'project_name': project_name if project_name else 'N/A',
+                'source': source,
+                'section_level1': meta['section_level1'],
+                'section_level2': meta['section_level2'],
+                'page_start': meta['page_start'],
+                'page_end': meta['page_end'],
+                'institution': institution,
+                'project_name': project_name,
                 'chunk_size': len(content),
                 'created_at': datetime.now().isoformat(),
             },
         })
-
     print(f"   Final: {len(chunks)} chunks")
     return chunks
 
@@ -464,7 +531,7 @@ def print_statistics(chunks: List[Dict]) -> None:
 
     print(f"\n📌 First chunk sample:")
     print(f"Chunk ID: {chunks[0]['chunk_id']}")
-    print(f"Content: {chunks[0]['content'][:150]}...")
+    print(f"Content: {chunks[0]['page_content'][:150]}...")
     print(json.dumps(chunks[0]['metadata'], ensure_ascii=False, indent=2))
 
     print("\n✨ Chunker completed successfully!")
@@ -472,10 +539,10 @@ def print_statistics(chunks: List[Dict]) -> None:
 
 if __name__ == '__main__':
     print("\n" + "=" * 60)
-    print("✂️  CHUNKER STAGE (v3 Pipeline)")
+    print("✂️  CHUNKER STAGE (v3.1 Pipeline)")
     print("=" * 60 + "\n")
 
-    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    from src.utils.config import PROJECT_ROOT
     input_dir = PROJECT_ROOT / 'output'
     output_dir = PROJECT_ROOT / 'output' / 'chunks'
     output_dir.mkdir(parents=True, exist_ok=True)

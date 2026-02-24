@@ -13,24 +13,18 @@ import json
 import chromadb
 from chromadb.utils import embedding_functions
 from chromadb.utils.embedding_functions import ChromaBm25EmbeddingFunction
-from pathlib import Path
 from typing import Any, List, Dict, Tuple, Optional, cast
-
+from src.utils.config import PROJECT_ROOT, CHROMA_PATH, CHUNK_DIR, EMBEDDING_MODEL
 # 필수 라이브러리 체크
 try:
     from kiwipiepy import Kiwi
 except ImportError:
     print("❌ Error: kiwipiepy not found. Run: pip install kiwipiepy")
     exit(1)
-
 # ---------------------------------------------------------------------------
 # 1. 환경 설정 및 초기화
 # ---------------------------------------------------------------------------
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CHROMA_PATH = str(PROJECT_ROOT / 'DB' / 'chroma_db')
-CHUNK_DIR = str(PROJECT_ROOT / 'output' / 'chunks')
-EMBEDDING_MODEL = 'jhgan/ko-sroberta-multitask'
-os.makedirs(PROJECT_ROOT / 'DB', exist_ok=True)
+os.makedirs(CHROMA_PATH, exist_ok=True)
 _kiwi = Kiwi()
 client = chromadb.PersistentClient(path=CHROMA_PATH)
 

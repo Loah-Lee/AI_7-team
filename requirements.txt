@@ -27,9 +27,13 @@ langchain-huggingface
 sentence-transformers
 sqlite-vec
 PyMuPDF
+pymupdf4llm
 sentence-transformers
 pysqlite3-binary
 langgraph
 sqlite-utils
 basedpyright
 ragas
+streamlit
+chromadb
+snowballstemmer

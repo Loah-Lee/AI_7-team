@@ -19,6 +19,29 @@ from langchain_core.documents import Document
 
 
 
+# 연속 bold 병합: **A** **B** → **A B** (한 줄에서 반복 적용)
+_CONSECUTIVE_BOLD_RE = re.compile(r'\*\*(.+?)\*\*\s*\*\*(.+?)\*\*')
+
+
+def _merge_consecutive_bold(text: str) -> str:
+    """한 줄 내에서 연속된 bold 마크다운을 하나로 병합.
+
+    '**Ⅰ** **사업개요**' → '**Ⅰ 사업개요**'
+    '**제** **1** **장** **총칙**' → '**제 1 장 총칙**'
+
+    pymupdf4llm이 같은 시각적 줄의 bold 텍스트를 개별 span으로
+    분리 출력하는 문제를 해결한다.
+    """
+    lines = text.split('\n')
+    merged: List[str] = []
+    for line in lines:
+        prev = None
+        while prev != line:
+            prev = line
+            line = _CONSECUTIVE_BOLD_RE.sub(r'**\1 \2**', line)
+        merged.append(line)
+    return '\n'.join(merged)
+
 _ROMAN_PREFIX_RE = re.compile(
     r"^([IVXivxⅠ-Ⅻⅰ-ⅻ]+)\s+(.+)",
 )
@@ -157,6 +180,10 @@ def load_pdf(file_path: str | Path) -> list[Document]:
         text = chunk["text"].strip()
         page_num = chunk["metadata"]["page"]  # 1-indexed
 
+
+
+        # 연속 bold 병합: **A** **B** → **A B** (헤더 정규화 전에 실행)
+        text = _merge_consecutive_bold(text)
 
         recovered = _recover_dropped_headers(fitz_doc, page_num, text)
         if recovered:

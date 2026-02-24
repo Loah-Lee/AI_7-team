@@ -389,7 +389,7 @@ def audit_file(input_path: str, output_path: str) -> None:
 
 
 if __name__ == '__main__':
-    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    from src.utils.config import PROJECT_ROOT
     input_dir = PROJECT_ROOT / 'output'
     parsed_files = sorted(input_dir.glob('step1_parsed_*.md'))
 

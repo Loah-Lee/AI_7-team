@@ -18,7 +18,7 @@ import re
 
 from langchain_core.documents import Document
 
-from table_flattener import flatten_tables_in_text
+from .table_flattener import flatten_tables_in_text
 
 # ── 1. 불릿 기호 정규화 ──────────────────────────────────────────
 # 한국 RFP에서 자주 쓰이는 불릿 기호 → "- "로 변환 (리스트 의미 보존)

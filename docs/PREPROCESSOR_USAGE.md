@@ -13,9 +13,9 @@
 5. [파일별 상세 설명](#5-파일별-상세-설명)
    - 5.1 [hwp_converter.py — HWP→PDF 변환기](#51-hwp_converterpy--hwppdf-변환기)
    - 5.2 [pdf_loader.py — PDF 로더](#52-pdf_loaderpy--pdf-로더)
-   - 5.3 [auditor_step2.py — 텍스트 감사기](#53-auditor_step2py--텍스트-감사기)
-   - 5.4 [chunker_step4.py — 청킹 파이프라인](#54-chunker_step4py--청킹-파이프라인)
-   - 5.5 [storage_step5.py — ChromaDB 하이브리드 저장소](#55-storage_step5py--chromadb-하이브리드-저장소)
+   - 5.3 [auditor.py — 텍스트 감사기](#53-auditorpy--텍스트-감사기)
+   - 5.4 [chunker.py — 청킹 파이프라인](#54-chunkerpy--청킹-파이프라인)
+   - 5.5 [build_db.py — ChromaDB 하이브리드 저장소](#55-build_dbpy--chromadb-하이브리드-저장소)
    - 5.6 [text_cleaner.py — 텍스트 클리닝 유틸리티](#56-text_cleanerpy--텍스트-클리닝-유틸리티)
    - 5.7 [table_flattener.py — 테이블 평탄화기](#57-table_flattenerpy--테이블-평탄화기)
    - 5.8 [preprocessor.py — 파이프라인 오케스트레이터](#58-preprocessorpy--파이프라인-오케스트레이터)
@@ -63,7 +63,7 @@ pip install -r requirements.txt
 |---|---|
 | `PyMuPDF` (fitz) | PDF 원시 텍스트 추출 및 폰트 분석 |
 | `pymupdf4llm` | PDF → Markdown 변환 (테이블 구조 보존) |
-| `langchain`, `langchain-text-splitters` | Document 객체, MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter |
+| `langchain`, `langchain-text-splitters` | Document 객체, RecursiveCharacterTextSplitter |
 | `chromadb` | 벡터 데이터베이스 (Dense + Sparse 하이브리드) |
 | `sentence-transformers` | `jhgan/ko-sroberta-multitask` 임베딩 모델 |
 | `kiwipiepy` | 한국어 형태소 분석 (명사 추출, 문장 분리) |
@@ -86,19 +86,21 @@ pip install -r requirements.txt
 │   ├── step2_audited_*.md       # 감사기 출력 (정제된 마크다운)
 │   ├── chunks/                  # 청커 출력 (JSON 파일)
 │   └── execution_summary.csv
-├── DB/
-│   └── chroma_db/               # ChromaDB 영구 저장소
-└── preprocessor_v3.1/
-    ├── preprocessor.py          # 파이프라인 오케스트레이터 (메인 진입점)
-    ├── pdf_loader.py            # PDF 로더 (pymupdf4llm + fitz 교차 검증)
-    ├── auditor_step2.py         # 텍스트 감사기 (TOC 감지, 헤더 삽입)
-    ├── chunker_step4.py         # 7단계 청킹 파이프라인
-    ├── storage_step5.py         # ChromaDB 하이브리드 저장소
-    ├── text_cleaner.py          # 텍스트 클리닝 유틸리티
-    └── table_flattener.py       # 마크다운 테이블 → 자연어 변환
+├── chroma_db/                   # ChromaDB 영구 저장소
+├── src/
+│   ├── parsers/                 # 문서 처리 모듈
+│   │   ├── pdf_loader.py        # PDF 로더 (pymupdf4llm + fitz 교차 검증)
+│   │   ├── auditor.py           # 텍스트 감사기 (TOC 감지, 헤더 삽입)
+│   │   ├── chunker.py           # 6단계 청킹 파이프라인
+│   │   ├── text_cleaner.py      # 텍스트 클리닝 유틸리티
+│   │   └── table_flattener.py   # 마크다운 테이블 → 자연어 변환
+│   └── retrievers/              # 검색/저장소 모듈
+│       └── build_db.py          # ChromaDB 하이브리드 저장소
+└── scripts/
+    └── preprocessor.py          # 파이프라인 오케스트레이터 (메인 진입점)
 ```
 
-모든 출력 파일은 `preprocessor_v3.1/` 하위가 아닌 **프로젝트 루트**의 `output/` 및 `DB/`에 저장된다. 각 스크립트는 `Path(__file__).resolve().parent.parent`로 프로젝트 루트를 자동 계산한다.
+모든 출력 파일은 **프로젝트 루트**의 `output/` 및 `chroma_db/`에 저장된다.
 
 ---
 
@@ -121,7 +123,7 @@ output/temp_pdf/*.pdf  <-- data/*.pdf (직접 복사)
 output/step1_parsed_*.md
     (YAML frontmatter + <<PAGE: N>> 마커 포함)
     |
-    | [auditor_step2.py]
+    | [auditor.py]
     | Loop 1: TOC 페이지 감지
     | Selection Stage: TOC bold/non-bold → type→level 매핑
     | Loop 2: 본문 헤더 삽입 (#/##)
@@ -129,24 +131,23 @@ output/step1_parsed_*.md
 output/step2_audited_*.md
     (TOC 중립화 + 본문 #/## 헤더 삽입 완료)
     |
-    | [chunker_step4.py]
+    | [chunker.py]
     | Step 2: 테이블 평탄화
     | Step 2b: 텍스트 클리닝
     | Step 3: 정규식 계층 추출 (auditor가 처리하지 않은 타입 포함)
     | Step 4: 헤더 삽입
     | Step 5: 페이지 마커 변환
-    | Step 6: MarkdownHeaderTextSplitter
-    | Step 7: RecursiveCharacterTextSplitter
+    | Step 6: 섹션 맵 기반 RecursiveCharacterTextSplitter
     v
 output/chunks/chunk_*.json
     (청크별 JSON: page_content + metadata)
     |
-    | [storage_step5.py]
+    | [build_db.py]
     | compute_doc_id → assign_uids → build_hierarchy
     | upsert_hybrid_chunks (Dense SRoBERTa + Sparse BM25)
     | upsert_hierarchy_chroma
     v
-DB/chroma_db/
+chroma_db/
     ├── chunks 컬렉션    (Dense + Sparse 하이브리드)
     └── hierarchy 컬렉션 (Dense 전용, L1/L2 섹션 요약)
 ```
@@ -202,7 +203,7 @@ total_pages: 42
 
 ### 5.1 `hwp_converter.py` — HWP→PDF 변환기
 
-**위치**: 프로젝트 루트 (`preprocessor_v3.1/` 상위 디렉터리)
+**위치**: 프로젝트 루트
 
 **목적**: LibreOffice headless 모드를 사용하여 HWP/HWPX 파일을 PDF로 변환한다. 한글 파일명과 특수 기호가 포함된 경로를 안전하게 처리한다.
 
@@ -266,7 +267,7 @@ HWP 파일을 PDF로 변환한다.
 | 상수 | 값 | 설명 |
 |---|---|---|
 | `_ROMAN_PREFIX_RE` | `re.compile(r"^([IVXivxⅠ-Ⅻⅰ-ⅻ]+)\s+(.+)")` | 로마 숫자 접두사 감지 정규식 |
-
+| `_CONSECUTIVE_BOLD_RE` | `re.compile(r'\*\*(.+?)\*\*\s*\*\*(.+?)\*\*')` | 연속 bold 마크다운 감지 정규식 |
 #### 함수
 
 **`_normalize_section_header(text: str) -> str`**
@@ -298,15 +299,25 @@ pymupdf4llm이 장식 이미지 근처에서 누락한 큰 폰트 텍스트를 f
 4. pymupdf4llm 출력에 이미 포함된 텍스트는 제외하고, 누락된 것만 반환한다.
 5. 페이지 번호 패턴(`-3-`, `3` 등)은 필터링한다.
 
+**`_merge_consecutive_bold(text: str) -> str`**
+같은 줄에서 연속된 bold 마크다운 스팬을 병합한다. `**A** **B**` → `**A B**` 형태로 변환한다.
+
+동작:
+- 줄 단위로 처리
+- 정규식 `_CONSECUTIVE_BOLD_RE`로 매칭
+- 매칭이 없을 때까지 반복 적용
+예시:
+```python
+_merge_consecutive_bold('**사업** **개요**')  # → '**사업 개요**'
+_merge_consecutive_bold('**A** **B** **C**')  # → '**A B C**' (반복 적용)
+```
+
 **`load_pdf(file_path: str | Path) -> list[Document]`**
 
 PDF 파일을 로드하여 LangChain Document 리스트로 반환한다.
-
 | 매개변수 | 타입 | 설명 |
 |---|---|---|
 | `file_path` | `str` 또는 `Path` | PDF 파일 경로 |
-
-반환값: 페이지별 `Document` 리스트. 각 Document의 `metadata`:
 ```python
 {
     "source": "파일명.pdf",   # NFC 정규화된 파일명
@@ -318,15 +329,16 @@ PDF 파일을 로드하여 LangChain Document 리스트로 반환한다.
 내부 동작:
 1. `pymupdf4llm.to_markdown(page_chunks=True)`로 페이지별 마크다운 생성
 2. `fitz.open()`으로 동일 파일을 한 번 더 열어 교차 검증 (단일 열기, 2패스 아키텍처)
-3. 각 페이지에서 `_recover_dropped_headers()`로 누락 헤더 복원
-4. 복원된 헤더를 페이지 텍스트 앞에 삽입
-5. 3개 이상 연속 줄바꿈을 2개로 정규화
-6. 독립 페이지 번호 패턴 제거
-7. 빈 페이지는 Document 목록에서 제외
+3. 각 페이지에서 `_merge_consecutive_bold()`로 연속 bold 병합
+4. `_recover_dropped_headers()`로 누락 헤더 복원
+5. 복원된 헤더를 페이지 텍스트 앞에 삽입
+6. 3개 이상 연속 줄바꿈을 2개로 정규화
+7. 독립 페이지 번호 패턴 제거
+8. 빈 페이지는 Document 목록에서 제외
 
 ---
 
-### 5.3 `auditor_step2.py` — 텍스트 감사기
+### 5.3 `auditor.py` — 텍스트 감사기
 
 **목적**: 파싱된 마크다운을 정제하고, TOC(목차) 페이지를 감지하여 문서별 헤딩 타입과 계층 레벨의 관계를 학습한 뒤, 본문에 `#`/`##` 마크다운 헤더를 삽입한다.
 
@@ -474,11 +486,11 @@ TOC 페이지를 파싱하여 헤딩 타입과 계층 레벨의 매핑을 생성
 
 ---
 
-### 5.4 `chunker_step4.py` — 청킹 파이프라인
+### 5.4 `chunker.py` — 청킹 파이프라인
 
-**목적**: 감사된 마크다운 파일을 7단계 파이프라인으로 처리하여 RAG에 적합한 크기의 청크로 분할하고 JSON으로 저장한다.
+**목적**: 감사된 마크다운 파일을 6단계 파이프라인으로 처리하여 RAG에 적합한 크기의 청크로 분할하고 JSON으로 저장한다.
 
-#### 7단계 파이프라인
+#### 6단계 파이프라인
 
 ```
 Step 1  parse_frontmatter()     YAML frontmatter 파싱 및 분리
@@ -487,15 +499,14 @@ Step 2b step2b_clean_text()     텍스트 클리닝 (파이프라인 안전 기�
 Step 3  step3_extract_hierarchy() 정규식 계층 구조 추출
 Step 4  step4_insert_headers()  레벨별 #/## 헤더 삽입
 Step 5  step5_convert_page_markers() <<PAGE:N>> → [[[Page: N]]]
-Step 6  step6_markdown_header_split() MarkdownHeaderTextSplitter
-Step 7  step7_recursive_split() RecursiveCharacterTextSplitter
+Step 6  step6_section_split()    섹션 맵 + RecursiveCharacterTextSplitter
 ```
 
 #### 주요 상수
 
 ```python
-CHUNK_SIZE = 500     # 최대 청크 크기 (문자 수)
-CHUNK_OVERLAP = 100  # 청크 간 겹침 크기 (문자 수)
+CHUNK_SIZE = 1000    # 최대 청크 크기 (문자 수)
+CHUNK_OVERLAP = 200  # 청크 간 걹침 크기 (문자 수)
 LEGAL_ORDER = ["편", "장", "절", "조", "항"]  # 법적 헤딩 계층 순서
 ```
 
@@ -503,8 +514,7 @@ LEGAL_ORDER = ["편", "장", "절", "조", "항"]  # 법적 헤딩 계층 순서
 
 **`parse_frontmatter(text: str) -> Tuple[Dict, str]`**
 
-YAML frontmatter(`---` 블록)를 파싱하여 메타데이터 딕셔너리와 본문을 분리한다.
-
+YAML frontmatter(`---` 블록)을 파싱하여 메타데이터 딕셔너리와 본문을 분리한다.
 반환값: `(메타데이터 Dict, 본문 str)`
 
 **`step2_flatten_tables(text: str) -> str`**
@@ -549,37 +559,61 @@ YAML frontmatter(`---` 블록)를 파싱하여 메타데이터 딕셔너리와 �
 
 **`step5_convert_page_markers(text: str) -> str`**
 
-`<<PAGE: N>>` 형식의 페이지 마커를 `[[[Page: N]]]` 형식으로 변환한다. MarkdownHeaderTextSplitter가 페이지 마커를 올바른 섹션에 포함시키도록 마커를 헤더 뒤로 재배치하는 내부 함수 `_relocate_page_markers_before_headers()`도 함께 호출된다.
+`<<PAGE: N>>` 형식의 페이지 마커를 `[[[Page: N]]]` 형식으로 변환한다.
 
-**`step6_markdown_header_split(text: str) -> list`**
+**`_build_section_map(text: str) -> List[Tuple[int, str, str]]`**
 
-LangChain `MarkdownHeaderTextSplitter`로 `#`/`##` 헤더 기준 분할한다.
+`#`/`##` 헤더를 스캔하여 위치 → (L1, L2) 매핑을 구축한다.
 
-설정:
+반환값: `[(문자 위치, section_level1, section_level2), ...]` 리스트. 위치 기준 정렬됨.
+
+예시:
 ```python
-headers_to_split_on = [("#", "Header 1"), ("##", "Header 2")]
-strip_headers=False  # 헤더 텍스트를 청크 내용에 보존
+_build_section_map("# I. 개요\n본문\n## 1.1 세부\n내용")
+# → [(0, 'I. 개요', 'N/A'), (20, 'I. 개요', '1.1 세부')]
 ```
 
-각 Document에 `page_start`, `page_end` 메타데이터를 추가한다. 페이지 마커가 없는 섹션은 이전 섹션의 페이지 번호를 상속한다.
+**`_find_section(section_map: List[Tuple[int, str, str]], position: int) -> Tuple[str, str]`**
 
-**`step7_recursive_split(docs: list) -> list`**
+Section map에서 주어진 문자 위치가 속한 섹션을 역검색한다.
 
-LangChain `RecursiveCharacterTextSplitter`로 크기 기준 분할한다.
+| 매개변수 | 타입 | 설명 |
+|---|---|---|
+| `section_map` | `List[Tuple[int, str, str]]` | `_build_section_map()` 반환값 |
+| `position` | `int` | 검색할 문자 위치 |
 
+반환값: `(section_level1, section_level2)` 튜플. 해당 위치 이전의 가장 최근 헤더를 반환한다.
+
+**`step6_section_split(text: str) -> List[Dict]`**
+
+섹션 맵 기반 RecursiveCharacterTextSplitter로 청크를 분할한다. 이 함수가 이전의 `step6_markdown_header_split()`과 `step7_recursive_split()`을 통합한다.
+
+동작 순서:
+1. `_build_section_map()`으로 섹션 맵 구축
+2. 페이지 마커(`[[[Page: N]]]`) 수집
+3. 페이지 마커 제거
+4. `RecursiveCharacterTextSplitter`로 크기 기준 분할 (CHUNK_SIZE=1000, CHUNK_OVERLAP=200)
+5. 각 청크에 `_find_section()`으로 섹션 메타데이터 할당
+
+반환값: 청크 딕셔너리 리스트. 각 청크:
 ```python
-chunk_size=500    # CHUNK_SIZE 상수 사용
-chunk_overlap=100 # CHUNK_OVERLAP 상수 사용
+{
+    'page_content': '청크 텍스트',
+    'metadata': {
+        'section_level1': 'I. 개요',
+        'section_level2': '1.1 세부',
+        'page_start': 3,
+        'page_end': 5,
+        ...
+    }
+}
 ```
-
 **`process_file(file_path: Path) -> List[Dict]`**
-
-단일 파일에 대한 전체 7단계 파이프라인을 실행한다. 메인 진입점.
+단일 파일에 대한 전체 6단계 파이프라인을 실행한다. 메인 진입점.
 
 | 매개변수 | 타입 | 설명 |
 |---|---|---|
 | `file_path` | `Path` | 처리할 마크다운 파일 경로 |
-
 반환값: 청크 딕셔너리 목록. 각 딕셔너리 구조:
 ```python
 {
@@ -599,29 +633,25 @@ chunk_overlap=100 # CHUNK_OVERLAP 상수 사용
 }
 ```
 
+섹션 메타데이터는 섹션 맵에서 추출되며, 이전의 MarkdownHeaderTextSplitter의 Header 1/Header 2 키는 더 이상 사용되지 않는다.
 `institution`과 `project_name`은 파일명이 `기관명_사업명.pdf` 형식일 때 자동으로 분리된다.
-
 **`process_all_files(file_paths: List[Path], output_dir: Path) -> List[Dict]`**
 
 여러 파일을 순차적으로 처리하고 전역 `chunk_id`를 부여하여 JSON 파일로 저장한다.
 
 **`print_statistics(chunks: List[Dict]) -> None`**
-
 청킹 결과 통계(총 청크 수, 총 문자 수, 평균/최소/최대 크기)를 출력한다.
 
 ---
 
-### 5.5 `storage_step5.py` — ChromaDB 하이브리드 저장소
+### 5.5 `build_db.py` — ChromaDB 하이브리드 저장소
 
 **목적**: 청크 JSON 파일을 ChromaDB에 Dense(SRoBERTa) + Sparse(BM25) 하이브리드 벡터로 색인한다. Cloud API 없이 로컬에서 완전히 동작한다.
 
 #### 주요 상수 및 초기화
 
 ```python
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CHROMA_PATH = str(PROJECT_ROOT / 'DB' / 'chroma_db')    # ChromaDB 영구 저장 경로
-CHUNK_DIR = str(PROJECT_ROOT / 'output' / 'chunks')     # 청크 JSON 디렉터리
-EMBEDDING_MODEL = 'jhgan/ko-sroberta-multitask'         # Dense 임베딩 모델 (768차원)
+from src.utils.config import PROJECT_ROOT, CHROMA_PATH, CHUNK_DIR, EMBEDDING_MODEL
 
 # BM25 Sparse 임베딩 파라미터
 bm25_ef = ChromaBm25EmbeddingFunction(
@@ -933,24 +963,24 @@ options:
 | `DYNAMIC_TIME_MULTIPLIER` | `3.0` | 동적 이상 감지 배수 (평균의 N배 초과 시 경고) |
 | `DYNAMIC_MIN_SAMPLES` | `10` | 동적 임계값 전환 최소 샘플 수 |
 
-### auditor_step2.py
+### auditor.py
 
 | 상수 | 기본값 | 설명 |
 |---|---|---|
 | `SPACING_SAFETY_RATIO` | `0.15` | 단어 간격 수정 안전 비율. 15% 초과 변경 시 원본 유지 |
 
-### chunker_step4.py
+### chunker.py
 
 | 상수 | 기본값 | 설명 |
 |---|---|---|
-| `CHUNK_SIZE` | `500` | 최대 청크 크기 (문자 수) |
-| `CHUNK_OVERLAP` | `100` | 청크 간 겹침 크기 (문자 수) |
+| `CHUNK_SIZE` | `1000` | 최대 청크 크기 (문자 수) |
+| `CHUNK_OVERLAP` | `200` | 청크 간 걹침 크기 (문자 수) |
 
-### storage_step5.py
+### build_db.py
 
 | 상수 | 기본값 | 설명 |
 |---|---|---|
-| `CHROMA_PATH` | `PROJECT_ROOT / 'DB' / 'chroma_db'` | ChromaDB 영구 저장 경로 (프로젝트 루트 기준) |
+| `CHROMA_PATH` | `PROJECT_ROOT / 'chroma_db'` | ChromaDB 영구 저장 경로 (프로젝트 루트 기준) |
 | `CHUNK_DIR` | `PROJECT_ROOT / 'output' / 'chunks'` | 청크 JSON 디렉터리 (프로젝트 루트 기준) |
 | `EMBEDDING_MODEL` | `'jhgan/ko-sroberta-multitask'` | Dense 임베딩 모델 (768차원, 한국어 최적화) |
 | BM25 `k` | `1.2` | Term frequency 포화 파라미터 |
@@ -962,7 +992,7 @@ options:
 
 ## 7. CLI 사용 예시
 
-모든 명령은 `preprocessor_v3.1/` 디렉터리에서 실행한다. 출력은 프로젝트 루트의 `output/` 및 `DB/`에 저장된다.
+모든 명령은 **프로젝트 루트**에서 실행한다. 출력은 프로젝트 루트의 `output/` 및 `chroma_db/`에 저장된다.
 
 ### 전체 파이프라인 실행
 ```bash
@@ -971,15 +1001,15 @@ conda run -n langc python3 preprocessor.py
 # 입력 폴더 지정
 conda run -n langc python3 preprocessor.py --input /path/to/documents
 conda run -n langc python3 preprocessor.py -i ./my_docs
-```
-
+| `CHUNK_SIZE` | `1000` | 최대 청크 크기 (문자 수) |
+| `CHUNK_OVERLAP` | `200` | 청크 간 겹침 크기 (문자 수) |
 실행 결과:
 - `output/temp_pdf/*.pdf` — 변환/복사된 PDF
 - `output/step1_parsed_*.md` — 파싱된 마크다운
 - `output/step2_audited_*.md` — 감사된 마크다운
 - `output/chunks/chunk_*.json` — 청크 JSON
 - `output/execution_summary.csv` — 실행 요약
-- `DB/chroma_db/` — ChromaDB 데이터베이스
+- `chroma_db/` — ChromaDB 데이터베이스
 
 ### 개별 단계 실행
 
@@ -989,15 +1019,15 @@ conda run -n langc python3 preprocessor.py -i ./my_docs
 # 개별 실행은 아래 프로그래밍 방식 예시 참조
 
 # Step 2: 감사기
-conda run -n langc python3 auditor_step2.py
+conda run -n langc python3 -m src.parsers.auditor
 # output/step1_parsed_*.md → output/step2_audited_*.md
 
 # Step 3-7: 청커
-conda run -n langc python3 chunker_step4.py
+conda run -n langc python3 -m src.parsers.chunker
 # output/step2_audited_*.md (없으면 step1_parsed_*.md) → output/chunks/
 
 # Step 4: 저장소 (청크 JSON이 이미 있을 때)
-# storage_step5.py는 독립 CLI가 없음 — preprocessor.py 또는 프로그래밍 방식으로 사용
+# build_db.py는 독립 CLI가 없음 — preprocessor.py 또는 프로그래밍 방식으로 사용
 ```
 
 ### HWP 파일 단독 변환
@@ -1026,7 +1056,7 @@ print(result)
 ```bash
 # pdf_loader 단독 테스트
 conda run -n langc python3 -c "
-from pdf_loader import load_pdf
+from src.parsers.pdf_loader import load_pdf
 docs = load_pdf('output/temp_pdf/sample.pdf')
 print(f'페이지 수: {len(docs)}')
 for doc in docs[:2]:
@@ -1038,7 +1068,7 @@ for doc in docs[:2]:
 ```bash
 # 감사기 단독 테스트
 conda run -n langc python3 -c "
-from auditor_step2 import audit_file
+from src.parsers.auditor import audit_file
 audit_file('output/step1_parsed_sample.md', 'output/step2_audited_sample.md')
 "
 ```
@@ -1047,7 +1077,7 @@ audit_file('output/step1_parsed_sample.md', 'output/step2_audited_sample.md')
 # 청커 단독 테스트
 conda run -n langc python3 -c "
 from pathlib import Path
-from chunker_step4 import process_file, print_statistics
+from src.parsers.chunker import process_file, print_statistics
 
 chunks = process_file(Path('output/step2_audited_sample.md'))
 print_statistics(chunks)
@@ -1098,7 +1128,7 @@ if result['success']:
 ### pdf_loader 단독 사용
 
 ```python
-from pdf_loader import load_pdf
+from src.parsers.pdf_loader import load_pdf
 
 docs = load_pdf('output/temp_pdf/sample.pdf')
 
@@ -1111,7 +1141,7 @@ for doc in docs:
 ### 감사기 단독 사용
 
 ```python
-from auditor_step2 import (
+from src.parsers.auditor import (
     audit_file,
     detect_toc_pages,
     _extract_toc_heading_types,
@@ -1135,7 +1165,7 @@ print(f"헤딩 타입 매핑: {type_level}")
 
 ```python
 from pathlib import Path
-from chunker_step4 import process_file, process_all_files, print_statistics
+from src.parsers.chunker import process_file, process_all_files, print_statistics
 
 # 단일 파일
 chunks = process_file(Path('output/step2_audited_sample.md'))
@@ -1155,7 +1185,7 @@ print_statistics(all_chunks)
 ```python
 import json
 from pathlib import Path
-from storage_step5 import (
+from src.retrievers.build_db import (
     compute_doc_id,
     assign_uids,
     build_hierarchy,
@@ -1196,7 +1226,7 @@ verify_integrity(hybrid_count)
 ### 테이블 평탄화 단독 사용
 
 ```python
-from table_flattener import flatten_table, flatten_tables_in_text
+from src.parsers.table_flattener import flatten_table, flatten_tables_in_text
 
 # 단일 테이블
 table = """| 사업명 | 차세대 포털 |
@@ -1220,7 +1250,7 @@ flattened = flatten_tables_in_text(text)
 ### 텍스트 클리닝 단독 사용
 
 ```python
-from text_cleaner import clean_text, clean_documents
+from src.parsers.text_cleaner import clean_text, clean_documents
 from langchain_core.documents import Document
 
 # 단일 텍스트
