@@ -93,7 +93,8 @@ LLM-as-Judge 기반 End-to-End 평가 체계.
 - 범위: 0.0 ~ 1.0
 - 계산: `(per-query Recall@K > 0인 질문 수) / 전체 질문 수`
 - 매칭: 파일명(source)만 일치하면 hit
-- **multi_doc/comparison**: `ground_truth.sources` 리스트의 어느 source라도 hit이면 1.0 (any-match)
+- **single_doc**: top-K에 해당 source가 있으면 1.0
+- **multi_doc/comparison (Strict Match)**: `ground_truth.sources`의 **모든** source가 top-K 안에 있어야 1.0. 하나라도 누락이면 0.0
 
 ### Recall@K (Page) | 검색 재현율 — 페이지 단위
 
@@ -110,6 +111,7 @@ LLM-as-Judge 기반 End-to-End 평가 체계.
 
 - 범위: 0.0 ~ 1.0
 - 계산: `mean(1/rank)` (정답 없으면 0)
+- **multi_doc/comparison**: rank = 마지막으로 발견된 source의 위치 (모든 source를 포함하기 위한 최소 rank). 하나라도 미발견이면 0
 
 ### MRR (Page) | 평균 역순위 — 페이지 단위
 
