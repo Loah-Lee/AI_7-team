@@ -288,6 +288,51 @@ class RAGChatbot:
         return out
 
     @staticmethod
+    def _count_unique_sources(contexts: Sequence[ChunkRecord]) -> int:
+        return len({(c.source_path or "").strip() for c in contexts if (c.source_path or "").strip()})
+
+    @staticmethod
+    def _reorder_for_source_diversity(
+        candidates: Sequence[ChunkRecord],
+        *,
+        min_sources: int,
+        seed_k: int,
+    ) -> List[ChunkRecord]:
+        if min_sources <= 1 or len(candidates) <= 1:
+            return list(candidates)
+
+        seed_limit = min(len(candidates), max(seed_k, min_sources))
+        selected_indices: List[int] = []
+        seen_sources: set[str] = set()
+
+        for idx, c in enumerate(candidates[:seed_limit]):
+            src = (c.source_path or "").strip()
+            if not src or src in seen_sources:
+                continue
+            seen_sources.add(src)
+            selected_indices.append(idx)
+            if len(seen_sources) >= min_sources:
+                break
+
+        if len(seen_sources) < min_sources:
+            for idx, c in enumerate(candidates[seed_limit:], start=seed_limit):
+                src = (c.source_path or "").strip()
+                if not src or src in seen_sources:
+                    continue
+                seen_sources.add(src)
+                selected_indices.append(idx)
+                if len(seen_sources) >= min_sources:
+                    break
+
+        if len(seen_sources) <= 1:
+            return list(candidates)
+
+        selected_set = set(selected_indices)
+        reordered = [candidates[i] for i in selected_indices]
+        reordered.extend(c for i, c in enumerate(candidates) if i not in selected_set)
+        return reordered
+
+    @staticmethod
     def _to_context_payload(contexts: Sequence[ChunkRecord]) -> List[Dict[str, object]]:
         return [
             {
@@ -361,6 +406,7 @@ class RAGChatbot:
         retrieve_k: int,
         context_k: int,
         source_filter: set[str] | None = None,
+        diversify_min_sources: int = 0,
     ) -> tuple[ChatState, List[ChunkRecord]]:
         raw: List[ChunkRecord] = []
         if retriever is not None:
@@ -380,6 +426,12 @@ class RAGChatbot:
         reranked, _ = _rerank(query, expanded, rerank_mode=self.rerank, llm_model=model)
         if source_filter:
             reranked = [c for c in reranked if c.source_path in source_filter]
+        if diversify_min_sources > 1 and reranked:
+            reranked = self._reorder_for_source_diversity(
+                reranked,
+                min_sources=diversify_min_sources,
+                seed_k=max(context_k * 3, 24),
+            )
 
         contexts = _expand_contexts_with_neighbors(
             reranked, chunks, context_k=context_k, neighbor_window=1
@@ -438,6 +490,11 @@ class RAGChatbot:
         retrieval_query = query
         retrieve_k = self.top_k
         context_k = self.context_k
+        diversify_min_sources = 0
+        if not use_asset and not is_money_rank:
+            org_like_entities = self._count_org_like_entities(query)
+            if _COMPLEX_QUERY_RE.search(query or "") or org_like_entities >= 2:
+                diversify_min_sources = 3 if org_like_entities >= 3 else 2
         if is_money_rank:
             retrieval_query = f"{query} 사업예산 사업비 총사업비 예정가격 기초금액 금액 원 억원"
             retrieve_k = max(self.top_k, 240)
@@ -461,11 +518,59 @@ class RAGChatbot:
             retrieval_query=retrieval_query,
             retrieve_k=retrieve_k,
             context_k=context_k,
+            diversify_min_sources=diversify_min_sources,
         )
 
         final_state = primary_state
         final_contexts = primary_contexts
         retrieval_mode = base_mode
+
+        should_try_dynamic_fallback = (
+            self.retriever_kind == "dynamic"
+            and not use_asset
+            and not is_money_rank
+            and dynamic_kind == "hybrid"
+            and self.dynamic_chroma_retriever is not None
+        )
+        if should_try_dynamic_fallback:
+            primary_source_count = self._count_unique_sources(primary_contexts)
+            poor_primary = (
+                not primary_contexts
+                or self._status_score(primary_state.status) == 0
+                or (
+                    self._status_score(primary_state.status) <= 1
+                    and primary_source_count < max(2, diversify_min_sources)
+                )
+            )
+            if poor_primary:
+                fallback_state, fallback_contexts = self._run_answer_pass(
+                    base_state=state,
+                    query=query,
+                    model=model,
+                    retriever=self.dynamic_chroma_retriever,
+                    chunks=active_chunks,
+                    retrieval_query=retrieval_query,
+                    retrieve_k=retrieve_k,
+                    context_k=context_k,
+                    diversify_min_sources=diversify_min_sources,
+                )
+                fallback_better = self._is_better_result(
+                    fallback_state,
+                    fallback_contexts,
+                    final_state,
+                    final_contexts,
+                )
+                if not fallback_better and diversify_min_sources > 1:
+                    fallback_better = (
+                        self._status_score(fallback_state.status)
+                        == self._status_score(final_state.status)
+                        and self._count_unique_sources(fallback_contexts)
+                        > self._count_unique_sources(final_contexts)
+                    )
+                if fallback_better:
+                    final_state = fallback_state
+                    final_contexts = fallback_contexts
+                    retrieval_mode = "dynamic_chroma_fallback"
 
         should_try_asset_fallback = (
             not use_asset
@@ -486,6 +591,7 @@ class RAGChatbot:
                     retrieve_k=retrieve_k,
                     context_k=context_k,
                     source_filter=set(source_hints),
+                    diversify_min_sources=0,
                 )
                 if self._is_better_result(
                     fallback_state,
