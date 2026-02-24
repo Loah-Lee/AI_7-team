@@ -196,6 +196,8 @@ def run_eval(args: argparse.Namespace) -> Path:
         rerank=str(args.rerank),
         top_k=int(args.top_k),
         context_k=int(args.context_k),
+        hybrid_alpha=float(args.hybrid_alpha),
+        dynamic_hard_threshold=int(args.dynamic_hard_threshold),
         chroma_collection=str(args.chroma_collection),
         chroma_org_filter=True,
         chroma_org_filter_mode="hard",
@@ -375,10 +377,16 @@ def main() -> int:
     parser.add_argument("--dataset", default="eval_resources/eval_dataset.yaml")
     parser.add_argument("--output-root", default="results")
     parser.add_argument("--label", default="current")
-    parser.add_argument("--retriever", choices=["chroma", "tfidf", "hybrid", "dense"], default="chroma")
+    parser.add_argument(
+        "--retriever",
+        choices=["chroma", "tfidf", "hybrid", "dense", "dynamic"],
+        default="chroma",
+    )
     parser.add_argument("--rerank", choices=["none", "rule", "llm"], default="none")
     parser.add_argument("--top_k", type=int, default=5)
     parser.add_argument("--context_k", type=int, default=20)
+    parser.add_argument("--hybrid-alpha", type=float, default=0.6)
+    parser.add_argument("--dynamic-hard-threshold", type=int, default=2)
     parser.add_argument("--answer-model", default="gpt-5-nano")
     parser.add_argument("--judge-model", default="gpt-5-mini")
     parser.add_argument("--chroma-collection", default="rfp_b_oai_clean_v1")

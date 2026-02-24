@@ -19,6 +19,18 @@ from .nodes import generate_answer_node, parse_org, parse_query
 from .state import ChatState
 
 
+_ORG_SUFFIX_RE = re.compile(
+    r"(공사|공단|재단|재단법인|사단법인|법인|대학교|대학|병원|의료원|정보원|진흥원|연구원|협회|위원회|조직위원회|사무국|센터|서비스|은행|공항|학교)$"
+)
+_COMPLEX_QUERY_RE = re.compile(
+    r"(비교|차이|각각|동시에|모두|종합|근거|영향|설명해|설명하시오|어떻게\s*다른|무엇이며|요구사항)"
+)
+_FACTOID_QUERY_RE = re.compile(
+    r"(얼마|금액|예산|사업비|비율|퍼센트|마감|일자|날짜|언제|기간|개월|며칠|문의처|연락처|전화)"
+)
+_CLAUSE_CONNECTOR_RE = re.compile(r"(그리고|또한|및|또는|아울러|동시에)")
+
+
 class RAGChatbot:
     def __init__(
         self,
@@ -39,41 +51,93 @@ class RAGChatbot:
         chroma_mmr_lambda: float = 0.85,
         chroma_query_rewrite: bool = True,
         asset_collection: str = "rfp_b_assets_oai_v1",
+        hybrid_alpha: float = 0.6,
+        dynamic_hard_threshold: int = 2,
     ) -> None:
         self.retriever_kind = retriever
         self.rerank = rerank
         self.top_k = top_k
         self.context_k = context_k
+        self.hybrid_alpha = max(0.0, min(1.0, float(hybrid_alpha)))
+        self.dynamic_hard_threshold = max(1, int(dynamic_hard_threshold))
         self.chunks = _load_chunks_b(Path("notebooks") / "data_chunks_rich_joined.jsonl")
         self.asset_chunks = self._load_asset_chunks(
             joined_chunks_path=Path("notebooks") / "data_chunks_rich_joined.jsonl",
             asset_chunks_dir=Path("notebooks") / "data_chunks_rich_asset_v1",
         )
-        self.retriever = _build_retriever(
-            retriever_kind=self.retriever_kind,
-            chunks_b=self.chunks,
-            dense_index_b=Path("data_index") / "dense_B",
-            hybrid_alpha=1.0,
-            table_multiplier=1.0,
-            chroma_persist_dir=chroma_persist_dir,
-            chroma_collection=chroma_collection,
-            chroma_model=chroma_model,
-            chroma_org_filter=chroma_org_filter,
-            chroma_org_filter_mode=chroma_org_filter_mode,
-            chroma_score_weight=chroma_score_weight,
-            lexical_score_weight=lexical_score_weight,
-            chroma_noise_mode=chroma_noise_mode,
-            chroma_mmr=chroma_mmr,
-            chroma_mmr_lambda=chroma_mmr_lambda,
-            chroma_query_rewrite=chroma_query_rewrite,
-        )
+        self.retriever = None
+        if self.retriever_kind != "dynamic":
+            self.retriever = _build_retriever(
+                retriever_kind=self.retriever_kind,
+                chunks_b=self.chunks,
+                dense_index_b=Path("data_index") / "dense_B",
+                hybrid_alpha=self.hybrid_alpha,
+                table_multiplier=1.0,
+                chroma_persist_dir=chroma_persist_dir,
+                chroma_collection=chroma_collection,
+                chroma_model=chroma_model,
+                chroma_org_filter=chroma_org_filter,
+                chroma_org_filter_mode=chroma_org_filter_mode,
+                chroma_score_weight=chroma_score_weight,
+                lexical_score_weight=lexical_score_weight,
+                chroma_noise_mode=chroma_noise_mode,
+                chroma_mmr=chroma_mmr,
+                chroma_mmr_lambda=chroma_mmr_lambda,
+                chroma_query_rewrite=chroma_query_rewrite,
+            )
+        self.dynamic_hybrid_retriever = None
+        self.dynamic_chroma_retriever = None
+        if self.retriever_kind == "dynamic":
+            try:
+                self.dynamic_hybrid_retriever = _build_retriever(
+                    retriever_kind="hybrid",
+                    chunks_b=self.chunks,
+                    dense_index_b=Path("data_index") / "dense_B",
+                    hybrid_alpha=self.hybrid_alpha,
+                    table_multiplier=1.0,
+                    chroma_persist_dir=chroma_persist_dir,
+                    chroma_collection=chroma_collection,
+                    chroma_model=chroma_model,
+                    chroma_org_filter=False,
+                    chroma_org_filter_mode="soft",
+                    chroma_score_weight=1.0,
+                    lexical_score_weight=0.0,
+                    chroma_noise_mode=chroma_noise_mode,
+                    chroma_mmr=chroma_mmr,
+                    chroma_mmr_lambda=chroma_mmr_lambda,
+                    chroma_query_rewrite=chroma_query_rewrite,
+                )
+            except Exception:
+                self.dynamic_hybrid_retriever = None
+            try:
+                # hard query 경로: lexical 혼합 없이 순수 chroma 사용
+                self.dynamic_chroma_retriever = _build_retriever(
+                    retriever_kind="chroma",
+                    chunks_b=self.chunks,
+                    dense_index_b=Path("data_index") / "dense_B",
+                    hybrid_alpha=self.hybrid_alpha,
+                    table_multiplier=1.0,
+                    chroma_persist_dir=chroma_persist_dir,
+                    chroma_collection=chroma_collection,
+                    chroma_model=chroma_model,
+                    chroma_org_filter=chroma_org_filter,
+                    chroma_org_filter_mode=chroma_org_filter_mode,
+                    chroma_score_weight=1.0,
+                    lexical_score_weight=0.0,
+                    chroma_noise_mode=chroma_noise_mode,
+                    chroma_mmr=chroma_mmr,
+                    chroma_mmr_lambda=chroma_mmr_lambda,
+                    chroma_query_rewrite=chroma_query_rewrite,
+                )
+            except Exception:
+                self.dynamic_chroma_retriever = None
         self.money_rank_retriever = None
         try:
             self.money_rank_retriever = _build_retriever(
                 retriever_kind="tfidf",
                 chunks_b=self.chunks,
                 dense_index_b=Path("data_index") / "dense_B",
-                hybrid_alpha=1.0,
+                hybrid_alpha=self.hybrid_alpha,
                 table_multiplier=1.0,
                 chroma_persist_dir=chroma_persist_dir,
                 chroma_collection=chroma_collection,
@@ -90,21 +154,23 @@ class RAGChatbot:
         except Exception:
             self.money_rank_retriever = None
         self.global_retriever = None
-        if self.retriever_kind == "chroma":
+        if self.retriever_kind in {"chroma", "dynamic"}:
             try:
+                base_chroma_weight = 1.0 if self.retriever_kind == "dynamic" else chroma_score_weight
+                base_lexical_weight = 0.0 if self.retriever_kind == "dynamic" else lexical_score_weight
                 self.global_retriever = _build_retriever(
                     retriever_kind="chroma",
                     chunks_b=self.chunks,
                     dense_index_b=Path("data_index") / "dense_B",
-                    hybrid_alpha=1.0,
+                    hybrid_alpha=self.hybrid_alpha,
                     table_multiplier=1.0,
                     chroma_persist_dir=chroma_persist_dir,
                     chroma_collection=chroma_collection,
                     chroma_model=chroma_model,
                     chroma_org_filter=False,
                     chroma_org_filter_mode="soft",
-                    chroma_score_weight=chroma_score_weight,
-                    lexical_score_weight=lexical_score_weight,
+                    chroma_score_weight=base_chroma_weight,
+                    lexical_score_weight=base_lexical_weight,
                     chroma_noise_mode=chroma_noise_mode,
                     chroma_mmr=chroma_mmr,
                     chroma_mmr_lambda=chroma_mmr_lambda,
@@ -234,6 +300,55 @@ class RAGChatbot:
             for c in contexts
         ]
 
+    @staticmethod
+    def _count_org_like_entities(query: str) -> int:
+        q = (query or "").strip()
+        if not q:
+            return 0
+        head = q.split("에서", 1)[0] if "에서" in q else q
+        parts = re.split(r"\s+(?:과|와|및)\s+", head)
+        cnt = 0
+        for part in parts:
+            token = re.sub(r"[\"'“”‘’\[\]{}()]", "", part).strip()
+            if len(token) < 3:
+                continue
+            if _ORG_SUFFIX_RE.search(token) or token.startswith(
+                ("한국", "국립", "국가", "재단법인", "사단법인", "(재)", "(사)")
+            ):
+                cnt += 1
+        return cnt
+
+    @classmethod
+    def _estimate_query_hardness(cls, query: str) -> int:
+        q = (query or "").strip()
+        if not q:
+            return 0
+        score = 0
+        token_count = len(re.findall(r"[0-9A-Za-z가-힣]+", q))
+        if len(q) >= 80:
+            score += 2
+        elif len(q) >= 45:
+            score += 1
+        if token_count >= 16:
+            score += 2
+        elif token_count >= 10:
+            score += 1
+        if _COMPLEX_QUERY_RE.search(q):
+            score += 2
+        if len(_CLAUSE_CONNECTOR_RE.findall(q)) >= 2:
+            score += 1
+        if cls._count_org_like_entities(q) >= 2:
+            score += 2
+        if _FACTOID_QUERY_RE.search(q) and token_count <= 12 and not _COMPLEX_QUERY_RE.search(q):
+            score -= 2
+        return score
+
+    def _select_dynamic_retriever_kind(self, query: str) -> str:
+        score = self._estimate_query_hardness(query)
+        if score >= self.dynamic_hard_threshold:
+            return "chroma"
+        return "hybrid"
+
     def _run_answer_pass(
         self,
         *,
@@ -287,18 +402,32 @@ class RAGChatbot:
 
         is_money_rank = intent.query_type == "money_rank"
         use_asset = intent.query_type == "asset" and self.asset_retriever is not None
-        if self.retriever_kind == "chroma" and not org.matched and not is_money_rank:
+        dynamic_kind = ""
+        if self.retriever_kind == "dynamic" and not is_money_rank and not use_asset:
+            dynamic_kind = self._select_dynamic_retriever_kind(query)
+
+        if not is_money_rank and not use_asset:
             token_count = len(re.findall(r"[0-9A-Za-z가-힣]+", query or ""))
-            if token_count <= 8:
+            need_org_for_chroma = (
+                self.retriever_kind == "chroma"
+                or (self.retriever_kind == "dynamic" and dynamic_kind == "chroma")
+            )
+            if need_org_for_chroma and not org.matched and token_count <= 8:
+                mode = "dynamic_chroma" if self.retriever_kind == "dynamic" else "default"
                 return {
                     "status": "need_org",
                     "answer": "정확한 검색을 위해 기관명을 먼저 입력해주세요. 예: `한국농어촌공사`, `고려대학교`",
                     "citations": [],
                     "top1": {"source_path": "", "chunk_index": -1},
-                    "retrieval_mode": "asset" if use_asset else "default",
+                    "retrieval_mode": mode,
                     "retrieved_contexts": [],
                 }
         active_retriever = self.asset_retriever if use_asset else self.retriever
+        if self.retriever_kind == "dynamic" and not use_asset and not is_money_rank:
+            if dynamic_kind == "chroma":
+                active_retriever = self.dynamic_chroma_retriever or self.global_retriever
+            else:
+                active_retriever = self.dynamic_hybrid_retriever or self.dynamic_chroma_retriever
         if is_money_rank:
             if self.money_rank_retriever is not None:
                 active_retriever = self.money_rank_retriever
@@ -314,7 +443,15 @@ class RAGChatbot:
             retrieve_k = max(self.top_k, 240)
             context_k = max(self.context_k, 120)
 
-        base_mode = "asset" if use_asset else ("money_rank" if is_money_rank else "default")
+        if use_asset:
+            base_mode = "asset"
+        elif is_money_rank:
+            base_mode = "money_rank"
+        elif self.retriever_kind == "dynamic":
+            selected = dynamic_kind or "hybrid"
+            base_mode = f"dynamic_{selected}"
+        else:
+            base_mode = "default"
         primary_state, primary_contexts = self._run_answer_pass(
             base_state=state,
             query=query,
