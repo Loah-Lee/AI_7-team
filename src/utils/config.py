@@ -25,4 +25,5 @@ __all__ = [
     'DATA_PATH',
     'CHUNK_DIR',
     'EMBEDDING_MODEL',
+    'Path',
 ]

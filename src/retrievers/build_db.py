@@ -11,6 +11,7 @@ import os
 import hashlib
 import json
 import chromadb
+from pathlib import Path
 from chromadb.utils import embedding_functions
 from chromadb.utils.embedding_functions import ChromaBm25EmbeddingFunction
 from typing import Any, List, Dict, Tuple, Optional, cast
