@@ -37,6 +37,38 @@ def build_html(results: dict) -> str:
     # JSON 데이터를 inline으로 삽입
     inline_data = json.dumps(pq, ensure_ascii=False)
 
+    # 레이턴시 평균 (Python 계산 → 정적 HTML로 임베드)
+    _stages = ["analyze_query", "retrieve", "extract_evidence", "generate"]
+    _stage_ko = {
+        "analyze_query": "질의분석 (analyze)",
+        "retrieve": "문서검색 (retrieve)",
+        "extract_evidence": "근거추출 (extract_evidence)",
+        "generate": "답변생성 (generate)",
+    }
+    _with_lat = [q for q in pq if q.get("latencies")]
+    _n = len(_with_lat)
+    _avg = {k: sum(q["latencies"].get(k, 0) for q in _with_lat) / _n if _n else 0 for k in _stages}
+    _total = sum(_avg.values())
+
+    def _bar(ratio: float, color: str = "#3b82f6") -> str:
+        w = max(2, round(ratio * 120))
+        return f'<span style="display:inline-block;width:{w}px;height:6px;border-radius:3px;background:{color};opacity:0.7;vertical-align:middle;margin-left:6px"></span>'
+
+    _colors = {"analyze_query": "#3b82f6", "retrieve": "#06b6d4", "extract_evidence": "#a855f7", "generate": "#22c55e"}
+    _lat_rows = "".join(
+        f'<tr><td style="color:#d1d5db">{_stage_ko[k]}</td>'
+        f'<td style="font-weight:700;color:#f3f4f6">{_avg[k]:.2f}s</td>'
+        f'<td style="color:#6b7280">{_avg[k] / _total * 100:.0f}%{_bar(_avg[k] / _total, _colors[k])}</td></tr>'
+        for k in _stages
+    ) if _total > 0 else "<tr><td colspan='3' style='color:#6b7280'>데이터 없음</td></tr>"
+    _lat_tooltip = (
+        f'<div class="tt-title">평균 레이턴시 · 단계별 분해</div>'
+        f'<div class="tt-desc">전체 파이프라인 평균 소요 시간 ({_n}개 질문 기준)</div>'
+        f'<table class="tt-table"><tr><th>단계</th><th>평균</th><th>비중</th></tr>{_lat_rows}</table>'
+        f'<div style="margin-top:0.5rem;font-size:0.74rem;color:#6b7280">합계: <strong style="color:#f3f4f6">{_total:.1f}s</strong></div>'
+    )
+    _lat_value = f"{_total:.1f}s"
+
     return f"""<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -64,7 +96,24 @@ def build_html(results: dict) -> str:
   .badge-purple {{ background: rgba(168,85,247,0.15); color: var(--purple); }}
 
   .cards {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 2.5rem; }}
-  .card {{ background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; text-align: center; }}
+  .card {{ background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; text-align: center; position: relative; cursor: default; }}
+  .card:hover {{ border-color: #3a3a3a; }}
+  .tooltip-box {{
+    display: none; position: absolute; top: calc(100% + 10px); left: 50%; transform: translateX(-50%);
+    background: #111827; border: 1px solid #374151; border-radius: 10px; padding: 1rem;
+    min-width: 300px; max-width: 380px; z-index: 999;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.7); font-size: 0.78rem; line-height: 1.6; text-align: left; white-space: normal;
+  }}
+  .card:hover .tooltip-box {{ display: block; }}
+  .tooltip-box .tt-title {{ font-size: 0.88rem; font-weight: 700; color: #f3f4f6; margin-bottom: 0.4rem; }}
+  .tooltip-box .tt-desc {{ color: #93c5fd; font-style: italic; margin-bottom: 0.6rem; border-left: 2px solid #3b82f6; padding-left: 0.5rem; }}
+  .tooltip-box .tt-kv {{ color: #9ca3af; margin-bottom: 0.25rem; font-size: 0.76rem; }}
+  .tooltip-box .tt-kv strong {{ color: #d1d5db; }}
+  .tooltip-box .tt-formula {{ font-family: monospace; background: #1f2937; border-radius: 4px; padding: 0.2rem 0.4rem; color: #6ee7b7; font-size: 0.74rem; display: inline-block; margin-top: 0.3rem; }}
+  .tt-table {{ width: 100%; border-collapse: collapse; margin-top: 0.6rem; font-size: 0.74rem; }}
+  .tt-table th {{ color: #6b7280; font-weight: 600; padding: 0.2rem 0.5rem; border-bottom: 1px solid #374151; text-align: left; }}
+  .tt-table td {{ padding: 0.25rem 0.5rem; color: #9ca3af; border-bottom: 1px solid #1f2937; }}
+  .tt-table td:first-child {{ font-weight: 700; color: #e5e7eb; min-width: 2rem; text-align: center; }}
   .card .label {{ font-size: 0.75rem; color: var(--text2); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }}
   .card .value {{ font-size: 2rem; font-weight: 700; }}
   .card .max {{ font-size: 0.85rem; color: var(--text2); }}
@@ -129,6 +178,18 @@ def build_html(results: dict) -> str:
   .hit-badge {{ font-size: 0.75rem; font-weight: 600; }}
   .hit-yes {{ color: var(--green); }}
   .hit-no {{ color: var(--red); }}
+  .j-label-ko {{ font-size: 0.65rem; color: var(--text2); font-weight: 400; margin-left: 0.2rem; }}
+  .latency-row {{ font-size: 0.78rem; color: var(--text2); font-family: monospace; }}
+
+  .latency-section {{ background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 2.5rem; }}
+  .latency-section h2 {{ font-size: 1.1rem; margin-bottom: 1rem; }}
+  .latency-table {{ width: 100%; border-collapse: collapse; font-size: 0.83rem; }}
+  .latency-table th {{ text-align: left; color: var(--text2); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); }}
+  .latency-table td {{ padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--border); color: var(--text); }}
+  .latency-table tr:last-child td {{ border-bottom: none; }}
+  .latency-table tr.total-row td {{ font-weight: 700; color: var(--accent); background: rgba(59,130,246,0.05); }}
+  .latency-table .stage-col {{ color: var(--text2); font-size: 0.78rem; }}
+  .latency-bar {{ display: inline-block; height: 6px; border-radius: 3px; margin-left: 0.4rem; vertical-align: middle; opacity: 0.6; }}
 
   .footer {{ text-align: center; color: var(--text2); font-size: 0.75rem; padding: 2rem 0 1rem; border-top: 1px solid var(--border); }}
 
@@ -167,6 +228,11 @@ def build_html(results: dict) -> str:
 
   <div class="insights" id="insights"></div>
 
+  <div class="latency-section">
+    <h2>평균 레이턴시 (단계별)</h2>
+    <table class="latency-table" id="latencyTable"></table>
+  </div>
+
   <div class="table-section">
     <h2>질문별 상세 결과</h2>
     <button class="expand-all" onclick="toggleAll()">전체 펼치기/접기</button>
@@ -186,22 +252,102 @@ const PQ = {inline_data};
 // --- Summary Cards ---
 const S = SUMMARY;
 const cardsEl = document.getElementById('cards');
+const TTScoreTable = (rows) => `<table class="tt-table"><tr><th>점수</th><th>기준</th></tr>${{rows.map(r=>`<tr><td>${{r[0]}}</td><td>${{r[1]}}</td></tr>`).join('')}}</table>`;
+const LLM_ROWS = [
+  [5,'기대 답변의 핵심 정보를 모두 정확히 포함'],
+  [4,'대부분 정확하나 사소한 부정확 있음'],
+  [3,'핵심의 절반 정도가 정확'],
+  [2,'일부만 맞고 오류 포함'],
+  [1,'거의 관련 없는 답변'],
+  [0,'완전히 틀리거나 답변 거부'],
+];
+const AC_ROWS = [
+  [5,'기대 답변의 모든 핵심 포인트를 빠짐없이 포함'],
+  [4,'대부분 포함하나 사소한 항목 1~2개 누락'],
+  [3,'핵심 포인트의 절반 정도만 커버'],
+  [2,'주요 정보 대부분 누락, 일부만 언급'],
+  [1,'핵심 정보가 거의 없음'],
+  [0,'관련 정보 전혀 없음 또는 답변 거부'],
+];
+const F_ROWS = [
+  [5,'모든 내용이 context에서 직접 확인 가능'],
+  [4,'대부분 근거 있으나 사소한 추론 포함'],
+  [3,'핵심은 있으나 상당한 추론/일반화 포함'],
+  [2,'부분적으로만 관련, 환각 포함'],
+  [1,'대부분 환각이거나 context와 무관'],
+  [0,'완전한 환각 또는 context 무시'],
+];
+const CR_ROWS = [
+  [5,'context가 질문에 완벽히 관련, 충분한 정보 포함'],
+  [4,'대부분 관련, 일부 불필요한 내용'],
+  [3,'부분적 관련, 핵심 정보 일부 부족'],
+  [2,'관련성 낮고 대부분 무관'],
+  [1,'거의 관련 없는 문서'],
+  [0,'완전히 무관'],
+];
+
 const cardDefs = [
-  {{label:'Correctness',value:S.avg_correctness.toFixed(2),max:'/5',color:'var(--accent)'}},
-  {{label:'Answer Coverage',value:(S.avg_answer_coverage||0).toFixed(2),max:'/5',color:'#f97316'}},
-  {{label:'Faithfulness',value:S.avg_faithfulness.toFixed(2),max:'/5',color:'var(--green)'}},
-  {{label:'Context Relevance',value:(S.avg_context_relevance||0).toFixed(2),max:'/5',color:'var(--purple)'}},
-  {{label:'Recall@5 (Source)',value:((S.recall_at_k_source||0)*100).toFixed(0)+'%',max:'',color:'var(--cyan)'}},
-  {{label:'MRR (Source)',value:(S.mrr_source||0).toFixed(2),max:'',color:'var(--yellow)'}},
-  {{label:'Recall@5 (Page)',value:((S.recall_at_k_page||0)*100).toFixed(0)+'%',max:'',color:'var(--cyan)'}},
-  {{label:'MRR (Page)',value:(S.mrr_page||0).toFixed(2),max:'',color:'var(--yellow)'}},
-  {{label:'평가 건수',value:S.num_evaluated+'/'+S.num_queries,max:'',color:'var(--text)'}},
+  {{label:'Correctness',ko:'정확성',value:S.avg_correctness.toFixed(2),max:'/5',color:'var(--accent)',
+    tooltip:`<div class="tt-title">Correctness · 정확성</div>
+      <div class="tt-desc">생성된 답변이 기대 답변과 의미적으로 일치하는가?</div>
+      <div class="tt-kv"><strong>관점:</strong> 답변의 정확성 — 맞는 정보인가</div>
+      <div class="tt-kv"><strong>판단 기준:</strong> 기대 답변의 핵심 사실과 생성 답변의 사실이 일치하는 정도</div>
+      <div class="tt-kv"><strong>Coverage와의 차이:</strong> Correctness는 "틀린 정보가 있는가"에 초점</div>
+      ${{TTScoreTable(LLM_ROWS)}}`}},
+  {{label:'Answer Coverage',ko:'답변 커버리지',value:(S.avg_answer_coverage||0).toFixed(2),max:'/5',color:'#f97316',
+    tooltip:`<div class="tt-title">Answer Coverage · 답변 커버리지</div>
+      <div class="tt-desc">기대 답변의 핵심 정보가 생성 답변에 얼마나 누락 없이 포함되었는가?</div>
+      <div class="tt-kv"><strong>관점:</strong> 답변의 완전성 — 빠진 정보가 없는가</div>
+      <div class="tt-kv"><strong>판단 기준:</strong> 기대 답변의 핵심 포인트 목록 대비 생성 답변이 커버한 비율</div>
+      <div class="tt-kv"><strong>Correctness와의 차이:</strong> Coverage는 "빠진 정보가 있는가"에 초점</div>
+      ${{TTScoreTable(AC_ROWS)}}`}},
+  {{label:'Faithfulness',ko:'충실성',value:S.avg_faithfulness.toFixed(2),max:'/5',color:'var(--green)',
+    tooltip:`<div class="tt-title">Faithfulness · 충실성</div>
+      <div class="tt-desc">생성된 답변이 검색된 context에 근거하고 있는가? (환각 없는가)</div>
+      <div class="tt-kv"><strong>관점:</strong> 답변의 근거 충실도</div>
+      <div class="tt-kv"><strong>판단 기준:</strong> 답변의 각 주장이 검색된 context에서 확인 가능한 정도</div>
+      ${{TTScoreTable(F_ROWS)}}`}},
+  {{label:'Context Relevance',ko:'검색 관련성',value:(S.avg_context_relevance||0).toFixed(2),max:'/5',color:'var(--purple)',
+    tooltip:`<div class="tt-title">Context Relevance · 검색 관련성</div>
+      <div class="tt-desc">검색된 context가 질문에 실제로 관련 있는가?</div>
+      <div class="tt-kv"><strong>관점:</strong> 검색 품질</div>
+      <div class="tt-kv"><strong>판단 기준:</strong> 검색된 문서가 질문에 답하는 데 필요한 정보를 포함하는 정도</div>
+      ${{TTScoreTable(CR_ROWS)}}`}},
+  {{label:'Recall@5 (Source)',ko:'검색 재현율·문서',value:((S.recall_at_k_source||0)*100).toFixed(0)+'%',max:'',color:'var(--cyan)',
+    tooltip:`<div class="tt-title">Recall@K (Source) · 검색 재현율 — 문서 단위</div>
+      <div class="tt-desc">top-K 검색 결과에 정답 문서(source 기준)가 포함된 질문의 비율</div>
+      <div class="tt-kv"><strong>범위:</strong> 0.0 ~ 1.0</div>
+      <div class="tt-kv"><strong>매칭:</strong> 파일명(source)만 일치하면 hit</div>
+      <div class="tt-kv"><strong>multi_doc/comparison:</strong> sources 리스트 중 하나라도 hit이면 1.0 (any-match)</div>
+      <span class="tt-formula">(Recall@K > 0인 질문 수) / 전체 질문 수</span>`}},
+  {{label:'MRR (Source)',ko:'평균 역순위·문서',value:(S.mrr_source||0).toFixed(2),max:'',color:'var(--yellow)',
+    tooltip:`<div class="tt-title">MRR (Source) · 평균 역순위 — 문서 단위</div>
+      <div class="tt-desc">정답 문서(source 기준)가 검색 결과에서 몇 번째에 위치하는지의 역수 평균</div>
+      <div class="tt-kv"><strong>범위:</strong> 0.0 ~ 1.0</div>
+      <div class="tt-kv"><strong>매칭:</strong> 파일명(source)만 일치하면 hit</div>
+      <span class="tt-formula">mean(1/rank) — 정답 없으면 0</span>`}},
+  {{label:'Recall@5 (Page)',ko:'검색 재현율·페이지',value:((S.recall_at_k_page||0)*100).toFixed(0)+'%',max:'',color:'var(--cyan)',
+    tooltip:`<div class="tt-title">Recall@K (Page) · 검색 재현율 — 페이지 단위</div>
+      <div class="tt-desc">top-K 검색 결과에 정답 문서의 정확한 페이지가 포함된 질문의 비율</div>
+      <div class="tt-kv"><strong>범위:</strong> 0.0 ~ 1.0</div>
+      <div class="tt-kv"><strong>매칭:</strong> source + page 모두 일치해야 hit (Source보다 엄격)</div>
+      <span class="tt-formula">(Recall@K_page > 0인 질문 수) / 전체 질문 수</span>`}},
+  {{label:'MRR (Page)',ko:'평균 역순위·페이지',value:(S.mrr_page||0).toFixed(2),max:'',color:'var(--yellow)',
+    tooltip:`<div class="tt-title">MRR (Page) · 평균 역순위 — 페이지 단위</div>
+      <div class="tt-desc">정답 문서의 정확한 페이지가 검색 결과에서 몇 번째에 위치하는지의 역수 평균</div>
+      <div class="tt-kv"><strong>범위:</strong> 0.0 ~ 1.0</div>
+      <div class="tt-kv"><strong>매칭:</strong> source + page 모두 일치해야 hit</div>
+      <span class="tt-formula">mean(1/rank_page) — 정답 없으면 0</span>`}},
+  {{label:'Avg Latency',ko:'평균 응답시간',value:'{_lat_value}',max:'',color:'var(--cyan)',
+    tooltip:`{_lat_tooltip}`}},
+  {{label:'평가 건수',ko:'',value:S.num_evaluated+'/'+S.num_queries,max:'',color:'var(--text)',tooltip:null}},
 ];
 cardsEl.innerHTML = cardDefs.map(c=>`
   <div class="card">
-    <div class="label">${{c.label}}</div>
+    <div class="label">${{c.label}}${{c.ko?`<br><span style="font-size:0.7rem;color:var(--text2);text-transform:none;letter-spacing:0">${{c.ko}}</span>`:''}}</div>
     <div class="value" style="color:${{c.color}}">${{c.value}}</div>
     <div class="max">${{c.max}}</div>
+    ${{c.tooltip?`<div class="tooltip-box">${{c.tooltip}}</div>`:''}}
   </div>
 `).join('');
 
@@ -302,6 +448,47 @@ document.getElementById('insights').innerHTML = `
   <div class="insight-item"><div class="insight-icon">🔍</div><div class="insight-text"><strong>병목: Retrieval 정밀도</strong> <span>— Hit Rate 90%이지만, 정답 "페이지"가 아닌 다른 페이지가 검색되어 Correctness 하락</span></div></div>
 `;
 
+// --- Latency Table ---
+(function() {{
+  const stages = ['analyze_query','retrieve','extract_evidence','generate'];
+  const stageLabels = ['analyze_query','retrieve','extract_evidence','generate'];
+  const groups = {{
+    '전체 평균': PQ,
+    'Single Doc': PQ.filter(q=>q.query_type==='single_doc'),
+    'Multi Doc':  PQ.filter(q=>q.query_type==='multi_doc'),
+    'Comparison': PQ.filter(q=>q.query_type==='comparison'),
+  }};
+
+  // 최대 total 구해서 bar 너비 기준 잡기
+  const allTotals = PQ.filter(q=>q.latencies).map(q=>stages.reduce((s,k)=>s+(q.latencies[k]||0),0));
+  const maxTotal = Math.max(...allTotals, 1);
+
+  const table = document.getElementById('latencyTable');
+  const header = `<thead><tr>
+    <th>구간</th>
+    <th>analyze_query</th><th>retrieve</th><th>extract_evidence</th><th>generate</th>
+    <th>합계</th><th>n</th>
+  </tr></thead>`;
+
+  const rows = Object.entries(groups).map(([label, items], idx) => {{
+    const withLat = items.filter(q=>q.latencies);
+    const n = withLat.length;
+    if (!n) return `<tr><td colspan="7" style="color:var(--text2);padding:0.5rem 0.75rem">${{label}}: 데이터 없음</td></tr>`;
+    const avgs = stages.map(k => withLat.reduce((s,q)=>s+(q.latencies[k]||0),0)/n);
+    const total = avgs.reduce((a,b)=>a+b,0);
+    const barW = Math.round((total/maxTotal)*80);
+    const isTotal = idx===0;
+    return `<tr class="${{isTotal?'total-row':''}}">
+      <td>${{label}}</td>
+      ${{avgs.map(v=>`<td>${{v.toFixed(2)}}s</td>`).join('')}}
+      <td>${{total.toFixed(2)}}s<span class="latency-bar" style="width:${{barW}}px;background:var(--accent)"></span></td>
+      <td class="stage-col">${{n}}</td>
+    </tr>`;
+  }}).join('');
+
+  table.innerHTML = header + `<tbody>${{rows}}</tbody>`;
+}})();
+
 // --- Query Cards (expandable with answers) ---
 const scoreClass = s => 's'+Math.min(5,Math.max(0,s));
 const typeClass = t => t==='single_doc'?'type-single':t==='multi_doc'?'type-multi':'type-comparison';
@@ -336,10 +523,18 @@ PQ.forEach(q => {{
       <div class="meta-row">
         <span><strong>유형:</strong> ${{qt}}</span>
         <span><strong>검색 문서:</strong> ${{q.num_retrieved||0}}개</span>
-        <span><strong>Hit 위치 (source):</strong> ${{hit||'없음'}}</span>
-        <span><strong>Hit 위치 (page):</strong> ${{q.hit_position_page||'없음'}}</span>
+        <span><strong>Hit (source):</strong> <span class="${{hit?'hit-yes':'hit-no'}}">${{hit?'Hit@'+hit:'MISS'}}</span></span>
+        <span><strong>Recall@K (source):</strong> ${{(q.recall_at_k*100).toFixed(0)}}%</span>
+        <span><strong>Hit (page):</strong> <span class="${{q.hit_position_page?'hit-yes':'hit-no'}}">${{q.hit_position_page?'Hit@'+q.hit_position_page:'MISS'}}</span></span>
+        <span><strong>Recall@K (page):</strong> ${{((q.recall_at_k_page||0)*100).toFixed(0)}}%</span>
+      </div>
+      <div class="meta-row">
         <span><strong>정답 문서:</strong> ${{q.ground_truth_source||'N/A'}}</span>
         <span><strong>정답 페이지:</strong> ${{q.ground_truth_page!=null?q.ground_truth_page:'N/A'}}</span>
+        ${{q.ground_truth_sources&&q.ground_truth_sources.length>1?`<span><strong>정답 소스(전체):</strong> ${{q.ground_truth_sources.join(' / ')}}</span>`:''}}
+      </div>
+      <div class="meta-row latency-row">
+        ${{q.latencies?`<span><strong>지연시간:</strong> analyze=${{(q.latencies.analyze_query||0).toFixed(1)}}s | retrieve=${{(q.latencies.retrieve||0).toFixed(2)}}s | evidence=${{(q.latencies.extract_evidence||0).toFixed(1)}}s | generate=${{(q.latencies.generate||0).toFixed(1)}}s</span>`:''}}</span>
       </div>
       <div class="answer-grid">
         <div class="answer-box expected">
@@ -354,28 +549,28 @@ PQ.forEach(q => {{
       <div class="judge-grid">
         <div class="judge-item">
           <div class="j-header">
-            <span class="j-label">Correctness</span>
+            <span class="j-label">Correctness <span class="j-label-ko">정확성</span></span>
             <span class="score-pill ${{scoreClass(cs)}}">${{cs}}/5</span>
           </div>
           <div class="j-reason">${{escapeHtml(cReason)}}</div>
         </div>
         <div class="judge-item">
           <div class="j-header">
-            <span class="j-label">Answer Coverage</span>
+            <span class="j-label">Answer Coverage <span class="j-label-ko">커버리지</span></span>
             <span class="score-pill ${{scoreClass(acs)}}">${{acs}}/5</span>
           </div>
           <div class="j-reason">${{escapeHtml(acReason)}}</div>
         </div>
         <div class="judge-item">
           <div class="j-header">
-            <span class="j-label">Faithfulness</span>
+            <span class="j-label">Faithfulness <span class="j-label-ko">충실성</span></span>
             <span class="score-pill ${{scoreClass(fs)}}">${{fs}}/5</span>
           </div>
           <div class="j-reason">${{escapeHtml(fReason)}}</div>
         </div>
         <div class="judge-item">
           <div class="j-header">
-            <span class="j-label">Context Relevance</span>
+            <span class="j-label">Context Relevance <span class="j-label-ko">검색관련성</span></span>
             <span class="score-pill ${{scoreClass(crs)}}">${{crs}}/5</span>
           </div>
           <div class="j-reason">${{escapeHtml(crReason)}}</div>
