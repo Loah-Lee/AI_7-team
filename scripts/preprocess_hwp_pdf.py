@@ -56,13 +56,16 @@ def main() -> None:
     for idx, hwp_path in enumerate(hwp_files, 1):
         print(f"[{idx}/{len(hwp_files)}] {hwp_path.name}", end=" ... ", flush=True)
 
-        pdf_path = hwp_converter.convert_to_pdf(hwp_path, output_dir, overwrite=args.overwrite)
-        if not pdf_path:
+        try:
+            pdf_path = hwp_converter.convert_to_pdf(hwp_path, output_dir, overwrite=args.overwrite)
+        except RuntimeError as exc:
             print("실패")
             records.append({
                 "source_hwp": str(hwp_path),
                 "converted_pdf": None,
                 "success": False,
+                "error": str(exc),
+                "pdf_generation_mode": None,
                 "page_count": 0,
                 "table_count": 0,
                 "table_pages": 0,
@@ -79,6 +82,8 @@ def main() -> None:
             "source_hwp": str(hwp_path),
             "converted_pdf": str(pdf_path),
             "success": True,
+            "error": None,
+            "pdf_generation_mode": hwp_converter.last_pdf_generation_mode,
             "page_count": len(pages),
             "table_count": table_count,
             "table_pages": table_pages,
@@ -105,4 +110,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

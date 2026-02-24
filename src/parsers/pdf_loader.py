@@ -80,11 +80,12 @@ class PDFMarkdownConverter:
         """PDF를 페이지 단위로 추출합니다."""
         path = Path(pdf_path)
         pages: list[dict[str, Any]] = []
-        limit = max_pages or MAX_PAGES
+        limit = MAX_PAGES if max_pages is None else max_pages
 
         try:
             with pdfplumber.open(path) as pdf:
-                for page_num, page in enumerate(pdf.pages[:limit], 1):
+                source_pages = pdf.pages if limit <= 0 else pdf.pages[:limit]
+                for page_num, page in enumerate(source_pages, 1):
                     page_text = normalize_newlines(page.extract_text() or "").strip()
 
                     table_markdowns: list[str] = []
@@ -136,7 +137,10 @@ class PDFMarkdownConverter:
 
         pages = self.extract_pages(path, max_pages=MAX_PAGES, include_tables=True)
         if pages:
-            shown_pages = min(total_pages, MAX_PAGES) if total_pages else len(pages)
+            if total_pages:
+                shown_pages = total_pages if MAX_PAGES <= 0 else min(total_pages, MAX_PAGES)
+            else:
+                shown_pages = len(pages)
             parts.append(f"- **페이지 수**: {total_pages or '확인 불가'}\n")
             parts.append(f"- **추출 페이지 수**: {shown_pages}\n")
             parts.append("\n## 문서 내용\n\n")

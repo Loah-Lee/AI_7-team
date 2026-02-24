@@ -16,9 +16,9 @@ from langchain_core.messages import SystemMessage, HumanMessage
 
 # 설정
 sys.path.insert(0, 'src')
-from src.utils.config import DEFAULT_MODEL, REASONING_MODEL, OPENAI_API_KEY
+from src.utils.config import DEFAULT_MODEL, INTENT_REGEX_FIRST, REASONING_MODEL, OPENAI_API_KEY
 from src.prompts.templates import INTENT_ANALYSIS_PROMPT, ANSWER_GENERATION_PROMPT, RFP_SYSTEM_PROMPT
-from src.graph.state import QueryIntent
+from src.graph.state import QueryIntent, QuestionPlan
 
 
 # ============================================================================
@@ -30,20 +30,32 @@ class QueryIntentParser:
 
     def __init__(self, llm: ChatOpenAI | None):
         self.llm = llm
+        self.last_parse_used_llm = False
 
     def parse(self, query: str) -> QueryIntent:
         """질문을 분석하여 의도를 파악합니다."""
+        self.last_parse_used_llm = False
         if not self.llm:
             return self._parse_with_regex(query)
 
-        intent = self._parse_with_llm(query)
-
-        if intent.confidence < 0.7:
+        if INTENT_REGEX_FIRST:
             regex_intent = self._parse_with_regex(query)
-            if regex_intent.confidence > intent.confidence:
-                intent = regex_intent
+            if regex_intent.confidence >= 0.75:
+                return regex_intent
 
-        return intent
+            llm_intent = self._parse_with_llm(query)
+            if llm_intent.confidence >= regex_intent.confidence:
+                self.last_parse_used_llm = True
+                return llm_intent
+            return regex_intent
+
+        llm_intent = self._parse_with_llm(query)
+        self.last_parse_used_llm = True
+        if llm_intent.confidence < 0.7:
+            regex_intent = self._parse_with_regex(query)
+            if regex_intent.confidence > llm_intent.confidence:
+                return regex_intent
+        return llm_intent
 
     def _parse_with_llm(self, query: str) -> QueryIntent:
         """LLM로 질문을 분석합니다."""
@@ -157,6 +169,58 @@ class QueryIntentParser:
                 return match.group(1)
 
         return None
+
+
+class QuestionPlanner:
+    """질문 유형과 필수 슬롯을 결정하는 경량 플래너."""
+
+    @staticmethod
+    def build(query: str, target_org: str = "") -> QuestionPlan:
+        q = (query or "").lower()
+        normalized = re.sub(r"\s+", " ", q)
+
+        is_comparison = any(k in normalized for k in ["비교", "차이", "각각", "공통", "모두 고려", "동시에", "두 문서"])
+        if is_comparison:
+            return QuestionPlan(
+                query_kind="comparison",
+                required_slots=["docA_claim", "docB_claim", "comparison_point"],
+                is_comparison=True,
+                target_org=target_org,
+            )
+
+        if any(k in normalized for k in ["누가", "부담", "책임", "소유권", "귀속"]):
+            return QuestionPlan(
+                query_kind="owner",
+                required_slots=["owner", "evidence"],
+                target_org=target_org,
+            )
+
+        if any(k in normalized for k in ["언제", "마감", "기한", "이내", "시간", "주기", "횟수"]):
+            return QuestionPlan(
+                query_kind="deadline",
+                required_slots=["value", "unit", "evidence"],
+                target_org=target_org,
+            )
+
+        if any(k in normalized for k in ["얼마", "수량", "단위", "용량", "몇", "비율", "퍼센트"]):
+            return QuestionPlan(
+                query_kind="fact_numeric",
+                required_slots=["value", "unit", "evidence"],
+                target_org=target_org,
+            )
+
+        if any(k in normalized for k in ["및", "와", "과", "또는", "둘 다", "복수"]):
+            return QuestionPlan(
+                query_kind="multi_doc",
+                required_slots=["key_points", "evidence"],
+                target_org=target_org,
+            )
+
+        return QuestionPlan(
+            query_kind="single_doc",
+            required_slots=["key_points", "evidence"],
+            target_org=target_org,
+        )
 
 
 # ============================================================================

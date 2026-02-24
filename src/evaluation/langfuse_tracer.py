@@ -6,18 +6,14 @@ import os
 import warnings
 from typing import Any
 
+from dotenv import load_dotenv
+
 try:
     from langfuse import Langfuse
     LANGFUSE_AVAILABLE = True
 except ImportError:
     Langfuse = None  # type: ignore
     LANGFUSE_AVAILABLE = False
-
-try:
-    from src.utils.env import get_langfuse_keys, load_env
-    UTILS_AVAILABLE = True
-except ImportError:
-    UTILS_AVAILABLE = False
 
 
 def get_langfuse_client() -> Any | None:
@@ -36,16 +32,12 @@ def get_langfuse_client() -> Any | None:
         )
         return None
 
-    if UTILS_AVAILABLE:
-        load_env()
-        keys = get_langfuse_keys()
-    else:
-        # Fallback to direct env vars
-        keys = {
-            "public_key": os.getenv("LANGFUSE_PUBLIC_KEY", ""),
-            "secret_key": os.getenv("LANGFUSE_SECRET_KEY", ""),
-            "host": os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com"),
-        }
+    load_dotenv()
+    keys = {
+        "public_key": os.getenv("LANGFUSE_PUBLIC_KEY", ""),
+        "secret_key": os.getenv("LANGFUSE_SECRET_KEY", ""),
+        "host": os.getenv("LANGFUSE_BASE_URL", os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")),
+    }
 
     if not keys["public_key"] or not keys["secret_key"]:
         return None

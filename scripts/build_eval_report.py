@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import html as html_lib
 import json
 import sys
 from datetime import datetime
@@ -131,6 +132,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         .result-card.incorrect {{
             border-left-color: #ef4444;
+        }}
+
+        .result-card.no-judge {{
+            border-left-color: #9ca3af;
         }}
 
         .result-header {{
@@ -322,26 +327,26 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="container">
         <div class="header">
             <h1>입찰메이트 v17 - 평가 리포트</h1>
-            <div class="subtitle">RFP 문서 기반 지능형 질의응답 시스템</div>
+            <div class="subtitle">RFP 문서 기반 지능형 질의응답 시스템 ({report_mode_label})</div>
             <div class="timestamp">생성일: {timestamp}</div>
         </div>
 
         <div class="metrics">
             <div class="metric-card">
                 <div class="label">정확성 (Correctness)</div>
-                <div class="value score">{avg_correctness:.2f}/5</div>
+                <div class="value score">{avg_correctness_display}</div>
             </div>
             <div class="metric-card">
                 <div class="label">커버리지 (Coverage)</div>
-                <div class="value">{avg_coverage:.2f}/5</div>
+                <div class="value">{avg_coverage_display}</div>
             </div>
             <div class="metric-card">
                 <div class="label">충실성 (Faithfulness)</div>
-                <div class="value">{avg_faithfulness:.2f}/5</div>
+                <div class="value">{avg_faithfulness_display}</div>
             </div>
             <div class="metric-card">
                 <div class="label">검색 관련성 (Context)</div>
-                <div class="value">{avg_context_relevance:.2f}/5</div>
+                <div class="value">{avg_context_relevance_display}</div>
             </div>
             <div class="metric-card">
                 <div class="label">평균 응답 시간</div>
@@ -351,6 +356,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 <div class="label">전체 질문 수</div>
                 <div class="value">{total_questions}</div>
             </div>
+            {extra_metric_cards}
         </div>
 
         <div class="section">
@@ -431,9 +437,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         // 페이지 로드 후 점수 색상 적용
         document.addEventListener('DOMContentLoaded', function() {{
             document.querySelectorAll('.score-badge').forEach(badge => {{
-                const scoreText = badge.textContent.match(/[0-5]/);
+                const scoreText = badge.textContent.match(/([0-5](?:\\.\\d+)?)/);
                 if (scoreText) {{
-                    const score = parseInt(scoreText[0]);
+                    const score = parseFloat(scoreText[0]);
                     badge.style.background = getScoreBackground(score);
                     badge.style.color = getScoreColor(score);
                 }}
@@ -463,10 +469,100 @@ def get_score_background(score: float) -> str:
     return '#fee2e2'
 
 
-def build_result_card(result: dict[str, Any], idx: int) -> str:
+def _to_float(value: Any) -> float | None:
+    """값을 float으로 변환합니다. 변환할 수 없으면 None을 반환합니다."""
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _clean_text(value: Any) -> str:
+    """문자열 값을 안전하게 정제합니다."""
+    if value is None:
+        return ''
+    return str(value).replace('\x00', '')
+
+
+def _safe_text(value: Any) -> str:
+    """HTML에 넣기 안전한 문자열로 변환합니다."""
+    return html_lib.escape(_clean_text(value))
+
+
+def _safe_preview(value: Any, limit: int = 300) -> str:
+    """미리보기 문자열을 길이 제한 + HTML escape 처리합니다."""
+    text = _clean_text(value)
+    if len(text) > limit:
+        text = f'{text[:limit]}...'
+    return html_lib.escape(text)
+
+
+def _format_judge_score(value: float | None) -> str:
+    """Judge 점수 포맷을 반환합니다."""
+    if value is None:
+        return 'N/A'
+    return f'{value:.2f}/5'
+
+
+def _build_extra_metric_cards(metrics: dict[str, Any]) -> str:
+    """상단 추가 메트릭 카드를 생성합니다."""
+    p50 = _to_float(metrics.get('p50_response_time'))
+    p90 = _to_float(metrics.get('p90_response_time'))
+    avg_slot_fill_rate = _to_float(metrics.get('avg_slot_fill_rate'))
+    avg_confidence = _to_float(metrics.get('avg_confidence'))
+    mode_distribution = metrics.get('answer_mode_distribution')
+
+    if isinstance(mode_distribution, dict) and mode_distribution:
+        mode_text = ', '.join(
+            f'{_safe_text(mode)}:{_safe_text(count)}'
+            for mode, count in sorted(mode_distribution.items())
+        )
+    else:
+        mode_text = 'N/A'
+
+    cards = [
+        (
+            '응답시간 P50',
+            f'{p50:.2f}s' if p50 is not None else 'N/A',
+        ),
+        (
+            '응답시간 P90',
+            f'{p90:.2f}s' if p90 is not None else 'N/A',
+        ),
+        (
+            '평균 Slot Fill',
+            f'{avg_slot_fill_rate:.3f}' if avg_slot_fill_rate is not None else 'N/A',
+        ),
+        (
+            '평균 Confidence',
+            f'{avg_confidence:.3f}' if avg_confidence is not None else 'N/A',
+        ),
+        (
+            'Answer Mode',
+            mode_text,
+        ),
+    ]
+
+    return '\n'.join(
+        f"""
+            <div class="metric-card">
+                <div class="label">{label}</div>
+                <div class="value">{value}</div>
+            </div>
+        """
+        for label, value in cards
+    )
+
+
+def build_result_card(result: dict[str, Any], idx: int, has_judge: bool) -> str:
     """결과 카드 HTML을 생성합니다."""
-    correctness = result.get('correctness', 0)
-    card_class = 'correct' if correctness >= 4 else ('partial' if correctness >= 2 else 'incorrect')
+    correctness = _to_float(result.get('correctness')) if has_judge else None
+    if correctness is None:
+        card_class = 'no-judge'
+    else:
+        card_class = 'correct' if correctness >= 4 else ('partial' if correctness >= 2 else 'incorrect')
 
     query_type = result.get('query_type', 'single_doc')
     query_type_label = {
@@ -474,33 +570,52 @@ def build_result_card(result: dict[str, Any], idx: int) -> str:
         'multi_doc': '다중 문서',
         'comparison': '비교'
     }.get(query_type, query_type)
+    query_type_label = _safe_text(query_type_label)
+
+    result_id = _safe_text(result.get('id', f'item_{idx + 1}'))
+    question = _safe_text(result.get('question', ''))
+    expected_answer = _safe_preview(result.get('expected_answer', ''))
+    generated_answer = _safe_preview(result.get('generated_answer', ''))
+
+    coverage_score = _to_float(result.get('coverage')) if has_judge else None
+    faithfulness_score = _to_float(result.get('faithfulness')) if has_judge else None
+    context_score = _to_float(result.get('context_relevance')) if has_judge else None
+
+    response_time = _to_float(result.get('response_time')) or 0.0
+
+    ground_truth = result.get('ground_truth')
+    ground_truth_text = ''
+    if isinstance(ground_truth, dict):
+        source = _clean_text(ground_truth.get('source', '')).strip()
+        if source:
+            ground_truth_text = f' | 정답 문서: {html_lib.escape(source)}'
 
     html = f"""
         <div class="result-card {card_class}">
             <div class="result-header">
                 <div>
-                    <span class="result-id">#{idx + 1} {result['id']}</span>
+                    <span class="result-id">#{idx + 1} {result_id}</span>
                     <span class="result-type">{query_type_label}</span>
                 </div>
             </div>
-            <div class="result-question">{result['question']}</div>
+            <div class="result-question">{question}</div>
             <div class="result-scores">
-                <span class="score-badge correctness">정확성: {result.get('correctness', 0)}/5</span>
-                <span class="score-badge coverage">커버리지: {result.get('coverage', 0)}/5</span>
-                <span class="score-badge faithfulness">충실성: {result.get('faithfulness', 0)}/5</span>
-                <span class="score-badge context">검색: {result.get('context_relevance', 0)}/5</span>
+                <span class="score-badge correctness">정확성: {_format_judge_score(correctness)}</span>
+                <span class="score-badge coverage">커버리지: {_format_judge_score(coverage_score)}</span>
+                <span class="score-badge faithfulness">충실성: {_format_judge_score(faithfulness_score)}</span>
+                <span class="score-badge context">검색: {_format_judge_score(context_score)}</span>
             </div>
             <div class="answer-section">
                 <div class="answer-label">기대 답변:</div>
-                <div class="answer-content expected">{result['expected_answer'][:300]}{'...' if len(result['expected_answer']) > 300 else ''}</div>
+                <div class="answer-content expected">{expected_answer}</div>
             </div>
             <div class="answer-section">
                 <div class="answer-label">생성된 답변:</div>
-                <div class="answer-content generated">{result.get('generated_answer', '')[:300]}{'...' if len(result.get('generated_answer', '')) > 300 else ''}</div>
+                <div class="answer-content generated">{generated_answer}</div>
             </div>
             <div class="response-time">
-                응답 시간: {result.get('response_time', 0):.2f}초
-                {f" | 정답 문서: {result['ground_truth'].get('source', 'N/A')}" if result.get('ground_truth') else ""}
+                응답 시간: {response_time:.2f}초
+                {ground_truth_text}
             </div>
         </div>
     """
@@ -512,37 +627,49 @@ def build_html_report(eval_result: dict[str, Any]) -> str:
     metrics = eval_result.get('metrics', {})
     results = eval_result.get('results', [])
 
+    has_judge = (
+        any(
+            key in metrics
+            for key in ('avg_correctness', 'avg_coverage', 'avg_faithfulness', 'avg_context_relevance')
+        )
+        or any('correctness' in result for result in results)
+    )
+
     # 메트릭 추출
-    avg_correctness = metrics.get('avg_correctness', 0)
-    avg_coverage = metrics.get('avg_coverage', 0)
-    avg_faithfulness = metrics.get('avg_faithfulness', 0)
-    avg_context_relevance = metrics.get('avg_context_relevance', 0)
-    avg_response_time = metrics.get('avg_response_time', 0)
+    avg_correctness = _to_float(metrics.get('avg_correctness')) if has_judge else None
+    avg_coverage = _to_float(metrics.get('avg_coverage')) if has_judge else None
+    avg_faithfulness = _to_float(metrics.get('avg_faithfulness')) if has_judge else None
+    avg_context_relevance = _to_float(metrics.get('avg_context_relevance')) if has_judge else None
+    avg_response_time = _to_float(metrics.get('avg_response_time')) or 0.0
     total_questions = metrics.get('total_questions', len(results))
-    recall_source = metrics.get('recall_at_k_source', 0)
-    recall_page = metrics.get('recall_at_k_page', 0)
-    mrr_source = metrics.get('mrr_source', 0)
-    mrr_page = metrics.get('mrr_page', 0)
+    recall_source = _to_float(metrics.get('recall_at_k_source')) or 0.0
+    recall_page = _to_float(metrics.get('recall_at_k_page')) or 0.0
+    mrr_source = _to_float(metrics.get('mrr_source')) or 0.0
+    mrr_page = _to_float(metrics.get('mrr_page')) or 0.0
 
     # 결과 카드 생성
-    result_cards = '\n'.join([build_result_card(r, i) for i, r in enumerate(results)])
+    result_cards = '\n'.join([build_result_card(r, i, has_judge=has_judge) for i, r in enumerate(results)])
 
     # 메인 점수 색상 계산
-    main_score_color = get_score_color(avg_correctness)
+    main_score_color = get_score_color(avg_correctness) if avg_correctness is not None else '#6b7280'
 
     # 진행률 계산
-    recall_source_pct = recall_source * 100
-    recall_page_pct = recall_page * 100
-    mrr_source_pct = mrr_source * 100
-    mrr_page_pct = mrr_page * 100
+    recall_source_pct = max(0.0, min(100.0, recall_source * 100))
+    recall_page_pct = max(0.0, min(100.0, recall_page * 100))
+    mrr_source_pct = max(0.0, min(100.0, mrr_source * 100))
+    mrr_page_pct = max(0.0, min(100.0, mrr_page * 100))
+
+    extra_metric_cards = _build_extra_metric_cards(metrics)
+    report_mode_label = 'Judge 포함 평가' if has_judge else 'No-Judge 평가(검색/성능 중심)'
 
     # HTML 생성
     html = HTML_TEMPLATE.format(
         timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        avg_correctness=avg_correctness,
-        avg_coverage=avg_coverage,
-        avg_faithfulness=avg_faithfulness,
-        avg_context_relevance=avg_context_relevance,
+        report_mode_label=report_mode_label,
+        avg_correctness_display=_format_judge_score(avg_correctness),
+        avg_coverage_display=_format_judge_score(avg_coverage),
+        avg_faithfulness_display=_format_judge_score(avg_faithfulness),
+        avg_context_relevance_display=_format_judge_score(avg_context_relevance),
         avg_response_time=avg_response_time,
         total_questions=total_questions,
         recall_source=recall_source,
@@ -553,8 +680,8 @@ def build_html_report(eval_result: dict[str, Any]) -> str:
         recall_page_pct=recall_page_pct,
         mrr_source_pct=mrr_source_pct,
         mrr_page_pct=mrr_page_pct,
+        extra_metric_cards=extra_metric_cards,
         result_cards=result_cards,
-        main_score=avg_correctness,
         main_score_color=main_score_color
     )
 

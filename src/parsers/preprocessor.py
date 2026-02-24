@@ -88,6 +88,7 @@ class UnifiedCorpusPreprocessor:
 
         source_type = ""
         converted_pdf: Path | None = None
+        pdf_generation_mode: str | None = None
         page_chunks: list[dict[str, Any]] = []
 
         if source_exists and source_file is not None:
@@ -98,10 +99,8 @@ class UnifiedCorpusPreprocessor:
                     self.pdf_dir,
                     overwrite=overwrite,
                 )
-                if converted_pdf:
-                    page_chunks = self.pdf_converter.extract_pages(converted_pdf, include_tables=True)
-                else:
-                    page_chunks = self.hwp_converter.extract_pages(source_file)
+                pdf_generation_mode = self.hwp_converter.last_pdf_generation_mode
+                page_chunks = self.pdf_converter.extract_pages(converted_pdf, include_tables=True)
             elif source_file.suffix.lower() == ".pdf":
                 page_chunks = self.pdf_converter.extract_pages(source_file, include_tables=True)
 
@@ -122,6 +121,7 @@ class UnifiedCorpusPreprocessor:
             "source_path": str(source_file) if source_file else None,
             "source_type": source_type,
             "converted_pdf": str(converted_pdf) if converted_pdf else None,
+            "pdf_generation_mode": pdf_generation_mode,
             "page_count": len(page_chunks),
             "table_count": table_count,
             "markdown_path": str(md_path),

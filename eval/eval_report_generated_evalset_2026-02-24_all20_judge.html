@@ -1,0 +1,1110 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>입찰메이트 v17 - 평가 리포트</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 2rem;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 1rem;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .header .subtitle {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .header .timestamp {
+            margin-top: 1rem;
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            padding: 2rem;
+            background: #f8f9fa;
+        }
+
+        .metric-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        .metric-card .label {
+            font-size: 0.85rem;
+            color: #666;
+            margin-bottom: 0.5rem;
+        }
+
+        .metric-card .value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .metric-card .value.score {
+            color: #ef4444;
+        }
+
+        .section {
+            padding: 2rem;
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            margin-bottom: 1.5rem;
+            color: #333;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 0.5rem;
+        }
+
+        .result-card {
+            background: #f8f9fa;
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            border-left: 4px solid #667eea;
+        }
+
+        .result-card.correct {
+            border-left-color: #10b981;
+        }
+
+        .result-card.partial {
+            border-left-color: #f59e0b;
+        }
+
+        .result-card.incorrect {
+            border-left-color: #ef4444;
+        }
+
+        .result-card.no-judge {
+            border-left-color: #9ca3af;
+        }
+
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .result-id {
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .result-type {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 1rem;
+            font-size: 0.75rem;
+            font-weight: bold;
+            background: #e0e7ff;
+            color: #4338ca;
+        }
+
+        .result-question {
+            font-size: 1.1rem;
+            font-weight: 500;
+            margin-bottom: 1rem;
+            color: #1f2937;
+        }
+
+        .result-scores {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .score-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.75rem;
+            border-radius: 0.5rem;
+            font-size: 0.85rem;
+            font-weight: bold;
+        }
+
+        .score-badge.correctness {
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        .score-badge.coverage {
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        .score-badge.faithfulness {
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        .score-badge.context {
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        .answer-section {
+            margin-top: 1rem;
+        }
+
+        .answer-label {
+            font-size: 0.85rem;
+            color: #666;
+            margin-bottom: 0.25rem;
+            font-weight: 500;
+        }
+
+        .answer-content {
+            background: white;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            color: #374151;
+            line-height: 1.6;
+        }
+
+        .answer-content.expected {
+            border-left: 3px solid #10b981;
+        }
+
+        .answer-content.generated {
+            border-left: 3px solid #3b82f6;
+        }
+
+        .response-time {
+            font-size: 0.85rem;
+            color: #6b7280;
+            margin-top: 0.5rem;
+        }
+
+        .chart-container {
+            height: 200px;
+            margin: 1rem 0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        th {
+            background: #f3f4f6;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        tr:hover {
+            background: #f9fafb;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e5e7eb;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 0.5rem;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            transition: width 0.3s ease;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 1.5rem;
+            background: #f8f9fa;
+            color: #6b7280;
+            font-size: 0.9rem;
+        }
+
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 1rem;
+            background: white;
+            border-radius: 0.5rem;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: #6b7280;
+            margin-top: 0.25rem;
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            .container {
+                box-shadow: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>입찰메이트 v17 - 평가 리포트</h1>
+            <div class="subtitle">RFP 문서 기반 지능형 질의응답 시스템 (Judge 포함 평가)</div>
+            <div class="timestamp">생성일: 2026-02-24 11:01:57</div>
+        </div>
+
+        <div class="metrics">
+            <div class="metric-card">
+                <div class="label">정확성 (Correctness)</div>
+                <div class="value score">1.65/5</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">커버리지 (Coverage)</div>
+                <div class="value">1.35/5</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">충실성 (Faithfulness)</div>
+                <div class="value">2.55/5</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">검색 관련성 (Context)</div>
+                <div class="value">4.15/5</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">평균 응답 시간</div>
+                <div class="value">2.89s</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">전체 질문 수</div>
+                <div class="value">20</div>
+            </div>
+            
+            <div class="metric-card">
+                <div class="label">응답시간 P50</div>
+                <div class="value">1.34s</div>
+            </div>
+        
+
+            <div class="metric-card">
+                <div class="label">응답시간 P90</div>
+                <div class="value">6.84s</div>
+            </div>
+        
+
+            <div class="metric-card">
+                <div class="label">평균 Slot Fill</div>
+                <div class="value">0.983</div>
+            </div>
+        
+
+            <div class="metric-card">
+                <div class="label">평균 Confidence</div>
+                <div class="value">0.990</div>
+            </div>
+        
+
+            <div class="metric-card">
+                <div class="label">Answer Mode</div>
+                <div class="value">extractive:19, hybrid:1</div>
+            </div>
+        
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">검색 메트릭</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>지표</th>
+                        <th>값</th>
+                        <th>진행률</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Recall@K (Source)</td>
+                        <td>0.6500</td>
+                        <td>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 65.0%"></div>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Recall@K (Page)</td>
+                        <td>0.6000</td>
+                        <td>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 60.0%"></div>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>MRR (Source)</td>
+                        <td>0.6199</td>
+                        <td>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 61.986985930735926%"></div>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>MRR (Page)</td>
+                        <td>0.4129</td>
+                        <td>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 41.29449254449254%"></div>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">질문별 결과</h2>
+            
+        <div class="result-card correct">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#1 eval_001</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">국민연금공단 &#x27;2024년 이러닝시스템 운영 용역&#x27; 근로자 권리보호 이행 서약서에서 근로 중 발생한 문제에 대해 당사가 준수하겠다고 명시한 관련 법령은 무엇인가요?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 5.00/5</span>
+                <span class="score-badge coverage">커버리지: 5.00/5</span>
+                <span class="score-badge faithfulness">충실성: 5.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">「근로기준법」, 「산업재해보상보험법」, 「고용보험법」, 「국민건강보험법」을 준수하겠다고 명시되어 있습니다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">국민연금공단 문서에서 질문 관련 조항을 확인했습니다.
+
+### 근거 요약
+- 당사는 국민연금공단에서 시행하는 “2024 년 이러닝시스템 운영 용역 ” 계약업체로서 근로자(하도급업체포함)의 인권 보호 · 고용안정 · 노동환경 등의 권리보호를 위해 다음 사항을 이행 할 것을 서약합니다.
+- 6. 당사는 근로 중 근로자에게 발생한 문제에 대하여 「 근로기준법 」, 「 산업재해보상 보험법 」, 「 고용보험법 」, 「 국민건강보험법 」 등 관련법령을 준수하여 필요한 조치 를 취하며 이를 위반할 시에는 관계법령에 따라 책임지겠습니다.
+- &lt;하...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 0.68초
+                 | 정답 문서: 국민연금공단_2024년 이러닝시스템 운영 용역.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card correct">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#2 eval_002</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">서울특별시 여성가족재단의 &#x27;서울 디지털성범죄 안심지원센터&#x27; 사업범위는 무엇인가?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 4.00/5</span>
+                <span class="score-badge coverage">커버리지: 3.00/5</span>
+                <span class="score-badge faithfulness">충실성: 3.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">AI 삭제지원 분산환경 인프라 및 통합 업무시스템 구축.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">A 문서: 당사는 부패 없는 투명한 기업경영과 공정한 행정이 사회발전과 국가 경쟁력에 중요한 관건이 됨을 깊이 인식하며, 국제적으로도 OECD 뇌물방지 협약이 발효되고 부패기업 및 국가에 대한 제재가 강화되는 추세에 맞추어 청렴계약제 시행 취지에 적극 호응하여 서울시여성가족재단 에서 시행하는 「 서울 디지털성범죄 안심지원센터 업무시스템 및 AI 기 반 삭제지원시스템 통합 」 입찰에 참여함에 있어 당사 ; 제1조 (목적) 이 기준은 아래 규정에 의해 「 서울 디지털성범죄 안심지원센터 업무시스템 및 AI 기반 삭제지원 시스템 통합 」 ...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 0.86초
+                 | 정답 문서: 서울특별시 여성가족재단_(재공고, 협상) 서울 디지털성범죄 안심지원센.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card partial">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#3 eval_003</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">한국산업인력공단의 RFID기반 국가자격 시험 결과물 스마트 관리시스템 사업에서 SER-003(DB 보안) 요구사항에 따라 DB에 저장되는 보안이 필요한 필드는 어떻게 처리해야 합니까?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 2.00/5</span>
+                <span class="score-badge coverage">커버리지: 1.00/5</span>
+                <span class="score-badge faithfulness">충실성: 3.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">보안이 필요한 필드는 암·복호화하여 저장해야 한다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">한국산업인력공단 문서 기준 문서 기준 운영 요구사항은 `SER-003`입니다.
+
+### 근거 요약
+- ※ RFID 국가자격 시험 결과물 스마트 관리시스템 운영 관련 하드웨어 및 솔루션
+- - 맞춤형 웹 기반 운영 S/W, 안드로이드 모바일 S/W ( 스마트폰, 태블릿 PC 지원), 윈도우 기반 데이터 수집 S/W 솔루션 도입을 통한 통합 시험 결과물 관리 플랫폼 구축
+
+### 출처
+- 한국산업인력공단_RFID기반 국가자격 시험 결과물 스마트 관리시스템 도.hwp p.2</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 1.35초
+                 | 정답 문서: 한국산업인력공단_RFID기반 국가자격 시험 결과물 스마트 관리시스템 도.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card incorrect">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#4 eval_004</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">국립인천해양박물관 해양자료관리시스템 구축 용 RFP(SFR-002)에서 &#x27;자료수집&#x27;의 수집위원회는 어떤 단계별로 결과자료를 관리하도록 규정하고 있습니까?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 1.00/5</span>
+                <span class="score-badge coverage">커버리지: 0.00/5</span>
+                <span class="score-badge faithfulness">충실성: 1.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">수집위원회는 실무·평가·심의의 단계별로 결과자료를 관리하도록 규정하고 있으며, 해당 단계들에 대한 관리기능과 전자서명 기능을 제공해야 합니다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">국립인천해양박물관 문서 기준 반드시 적용해야 할 보안 조치는 다음 근거 조항으로 확인됩니다.
+
+### 근거 요약
+- SFR-002
+- SFR-002 ; 요구사항 명칭
+
+### 출처
+- 국립인천해양박물관_국립인천해양박물관 해양자료관리시스템 구축 용.hwp p.4</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 0.85초
+                 | 정답 문서: 국립인천해양박물관_국립인천해양박물관 해양자료관리시스템 구축 용.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card incorrect">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#5 eval_005</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">평택시 버스정보시스템(BIS) 구축사업 RFP의 데이터 요구사항 DAR-01에 따르면 기반자료의 좌표계는 무엇을 준수해야 하며, 기존 시스템과 좌표계가 상이할 경우 어떻게 해야 합니까?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 0.00/5</span>
+                <span class="score-badge coverage">커버리지: 0.00/5</span>
+                <span class="score-badge faithfulness">충실성: 1.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">좌표계는 세계측지계를 준수해야 하며, 기존 시스템과 좌표계가 상이할 경우 좌표계를 변환하고 프로그램 표출 등 업무분장의 한계는 각 지자체와 협의 후 승인 받아 구축해야 합니다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">경기도 평택시 문서 기준 문서 기준 운영 요구사항은 `— 시스템 정상상태에서 사용자의 건별 등록/수정 요구사항은 3초 이내 처리 함` 및 `— 시스템은 365일 무중단 되어 서비스 되어야 함`입니다.
+
+### 근거 요약
+- 1) 제안서는 제안요청서에 기술된 요구사항을 충분히 만족할 수 있는 방안을 포함하도록 기술하여야 하며, 본 제안요청서의 목차는 버스정보시스템( BIS) 구축 ‧ 운영 매뉴얼에 제시된 기본 목차만 제시되었음으로 제안서 작성 지침에 기술된 부문별 요구사항에 대해서는 목차 구성에 따라 각각 세분해서 보다 구체적이고 상...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 1.75초
+                 | 정답 문서: 경기도 평택시_2024년도 평택시 버스정보시스템(BIS) 구축사업.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card incorrect">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#6 eval_006</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">한국수자원공사(K-water) 용인 첨단 시스템반도체 국가산단 용수공급사업의 타당성조사 보고서 초안은 감독원에게 언제 제출하여 사전검토를 받아야 하나요?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 1.00/5</span>
+                <span class="score-badge coverage">커버리지: 1.00/5</span>
+                <span class="score-badge faithfulness">충실성: 1.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">타당성조사 보고서 초안은 1단계는 용역 착수이후 4개월 경과 전에, 2단계는 용역준공 3개월 전에 감독원에게 제출하여 사전검토를 받아야 합니다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">한국수자원공사 문서 기준 문서 기준 기한/일정 값은 `20일 이내`입니다.
+
+### 근거 요약
+- 계약상대자는 “ 국가수도기본계획( `22.10) ”, 지자체 수도정비기본계획, “ 용인 첨단시스템 반도체 국가산단 용수공급사업 기본구상( `23.10) ” 등 본 과업 관련 이전단계의 제반 조 사결과 등을 검토하여야 하고 검토보고서를 착수일로부터 20일 이내에 감독원에게 제 출하여야 한다.
+- ① 계약상대자는 동 과업과 관련된 관계 법령에서 정하는 기본계획 작성을 위한 기 초 조사를 수행하여 기본계획 협의자료 및 협의에 필요한 각종 인...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 0.49초
+                 | 정답 문서: 한국수자원공사_용인 첨단 시스템반도체 국가산단 용수공급사업 타당성.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card incorrect">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#7 eval_007</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">봉화군 재난통합관리시스템 고도화 사업의 추진기간은 얼마입니까?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 1.00/5</span>
+                <span class="score-badge coverage">커버리지: 1.00/5</span>
+                <span class="score-badge faithfulness">충실성: 2.00/5</span>
+                <span class="score-badge context">검색: 4.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">봉화군 재난통합관리시스템 고도화 사업의 추진기간은 210일입니다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">경상북도 봉화군 문서 기준 문서 기준 값은 `20 년`입니다.
+
+### 근거 요약
+- 20 년 월 일자로 공고한 ｢ 봉화군 재난통합관리시스템 고도화 사업 ｣ 에 대한 입찰에 참 가하고자 봉화군에서 정한 입찰유의서, 입찰공고사항을 모두 수락하고 붙임 서류를 갖추어 입찰참가 신청을 합니다.
+- 3. 위의 서약은 상호 신뢰를 바탕으로 한 약속으로서 당사의 양심과 명 예를 걸고 반드시 지킬 것이며, 만약 이를 위반한 사실이 밝혀질 경우에는 관계법령에 따른 처분은 물론 귀 기관이 발주하는 모든 공사(용역, 구매)에 대하여 참가제재 처분을 받...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 0.44초
+                 | 정답 문서: 경상북도 봉화군_봉화군 재난통합관리시스템 고도화 사업(협상)(긴급).hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card incorrect">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#8 eval_008</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">사단법인 보험개발원 &#x27;실손보험 청구 전산화 시스템 구축 사업&#x27; RFP에 따르면 HCI-Type-1 서버의 최소 CPU 사양은 무엇인가요?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 1.00/5</span>
+                <span class="score-badge coverage">커버리지: 0.00/5</span>
+                <span class="score-badge faithfulness">충실성: 2.00/5</span>
+                <span class="score-badge context">검색: 3.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">CPU: 2 x 2.90GHz Intel Xeon Gold5415+, 8Core 이상.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">사단법인 보험개발원 문서에서 질문 관련 조항을 확인했습니다.
+
+### 근거 요약
+- □ 사 업 명 : 실손보험 청구 전산화 시스템 구축
+- o 실손보험 청구 전산화 시스템 내 구간별 보안 인프라 및 시스템 구축, 적용
+- 실손보험 청구 전산화 시스템 구축
+
+### 출처
+- 사단법인 보험개발원_실손보험 청구 전산화 시스템 구축 사업.hwp p.5</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 8.50초
+                 | 정답 문서: 사단법인 보험개발원_실손보험 청구 전산화 시스템 구축 사업.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card correct">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#9 eval_009</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">서울시 정보화사업을 수행하는 용역업체는 보안사고 예방을 위해 어떤 지침과 규칙에 따라 용역사업 단계별 보안사항을 준수해야 합니까?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 4.00/5</span>
+                <span class="score-badge coverage">커버리지: 4.00/5</span>
+                <span class="score-badge faithfulness">충실성: 3.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">국가정보보안기본지침 제63조와 서울시정보통신보안업무처리규칙 제26조에 따라 준수해야 합니다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">A 문서: 서울시 정보화사업을 수행하는 용역업체는 보안사고 예방을 위해 국가정보보안기본지침 제26조,; 서울시정보통신보안업무처리규칙 제26조에 따라 용역사업 단계별(계약, 수행, 종료) 보안사항을; 정의 사업 추진 시 공통기술표준 준수에 관한 사항 m 최종산출물에 대한 보안취약점 점검 및 조치결과서(필요에 따라 협의 후 정함); | &lt;제안서 제출&gt; 서울시청 공간정보담당관 서울시청 (서소문별관) 1동 3층 | ① 입찰참가 공문 1부(대표자 인감 날인) ② 입찰참가신청서 1부 ③ 가격입찰서[별지서식 6] 및 가격제안서[별지서식 7] 1...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 1.60초
+                 | 정답 문서: 서울시립대학교_[사전공개] 학업성취도 다차원 종단분석 통합시스템 1차.pdf
+            </div>
+        </div>
+    
+
+        <div class="result-card incorrect">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#10 eval_010</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">전북특별자치도 정읍시 정읍체육트레이닝센터 통합운영관리시스템 제안요청서에 따르면, 공급자가 제공받은 SW 산출물을 활용하려면 무엇을 해야 합니까?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 0.00/5</span>
+                <span class="score-badge coverage">커버리지: 0.00/5</span>
+                <span class="score-badge faithfulness">충실성: 0.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">공급자는 제안요청서·계약서 등에 누출금지 정보로 명시된 정보를 삭제하고 활용해야 하며, 이를 확인하는 공급자 대표명의의 확약서를 발주기관에 제출해야 한다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">전북특별자치도 정읍시 문서 기준 문서 기준 운영 요구사항은 `○ 시스템은 정상상태에서 매일 24시간 동안 무중단으로 운영되어야 함`입니다.
+
+### 근거 요약
+- □ 본 제안요청서는 『 정읍체육트레이닝센터 통합운영관리시스템 구축 』 을 수행하는 것에 그 목적이 있으며, 용역 수행업체(이하 “ 사업자 ”) 는 정읍시청 (이하 “ 발주자 ”) 사업을 신의 · 성실의 원칙에 따라 수행하여야 한다.
+- 정읍시청 통합운영관리시스템 구축 용역의 목적과 그 제안요청서에 제시된 모든 사항을 충분히 검토, 숙지 인정한 후 본 제안서를 제출합니다.
+...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 0.43초
+                 | 정답 문서: 전북특별자치도 정읍시_정읍체육트레이닝센터 통합운영관리시스템 구.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card incorrect">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#11 eval_011</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">국립민속박물관 민속아카이브 사업 제안서의 본문 분량은 최대 몇 페이지로 작성해야 합니까?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 1.00/5</span>
+                <span class="score-badge coverage">커버리지: 1.00/5</span>
+                <span class="score-badge faithfulness">충실성: 4.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">제안서 본문 내용은 300페이지(150장) 이내로 작성해야 합니다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">문화체육관광부 국립민속박물관 문서에서 질문 관련 조항을 확인했습니다.
+
+### 근거 요약
+- 1. 요구사항 목록 7
+- 2. 상세 요구사항 8
+- 2. 제안서 평가 방법 35
+
+### 출처
+- 문화체육관광부 국립민속박물관_2024년 국립민속박물관 민속아카이브 자.hwp p.1</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 6.66초
+                 | 정답 문서: 문화체육관광부 국립민속박물관_2024년 국립민속박물관 민속아카이브 자.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card incorrect">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#12 eval_012</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">KUSF 체육특기자 경기기록 관리시스템 개발 사업에서 1차연도에 우선 선별하는 종목은 무엇인가?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 1.00/5</span>
+                <span class="score-badge coverage">커버리지: 1.00/5</span>
+                <span class="score-badge faithfulness">충실성: 5.00/5</span>
+                <span class="score-badge context">검색: 4.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">1차연도 사업으로 농구를 선별적으로 우선하며, 이후 배구·야구·축구 종목으로 확대 예정입니다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">(사）한국대학스포츠협의회 문서에서 질문 관련 조항을 확인했습니다.
+
+### 근거 요약
+- ㅇ 신규 개발 대상: ‘ KUSF 체육특기자 경기기록 관리시스템 ’
+- ㅇ 사업내용: KUSF 체육특기자 경기기록 관리시스템 신규 개발
+- ㅇ 신규 개발 대상:‘KUSF 체육특기자 경기기록 관리시스템’
+
+### 출처
+- (사）한국대학스포츠협의회_KUSF 체육특기자 경기기록 관리시스템 개발.hwp p.1</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 0.60초
+                 | 정답 문서: (사）한국대학스포츠협의회_KUSF 체육특기자 경기기록 관리시스템 개발.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card incorrect">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#13 eval_013</span>
+                    <span class="result-type">다중 문서</span>
+                </div>
+            </div>
+            <div class="result-question">수협중앙회 강릉어선안전조업국 상황관제시스템 구축과 인천공항운영서비스㈜ 차세대 ERP시스템 구축에서 각각 요구되는 기술인력·유사실적 조건과 제출해야 할 프로젝트관리/개발방법론 관련 문서는 무엇입니까?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 1.00/5</span>
+                <span class="score-badge coverage">커버리지: 1.00/5</span>
+                <span class="score-badge faithfulness">충실성: 2.00/5</span>
+                <span class="score-badge context">검색: 3.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">수협중앙회(강릉어선안전조업국): 유사사업 실적은 총금액 3억 원 이상(특히 LED 전광판 디스플레이(영상제어컨트롤러 포함) 구축 사업 실적이 필요하며 단순 물품납품은 제외). 기술인력 보유상태는 평가표로 산정(1~2인=1점, 3~4인=2점, 5~6인=3점, 7~8인=4점, 9인 이상=5점)으로 인원수에 따라 점수가 부여됨. 인천공항운영서비스㈜(차세대 ERP): 제안 개발방법론 문서(PMR-001)와 체계적 사업관리 방안(PMR-002), 일정계획(PMR-003), 요구사항관리 방안(PMR-004)을 제출해야 함. 구체적으로는 검증된...</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">A 문서: Ⅱ. 주요 시스템 구축 · 운영 현황; 2. 요구사항 총괄표 5; 3. 상세 요구사항 7; 3. 제안서 평가 방법 57
+B 문서: ∘ 업무 및 주요사안 협의; ∘ 요구사항 및 개선 방안 제시; ∘ 주요사항 의사 제시; □ 사업기간 : 계약일로부터 4개월
+공통: 두 문서 모두 질문 주제와 연관된 조항/의무를 명시합니다.
+차이: A 문서는 `Ⅱ. 주요 시스템 구축 · 운영 현황; 2. 요구사항 총괄표 5; 3. 상세 요구사항 7; 3. 제안서 평가 방법 57` 중심, B 문서는 `∘ 업무 및 주요사안 협의; ∘ 요구사항 및 ...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 1.89초
+                 | 정답 문서: 수협중앙회_강릉어선안전조업국 상황관제시스템 구축.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card incorrect">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#14 eval_014</span>
+                    <span class="result-type">다중 문서</span>
+                </div>
+            </div>
+            <div class="result-question">대전대학교 &quot;다층적 융합 학습경험 플랫폼(MILE) 구축&quot; 사업(사업예산 60,000,000원)에 대해, 한국사회보장정보원 문서의 제17조(하자담보 및 A/S 등) 규정에 따르면 일반 소프트웨어용역의 하자담보책임기간과 납부해야 하는 하자보수보증금(비율 및 금액)은 얼마인가요?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 1.00/5</span>
+                <span class="score-badge coverage">커버리지: 1.00/5</span>
+                <span class="score-badge faithfulness">충실성: 1.00/5</span>
+                <span class="score-badge context">검색: 2.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">제17조에 따르면 일반 소프트웨어용역의 하자담보책임기간은 1년이고, 하자보수보증금은 계약금액의 2%입니다. 사업예산 60,000,000원에 대해 보증금은 60,000,000원 × 0.02 = 1,200,000원(현금 또는 보증서 등)입니다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">대전대학교 문서 기준 사업비은(는) `약 6,000만 원 (60,000,000원)`입니다.
+
+### 출처
+- 대전대학교_대전대학교 2024학년도 다층적 융합 학습경험 플랫폼(MILE) 전.hwp (CSV)</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 0.00초
+                 | 정답 문서: 대전대학교_대전대학교 2024학년도 다층적 융합 학습경험 플랫폼(MILE) 전.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card incorrect">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#15 eval_015</span>
+                    <span class="result-type">다중 문서</span>
+                </div>
+            </div>
+            <div class="result-question">광주과학기술원 학사시스템 기능개선 사업에서 한국어촌어항공단의 경영관리시스템 요구사항(SFR-001 통합조회 대시보드)을 참고하여 통합조회 대시보드를 도입할 경우, 기대되는 효과와 개발 시 반드시 산출해야 할 문서는 무엇인가?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 1.00/5</span>
+                <span class="score-badge coverage">커버리지: 1.00/5</span>
+                <span class="score-badge faithfulness">충실성: 2.00/5</span>
+                <span class="score-badge context">검색: 4.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">기대효과: 학사 시스템 업무 편리성 제고, 업무 효율성 극대화, 사용자 편의성 증대(신속한 업무시스템 개발 및 서비스 제공, 업무 효율성 제고, 안정적인 시스템 운영 구축, 사용자 만족도 제고). 필수 산출물(한국어촌어항공단 SFR-001 기반): 사업수행계획서, 요구사항 정의서, 사용자 인터페이스 설계서, 단위/통합시험 결과서, 운영 및 사용자 매뉴얼, 개발완료보고서.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">A 문서: SFR-001 ; 요구사항 분류 ; 기능 요구사항; SFR-001
+B 문서: 나. 본 사업은 광주과학기술원이 기 보유하고 있는 통합정보시스템에 대한 고도화 개발 사 업으로 지식재산권은 본 사업에서 새롭게 제시되거나 적용된 부분의 계약목적물에 한 하여 발주기관과 계약 상대자의 공동 소유로 함; 본 사업에서 전체 사업금액 대비 10%를 초과하여 하도급하려는 경우, 「 소프트웨어 진흥법 」 제51조제6 항 및 동 법 시행령 제48조제5항에 따라 하수급인과 공동수급체 를 구성하여 참여해야하며, 공동수급체를 구성하지 못하는 불가피...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 1.50초
+                 | 정답 문서: 광주과학기술원_학사시스템 기능개선 사업.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card partial">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#16 eval_016</span>
+                    <span class="result-type">다중 문서</span>
+                </div>
+            </div>
+            <div class="result-question">한국지식재산보호원 &#x27;IP-NAVI 해외지식재산센터 사업관리 시스템 기능개선&#x27;과 한국해양조사협회 &#x27;2024년 항해용 간행물 품질관리 업무보조 시스템 구축&#x27; 사업에서 요구하는 개인정보·비공개정보 보호를 위한 기술적 조치와 보안 위반 시 조직적 대응·제재 기준은 무엇인가?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 2.00/5</span>
+                <span class="score-badge coverage">커버리지: 1.00/5</span>
+                <span class="score-badge faithfulness">충실성: 2.00/5</span>
+                <span class="score-badge context">검색: 3.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">기술적 조치(주요 내용, 한국지식재산보호원 문서 기준): 공유 자원 접근통제 및 관리자 최소권한·그룹계정 관리, 민감·고유식별·금융정보 등 수집 금지, PC로 개인정보 다운로드시 암호화 저장, 키보드 해킹방지·백신·침입차단·개인정보 노출 필터 등 보안솔루션 설치, 미공개 출원정보 보호 및 보호원 제공정보 보호 구현, 중요정보 출력시 부분은폐/DRM 적용, 사용자 PC↔웹서버 구간 암호화(SSL) 등 구간암호화 적용, 전자우편 악성메일 차단 대책, 시스템 연동시 전송정보 암호화·부인방지·암호화키 관리(인가자 접근·주기적 변경), 부적...</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">A 문서: 상기 본 업체는 한국지식재산보호원 「 IP-NAVI 해외지식재산센터 사업관 리 시스템 기능개선 」 입찰(공고 한국지식재산보호원 제2024-00호 )과 관련하 여 귀 기관의 제안서 평가 및 협상결과에 대하여 어떠한 이의도 제기하지 않겠 으며, 만약 귀기관의 평가결과에 대한 이의 및 계약자 선정 통보에 불 응할 경우에는 관계법령에 따라 부정당업자 제재 등 어떠한 처분을 하더라도 이의 없이 감수할; 한국지식재산보호원에서 수행하는 IP-NAVI 해외지식재산센터 사업관리 시스 템 기능개선 사업을 성실히 수행하고자 동 사업 제안(계...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 1.50초
+                 | 정답 문서: 한국지식재산보호원_IP-NAVI  해외지식재산센터 사업관리 시스템 기능개.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card incorrect">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#17 eval_017</span>
+                    <span class="result-type">비교</span>
+                </div>
+            </div>
+            <div class="result-question">재단법인충북연구원의 &#x27;GIS/통계 기반 재난안전데이터 분석·관리 시스템 구축 용역&#x27; 문서와 인천광역시의 &#x27;인천일자리플랫폼 정보시스템 구축 ISP 수립용역&#x27; 문서를 비교할 때, 사업 종료 시 제공자료·장비의 반납·삭제 절차와 참여인원 교체·신상변동 관리 의무는 어떻게 다른가요?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 1.00/5</span>
+                <span class="score-badge coverage">커버리지: 1.00/5</span>
+                <span class="score-badge faithfulness">충실성: 2.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">인천광역시(인천일자리플랫폼) 문서는 사업 종료 시 인천이 제공한 자료·장비·산출물을 전량 반납하고 복사본 보관을 금지하며, 계약업체 소유 장비의 자료는 국가정보원 인증 데이터 영구삭제 제품으로 완전 삭제하고 반납·삭제 증거를 ‘자료 인계인수대장’에 기록하도록 명시한다. 또한 업체는 대표 명의의 보안확약서를 제출해야 하고, 참여인원은 임의 교체 불가·신상변동(해외여행 포함) 즉시 보고, 보안관리책임자 지정 및 주기적 보안교육 참여 의무를 둔다. 반면 재단법인충북연구원 문서는 일상적 보안위반 사례와 징계·교육(위규자 대상 특별보안교육 ...</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">A 문서: 당사는 부패 없는 투명한 기업경영과 공정한 행정이 사회발전과 국가 경쟁 력 에 중 요한 관건이 됨을 깊이 인식하며, 국제적으로도 OECD 뇌물방지 협약이 발 효 되 고 부패기업 및 국가에 대한 제재가 강화되는 추세에 맞추어 청렴계약제 시행 취지에 적극 호응하여 「 GIS/ 통계 기반 재난안전데이터 분석 · 관리 시스템 구축 용역 」 에 참여함에 있어 당 업체의 임직원과 대리인은; ○ 제안서에는 본 사업에 대한 이해를 전제로 “ GIS/ 통계 기반 재난안전데 이터 분석 · 관리 시스템 구축 용역 ” 방안이 제시되어야 하며,...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 1.32초
+                 | 정답 문서: 재단법인충북연구원_GIS통계 기반 재난안전데이터 분석ㆍ관리 시스템 구.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card incorrect">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#18 eval_018</span>
+                    <span class="result-type">비교</span>
+                </div>
+            </div>
+            <div class="result-question">고려대학교 차세대 포털·학사 정보시스템 구축사업의 &#x27;성적확정관리&#x27; 기능(성적입력관리·이수구분변경관리)을 구현할 때, 남서울대학교 &#x27;스마트 정보시스템 활성화(학사)&#x27; 사업의 세부 기술지침(예: SOAP/REST, XML, UDDI, BPMN, POSIX/Windows/Linux, 전자정부 표준프레임워크 등)이 상호연계·데이터교환·배치처리·알림 등 해당 기능 요구사항을 지원하기에 적합한가?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 1.00/5</span>
+                <span class="score-badge coverage">커버리지: 1.00/5</span>
+                <span class="score-badge faithfulness">충실성: 5.00/5</span>
+                <span class="score-badge context">검색: 3.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">대체로 적합하다. 남서울대 지침은 웹서비스(SOAP 1.2, WSDL 2.0, RESTful), 데이터형식(XML), 서비스발견(UDDI), 업무프로세스(BPMN/UML), 다중플랫폼(OS/서버/모바일) 및 DB 종류, 전자정부 표준프레임워크 등 통합·데이터교환·업무자동화·배치처리·UI 구현에 필요한 표준을 제시하고 있어 고려대의 성적입력 일괄처리, 백분위·총점 계산 연계, 알림·캘린더 연동, 학칙 기반 이수구분 처리 등 구현을 기술적으로 뒷받침할 수 있다. 다만 남서울대 문서는 표준 목록 수준으로, 성적 산출 규칙·세부 API/메...</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">고려대학교 문서에서 질문 관련 조항을 확인했습니다.
+
+### 근거 요약
+- |  | 세부 내용 | ❍ 행정시스템 연계 서비스 제공 방식 - 학사행정시스템 화면 중 (학생, 교수)사용자가 사용하는 화면은 포털을 통해서 해당 화면에 직접 접근하도록 구현 - 현 포털 서비스 중 차세대 이 후 학사행정시스템이나 전자결재시스템과 같이 별도 시스템에서 호출하는 서비스가 아닌 것(현 포털의 인사/급여 화면 등)은 해당 서비스 구축 방식이 결정된 후 동일하게 포털에서 접근이 가능
+- |  |  | • 차세대 학사행정시스템 • 일반행정시스템, 연구...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 24.09초
+                 | 정답 문서: 고려대학교_차세대 포털·학사 정보시스템 구축사업.pdf
+            </div>
+        </div>
+    
+
+        <div class="result-card correct">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#19 eval_019</span>
+                    <span class="result-type">비교</span>
+                </div>
+            </div>
+            <div class="result-question">한국재정정보원의 &#x27;e나라도움 업무시스템 웹 접근성 컨설팅&#x27;과 파주도시관광공사의 &#x27;종량제봉투 판매관리 전산시스템 개선사업&#x27;의 주요 목적과 사업 범위는 어떻게 다른가요?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 4.00/5</span>
+                <span class="score-badge coverage">커버리지: 3.00/5</span>
+                <span class="score-badge faithfulness">충실성: 5.00/5</span>
+                <span class="score-badge context">검색: 4.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">한국재정정보원 e나라도움 컨설팅은 기존 업무시스템의 웹 접근성 개선을 목적으로 하는 컨설팅 사업으로, 계약일로부터 120일(약 4개월) 동안 웹 접근성 진단·개선 권고(컨설팅 요구사항), 보안·품질·프로젝트 관리 등 제반 요구사항을 다루는 것이 주요 범위입니다. 반면 파주도시관광공사 종량제봉투 개선사업은 전산관리 시스템 구축·인터넷 주문 연동·온라인 카드·가상계좌 결제 도입·반응형 웹 구현·전자정부 표준프레임워크 적용·기존 판매시스템 자료 이관·지정판매소 조회 등 실무 시스템 개발 및 운영을 통한 결제 다각화·주문 편의성·재고·통계...</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">A 문서: - 주문 및 판매 내역, 재고관리, 결제내역 관리 및 보고서식 및 통계자료 등 조회; 본인은 귀 기관과 계약한 종량제봉투 판매관리 전산시스템 개선 사업 의 수행을 완료 하는데 있어 다음 각 호의 보안사항에 대한 준수책임이 있음을 서약하며 이에 확약서를 제출합니다.; 당사는 ｢ 종량제봉투 판매관리 전산시스템 개선 사업 ｣ 사업의 목적과 그 제안 요 청서에 제시된 모든 사항을 충분히 검토, 숙지 인정한 후 본 제안서를 제출합니다.; 바. 주요내용 : 종량제물품 판매관리, 인터넷 주문관리 및 위치조회시스템 구축
+B 문서: ㅇ ...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 1.24초
+                 | 정답 문서: 한국재정정보원_e나라도움 업무시스템 웹 접근성 컨설팅.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card incorrect">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#20 eval_020</span>
+                    <span class="result-type">비교</span>
+                </div>
+            </div>
+            <div class="result-question">대한장애인체육회(2025년 전국장애인체육대회 전산 및 시스템, 홈페이지)의 청렴계약이행서약서에 명시된 반부패·제재 조항과 한국발명진흥회(2024년 건설기술에 관한 특허·실용신안 활용실) 입찰공고의 전자결제·내부결재 기능 요구사항은 각각 어떻게 결제·결재의 투명성과 공정성을 보장하나요? 두 기관을 비교하여 간결히 설명해 주세요.</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 1.00/5</span>
+                <span class="score-badge coverage">커버리지: 1.00/5</span>
+                <span class="score-badge faithfulness">충실성: 2.00/5</span>
+                <span class="score-badge context">검색: 3.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">대한장애인체육회: 서약서는 담합·뇌물 제공 금지와 위반 시 입찰참가자격 제한(6개월~2년), 낙찰취소·계약해지 등 행정적·법적 제재를 규정하고 회사윤리강령 제정 및 내부제보자 보호 등 조직적·규범적 수단으로 부패 방지와 공정성 확보를 요구합니다(기술적 결제 방식은 명시되어 있지 않음). 한국발명진흥회: 시스템 요구사항은 전자결제 연동(NHN KCP PG 유지), 내부결재자 결재·최종승인문서 자동작성·발송, 알림·확인 기능, 전체파일 일괄다운로드 및 로그·보안관리 등 기술적·절차적 통제로 결재 흐름의 추적성·투명성·감사 가능성을 제공...</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">A 문서: - 2025년 개최되는 동계, 하계, 학생 전국장애인체육대회 총 3개 대회 지원
+B 문서: ※ 조달청의 경쟁입찰 참가자격등록은 수시로 가능하며, 입찰참가를 위해서는 전자입찰서 제출 마감일 전일까지 등록해야 함; * 중소기업 · 소상공인 확인서 는 전자입찰서 제출마감일 전일까지 발급된 것으로 유효기간 내에 있어야 하며, 중소기업 공공구매 종합정보망( smpp.go.kr) 에서 확인하여 확인이 되지 않을 경우 입찰참가 자 격이 없습니다. 다만, 동 확인서를 발급받지 못한 업체 중 전자입찰서 제출마감일 전일까지 동 확인서 발급...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 2.01초
+                 | 정답 문서: 대한장애인체육회_2025년 전국장애인체육대회 전산 및 시스템, 홈페이지 .hwp
+            </div>
+        </div>
+    
+        </div>
+
+        <div class="footer">
+            <p>입찰메이트 v17 | 7팀 | <a href="https://github.com/Loah-Lee/AI_7-team">GitHub</a></p>
+        </div>
+    </div>
+
+    <script>
+        // 동적 색상 적용
+        function getScoreColor(score) {
+            if (score >= 4) return '#10b981';
+            if (score >= 3) return '#f59e0b';
+            return '#ef4444';
+        }
+
+        function getScoreBackground(score) {
+            if (score >= 4) return '#d1fae5';
+            if (score >= 3) return '#fef3c7';
+            return '#fee2e2';
+        }
+
+        // 페이지 로드 후 점수 색상 적용
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.score-badge').forEach(badge => {
+                const scoreText = badge.textContent.match(/([0-5](?:\.\d+)?)/);
+                if (scoreText) {
+                    const score = parseFloat(scoreText[0]);
+                    badge.style.background = getScoreBackground(score);
+                    badge.style.color = getScoreColor(score);
+                }
+            });
+        });
+    </script>
+</body>
+</html>

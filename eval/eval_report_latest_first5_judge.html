@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>입찰메이트 v17 - 평가 리포트</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 2rem;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 1rem;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .header .subtitle {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .header .timestamp {
+            margin-top: 1rem;
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            padding: 2rem;
+            background: #f8f9fa;
+        }
+
+        .metric-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        .metric-card .label {
+            font-size: 0.85rem;
+            color: #666;
+            margin-bottom: 0.5rem;
+        }
+
+        .metric-card .value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .metric-card .value.score {
+            color: #10b981;
+        }
+
+        .section {
+            padding: 2rem;
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            margin-bottom: 1.5rem;
+            color: #333;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 0.5rem;
+        }
+
+        .result-card {
+            background: #f8f9fa;
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            border-left: 4px solid #667eea;
+        }
+
+        .result-card.correct {
+            border-left-color: #10b981;
+        }
+
+        .result-card.partial {
+            border-left-color: #f59e0b;
+        }
+
+        .result-card.incorrect {
+            border-left-color: #ef4444;
+        }
+
+        .result-card.no-judge {
+            border-left-color: #9ca3af;
+        }
+
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .result-id {
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .result-type {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 1rem;
+            font-size: 0.75rem;
+            font-weight: bold;
+            background: #e0e7ff;
+            color: #4338ca;
+        }
+
+        .result-question {
+            font-size: 1.1rem;
+            font-weight: 500;
+            margin-bottom: 1rem;
+            color: #1f2937;
+        }
+
+        .result-scores {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .score-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.75rem;
+            border-radius: 0.5rem;
+            font-size: 0.85rem;
+            font-weight: bold;
+        }
+
+        .score-badge.correctness {
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        .score-badge.coverage {
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        .score-badge.faithfulness {
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        .score-badge.context {
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        .answer-section {
+            margin-top: 1rem;
+        }
+
+        .answer-label {
+            font-size: 0.85rem;
+            color: #666;
+            margin-bottom: 0.25rem;
+            font-weight: 500;
+        }
+
+        .answer-content {
+            background: white;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            color: #374151;
+            line-height: 1.6;
+        }
+
+        .answer-content.expected {
+            border-left: 3px solid #10b981;
+        }
+
+        .answer-content.generated {
+            border-left: 3px solid #3b82f6;
+        }
+
+        .response-time {
+            font-size: 0.85rem;
+            color: #6b7280;
+            margin-top: 0.5rem;
+        }
+
+        .chart-container {
+            height: 200px;
+            margin: 1rem 0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        th {
+            background: #f3f4f6;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        tr:hover {
+            background: #f9fafb;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e5e7eb;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 0.5rem;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            transition: width 0.3s ease;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 1.5rem;
+            background: #f8f9fa;
+            color: #6b7280;
+            font-size: 0.9rem;
+        }
+
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 1rem;
+            background: white;
+            border-radius: 0.5rem;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: #6b7280;
+            margin-top: 0.25rem;
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            .container {
+                box-shadow: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>입찰메이트 v17 - 평가 리포트</h1>
+            <div class="subtitle">RFP 문서 기반 지능형 질의응답 시스템 (Judge 포함 평가)</div>
+            <div class="timestamp">생성일: 2026-02-23 15:09:20</div>
+        </div>
+
+        <div class="metrics">
+            <div class="metric-card">
+                <div class="label">정확성 (Correctness)</div>
+                <div class="value score">5.00/5</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">커버리지 (Coverage)</div>
+                <div class="value">5.00/5</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">충실성 (Faithfulness)</div>
+                <div class="value">3.60/5</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">검색 관련성 (Context)</div>
+                <div class="value">4.80/5</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">평균 응답 시간</div>
+                <div class="value">1.50s</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">전체 질문 수</div>
+                <div class="value">5</div>
+            </div>
+            
+            <div class="metric-card">
+                <div class="label">응답시간 P50</div>
+                <div class="value">1.59s</div>
+            </div>
+        
+
+            <div class="metric-card">
+                <div class="label">응답시간 P90</div>
+                <div class="value">1.89s</div>
+            </div>
+        
+
+            <div class="metric-card">
+                <div class="label">평균 Slot Fill</div>
+                <div class="value">1.000</div>
+            </div>
+        
+
+            <div class="metric-card">
+                <div class="label">평균 Confidence</div>
+                <div class="value">1.000</div>
+            </div>
+        
+
+            <div class="metric-card">
+                <div class="label">Answer Mode</div>
+                <div class="value">extractive:5</div>
+            </div>
+        
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">검색 메트릭</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>지표</th>
+                        <th>값</th>
+                        <th>진행률</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Recall@K (Source)</td>
+                        <td>1.0000</td>
+                        <td>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 100.0%"></div>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Recall@K (Page)</td>
+                        <td>0.4000</td>
+                        <td>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 40.0%"></div>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>MRR (Source)</td>
+                        <td>0.8500</td>
+                        <td>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 85.0%"></div>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>MRR (Page)</td>
+                        <td>0.2400</td>
+                        <td>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 24.0%"></div>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">질문별 결과</h2>
+            
+        <div class="result-card correct">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#1 eval_001</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">고려대학교 차세대 포털·학사 정보시스템 구축사업에서 개발에 사용된 이미지·글꼴 등 인프라의 저작권 비용은 누가 부담해야 합니까?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 5.00/5</span>
+                <span class="score-badge coverage">커버리지: 5.00/5</span>
+                <span class="score-badge faithfulness">충실성: 2.00/5</span>
+                <span class="score-badge context">검색: 4.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">저작권에 문제가 없어야 하며, 비용이 발생할 경우 주사업자가 부담해야 합니다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">고려대학교 문서 기준 문서 기준 책임 주체는 `사업자(제안사/주사업자)`로 확인됩니다.
+
+### 근거 요약
+- 저작권에 문제가 없어야 하며, 비용이 발생할 경우 주사업자가 부담하여야 함
+
+### 출처
+- 고려대학교_차세대 포털·학사 정보시스템 구축사업.pdf p.80</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 0.88초
+                 | 정답 문서: 고려대학교_차세대 포털·학사 정보시스템 구축사업.pdf
+            </div>
+        </div>
+    
+
+        <div class="result-card correct">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#2 eval_002</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">남서울대학교 스마트 정보시스템 활성화(학사) 사업 수행 시 참여인원에 대한 정보보안교육은 얼마나 자주 실시해야 합니까?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 5.00/5</span>
+                <span class="score-badge coverage">커버리지: 5.00/5</span>
+                <span class="score-badge faithfulness">충실성: 2.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">참여인원에 대해 월 1회 정보보안교육을 수행하고, 교육결과는 발주기관의 확인을 받아야 합니다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">남서울대학교 문서 기준 문서 기준 값은 `1회`입니다.
+
+### 근거 요약
+- □ 참여인원에 대하여 월1회 정보보안교육을 수행하고, 교육결과에 대하여 발주기관의 확인을 받아야 한다.
+
+### 출처
+- 남서울대학교_[혁신-국고] 남서울대학교 스마트 정보시스템 활성화(학사.hwp p.19</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 1.37초
+                 | 정답 문서: 남서울대학교_[혁신-국고] 남서울대학교 스마트 정보시스템 활성화(학사.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card correct">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#3 eval_003</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">국가과학기술지식정보서비스 통합정보시스템 고도화 용역에서 기술능력 평가점수로 협상적격자를 선정할 때 기준은 무엇인가요?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 5.00/5</span>
+                <span class="score-badge coverage">커버리지: 5.00/5</span>
+                <span class="score-badge faithfulness">충실성: 4.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">기술능력 평가분야 배점한도의 85% 이상인 제안사를 협상적격자로 선정합니다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">A 문서: □ (사 업 명) 통합정보시스템 고도화 용역; 통합정보시스템 고도화 용역; 통합정보시스템 고도화 사업; ㅇ 제안서 평가결과 기술능력 평가점수 가 기술능력 평가분야 배점 한도의 85% 이상인 제안사 를 협상적격자 로 선정하며,
+B 문서: □ (사 업 명) 통합정보시스템 고도화 용역; 통합정보시스템 고도화 용역; 통합정보시스템 고도화 사업; ㅇ 제안서 평가결과 기술능력 평가점수 가 기술능력 평가분야 배점 한도의 85% 이상인 제안사 를 협상적격자 로 선정하며,
+공통: 공통적으로 `통합정보시스템, 고도화, 기술능력` 관련 요건...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 2.08초
+                 | 정답 문서: 국가과학기술지식정보서비스_통합정보시스템 고도화 용역.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card correct">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#4 eval_004</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">재단법인 스포츠윤리센터의 &#x27;스포츠윤리센터 LMS(학습지원시스템) 기능개선&#x27; 사업에서 비밀정보의 소유권은 누구에게 있습니까?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 5.00/5</span>
+                <span class="score-badge coverage">커버리지: 5.00/5</span>
+                <span class="score-badge faithfulness">충실성: 5.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">전항의 비밀정보의 소유권은 발주자가 계속 보유한다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">재단법인스포츠윤리센터 문서 기준 문서 기준 책임 주체는 `발주자/발주기관`로 확인됩니다.
+
+### 근거 요약
+- ② 전항의 비밀정보의 소유권은 발주자가 계속 보유한다.
+- ③ 하도급 및 재하도급의 경우 하수급인 및 재하수급인의 비밀정보의 비밀유지 의무 위반에 대해서도 계약상대자는 동일한 책임을 부담한다. 단 불가항력의 사유로 비밀정보의 비밀유지 의무를 위반한 경우 계약상대자는 불가항력의 사유를 증명함으로써 발주자의 손해배상 청구에 대한 책임을 면할 수 있다.
+
+### 출처
+- 재단법인스포츠윤리센터_스포츠윤리센터 LMS(학습지원시스템...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 1.60초
+                 | 정답 문서: 재단법인스포츠윤리센터_스포츠윤리센터 LMS(학습지원시스템) 기능개선.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card correct">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#5 eval_005</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">대한적십자사 의료원_적십자병원 병원정보 재해복구시스템 구축 용역 문서에서 QUR-02(가용성 보장) 요구사항에 따르면 도입 하드웨어 및 소프트웨어의 운영 요구사항은 무엇인가?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 5.00/5</span>
+                <span class="score-badge coverage">커버리지: 5.00/5</span>
+                <span class="score-badge faithfulness">충실성: 5.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">정상상태에서 매일 24시간 무중단으로 운영되어야 하며, 통상적인 업무시간 동안 가용성을 보장해야 한다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">대한적십자사 의료원 문서 기준 문서 기준 운영 요구사항은 `◦ 도입 하드웨어 및 소프트웨어는 정상상태에서 매일 ·24 시간 무중단 운영되어야 함` 및 `◦ 본 사업에 필요한 장비는 확장성과 효율성이 뛰어난 최신의 고가용성 장비가 도입되어야 함. 그에 따른 장비 품질에 대한 제품보증서, 기술지원 확약서, 제조사 공급증명서( Certification), 제시한 장비 성능을 입증할 수 있는 자료의 서류 등을 제출하여 본 사업에 도입되는 장비에 대한 품질을 제안사가 보장하여야 함. 단, 해당 제품이 제출한 자료에 비해 성능이 낮거나 상이할...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 1.59초
+                 | 정답 문서: 대한적십자사 의료원_적십자병원 병원정보 재해복구시스템 구축 용역 .hwp
+            </div>
+        </div>
+    
+        </div>
+
+        <div class="footer">
+            <p>입찰메이트 v17 | 7팀 | <a href="https://github.com/Loah-Lee/AI_7-team">GitHub</a></p>
+        </div>
+    </div>
+
+    <script>
+        // 동적 색상 적용
+        function getScoreColor(score) {
+            if (score >= 4) return '#10b981';
+            if (score >= 3) return '#f59e0b';
+            return '#ef4444';
+        }
+
+        function getScoreBackground(score) {
+            if (score >= 4) return '#d1fae5';
+            if (score >= 3) return '#fef3c7';
+            return '#fee2e2';
+        }
+
+        // 페이지 로드 후 점수 색상 적용
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.score-badge').forEach(badge => {
+                const scoreText = badge.textContent.match(/([0-5](?:\.\d+)?)/);
+                if (scoreText) {
+                    const score = parseFloat(scoreText[0]);
+                    badge.style.background = getScoreBackground(score);
+                    badge.style.color = getScoreColor(score);
+                }
+            });
+        });
+    </script>
+</body>
+</html>

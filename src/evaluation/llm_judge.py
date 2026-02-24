@@ -9,14 +9,11 @@ from __future__ import annotations
 import json
 import os
 
-from langchain_openai import ChatOpenAI
-
+from dotenv import load_dotenv
 try:
-    from src.utils.config import load_config
-    from src.utils.env import get_openai_api_key, load_env
-    UTILS_AVAILABLE = True
+    from langchain_openai import ChatOpenAI
 except ImportError:
-    UTILS_AVAILABLE = False
+    ChatOpenAI = None  # type: ignore
 
 JUDGE_SYSTEM_PROMPT = """\
 당신은 RAG(Retrieval-Augmented Generation) 시스템의 응답 품질을 평가하는 전문 심사관입니다.
@@ -105,7 +102,13 @@ def _parse_judge_response(content: str) -> dict:
     # 유효성 검증
     result = {}
     for key in ("correctness", "answer_coverage", "faithfulness", "context_relevance"):
-        entry = parsed.get(key, {})
+        if key == "answer_coverage":
+            entry = parsed.get(key, parsed.get("coverage", {}))
+        else:
+            entry = parsed.get(key, {})
+
+        if isinstance(entry, (int, float, str)):
+            entry = {"score": entry, "reason": ""}
         score = int(entry.get("score", 0))
         score = max(0, min(5, score))
         reason = str(entry.get("reason", ""))
@@ -138,28 +141,35 @@ def judge_rag_response(
             "context_relevance": {"score": 0~5, "reason": str},
         }
     """
-    if UTILS_AVAILABLE:
-        load_env()
-        config = load_config()
-        llm_cfg = config.get("llm", {})
-        api_key = get_openai_api_key()
-    else:
-        llm_cfg = {}
-        api_key = os.getenv("OPENAI_API_KEY", "")
+    load_dotenv()
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    selected_model = model or os.getenv("DEFAULT_MODEL", "gpt-5-mini")
 
     if not api_key:
         raise ValueError(
-            "OPENAI_API_KEY is required. Set it in environment variables "
-            "or install src.utils.env module."
+            "OPENAI_API_KEY is required. Set it in environment variables."
         )
+    if ChatOpenAI is None:
+        return {
+            "correctness": {"score": 0, "reason": "langchain_openai 미설치"},
+            "answer_coverage": {"score": 0, "reason": "langchain_openai 미설치"},
+            "faithfulness": {"score": 0, "reason": "langchain_openai 미설치"},
+            "context_relevance": {"score": 0, "reason": "langchain_openai 미설치"},
+        }
 
-    llm = ChatOpenAI(
-        model=model or llm_cfg.get("model", "gpt-5-mini"),
-        temperature=0.0,
-        max_tokens=4096,
-        api_key=api_key,
-        model_kwargs={"response_format": {"type": "json_object"}},
-    )
+    model_kwargs: dict[str, object] = {"response_format": {"type": "json_object"}}
+    llm_kwargs: dict[str, object] = {
+        "model": selected_model,
+        "api_key": api_key,
+        "model_kwargs": model_kwargs,
+    }
+    if not selected_model.startswith("gpt-5"):
+        llm_kwargs["temperature"] = 0.0
+        llm_kwargs["max_tokens"] = 4096
+    else:
+        model_kwargs["max_completion_tokens"] = 4096
+
+    llm = ChatOpenAI(**llm_kwargs)
 
     # 컨텍스트가 너무 길면 잘라서 JSON 응답 안정성 확보
     max_context_len = 6000

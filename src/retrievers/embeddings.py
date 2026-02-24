@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 from src.utils.config import OPENAI_API_KEY, embedding_config
@@ -25,7 +26,8 @@ class EmbeddingGenerator:
             api_key: OpenAI API 키
         """
         self.api_key = api_key or OPENAI_API_KEY
-        self.use_openai = self.api_key is not None
+        force_local = os.environ.get("FORCE_LOCAL_EMBEDDINGS", "0") == "1"
+        self.use_openai = (self.api_key is not None) and (not force_local)
 
         if not self.use_openai:
             self._init_local_model()

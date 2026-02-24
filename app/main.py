@@ -146,7 +146,9 @@ SOURCE_BADGES = {
 def render_answer(answer: str, source_type: str = "csv") -> None:
     """답변을 렌더링합니다."""
     badge = SOURCE_BADGES.get(source_type, "")
-    st.markdown(answer + badge, unsafe_allow_html=True)
+    st.markdown(answer, unsafe_allow_html=True)
+    if badge:
+        st.markdown(f"<div style='margin-top: 0.4rem'>{badge}</div>", unsafe_allow_html=True)
 
 
 def render_metric_card(value: int | str, label: str) -> None:

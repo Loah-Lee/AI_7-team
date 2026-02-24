@@ -4,12 +4,7 @@ from __future__ import annotations
 
 import os
 
-try:
-    from src.utils.config import load_config
-    from src.utils.env import load_env
-    UTILS_AVAILABLE = True
-except ImportError:
-    UTILS_AVAILABLE = False
+from dotenv import load_dotenv
 
 
 def setup_langsmith_tracing() -> bool:
@@ -20,23 +15,18 @@ def setup_langsmith_tracing() -> bool:
     Returns:
         True면 트레이싱 활성화 성공, False면 API 키 없음.
     """
-    if UTILS_AVAILABLE:
-        load_env()
-        config = load_config()
-        tracing_cfg = config.get("tracing", {})
-    else:
-        tracing_cfg = {}
+    load_dotenv()
+
+    tracing_enabled = os.getenv("LANGSMITH_TRACING", "false").lower() == "true"
+    if not tracing_enabled:
+        return False
 
     api_key = os.getenv("LANGSMITH_API_KEY", "")
     if not api_key:
         return False
 
-    # .env의 LANGSMITH_PROJECT가 있으면 우선 사용, 없으면 config 값
-    project_name = os.getenv("LANGSMITH_PROJECT") or tracing_cfg.get(
-        "langsmith_project", "biddingmate"
-    )
-
-    endpoint = os.getenv("LANGSMITH_ENDPOINT", "https://api.smith.langchain.com")
+    project_name = os.getenv("LANGSMITH_PROJECT", "biddingmate_ai7")
+    endpoint = os.getenv("LANGSMITH_ENDPOINT", "https://api.smith.langchain.com/")
 
     # LangChain >=0.3은 LANGCHAIN_API_KEY를 사용한다
     os.environ["LANGCHAIN_API_KEY"] = api_key

@@ -1,0 +1,46 @@
+- id: eval_001
+  question: 고려대학교 차세대 포털·학사 정보시스템 구축사업에서 개발에 사용된 이미지·글꼴 등 인프라의 저작권 비용은 누가 부담해야 합니까?
+  expected_answer: 저작권에 문제가 없어야 하며, 비용이 발생할 경우 주사업자가 부담해야 합니다.
+  ground_truth:
+    source: 고려대학교_차세대 포털·학사 정보시스템 구축사업.pdf
+    page: 39
+  query_type: single_doc
+  metadata_filter:
+    institution: 고려대학교
+- id: eval_002
+  question: 남서울대학교 스마트 정보시스템 활성화(학사) 사업 수행 시 참여인원에 대한 정보보안교육은 얼마나 자주 실시해야 합니까?
+  expected_answer: 참여인원에 대해 월 1회 정보보안교육을 수행하고, 교육결과는 발주기관의 확인을 받아야 합니다.
+  ground_truth:
+    source: 남서울대학교_[혁신-국고] 남서울대학교 스마트 정보시스템 활성화(학사.hwp
+    page: 45
+  query_type: single_doc
+  metadata_filter:
+    institution: 남서울대학교
+- id: eval_003
+  question: 국가과학기술지식정보서비스 통합정보시스템 고도화 용역에서 기술능력 평가점수로 협상적격자를 선정할 때 기준은 무엇인가요?
+  expected_answer: 기술능력 평가분야 배점한도의 85% 이상인 제안사를 협상적격자로 선정합니다.
+  ground_truth:
+    source: 국가과학기술지식정보서비스_통합정보시스템 고도화 용역.hwp
+    page: 41
+  query_type: single_doc
+  metadata_filter:
+    institution: 국가과학기술지식정보서비스
+- id: eval_004
+  question: 재단법인 스포츠윤리센터의 '스포츠윤리센터 LMS(학습지원시스템) 기능개선' 사업에서 비밀정보의 소유권은 누구에게 있습니까?
+  expected_answer: 전항의 비밀정보의 소유권은 발주자가 계속 보유한다.
+  ground_truth:
+    source: 재단법인스포츠윤리센터_스포츠윤리센터 LMS(학습지원시스템) 기능개선.hwp
+    page: 83
+  query_type: single_doc
+  metadata_filter:
+    institution: 재단법인스포츠윤리센터
+- id: eval_005
+  question: 대한적십자사 의료원_적십자병원 병원정보 재해복구시스템 구축 용역 문서에서 QUR-02(가용성 보장) 요구사항에 따르면 도입 하드웨어
+    및 소프트웨어의 운영 요구사항은 무엇인가?
+  expected_answer: 정상상태에서 매일 24시간 무중단으로 운영되어야 하며, 통상적인 업무시간 동안 가용성을 보장해야 한다.
+  ground_truth:
+    source: 대한적십자사 의료원_적십자병원 병원정보 재해복구시스템 구축 용역 .hwp
+    page: 25
+  query_type: single_doc
+  metadata_filter:
+    institution: 대한적십자사 의료원

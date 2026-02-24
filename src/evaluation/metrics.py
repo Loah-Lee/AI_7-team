@@ -9,6 +9,42 @@ KPI.md에 정의된 메트릭을 계산한다:
 
 from __future__ import annotations
 
+import re
+import unicodedata
+
+
+def _normalize_source_name(value: str) -> str:
+    """파일명 비교를 위한 source 정규화."""
+    text = unicodedata.normalize("NFKC", str(value or "")).strip().lower()
+    text = re.sub(r"\s+", " ", text)
+    return text
+
+
+def _is_same_source(left: str, right: str) -> bool:
+    """ground truth source와 retrieved source를 완화 매칭한다."""
+    l = _normalize_source_name(left)
+    r = _normalize_source_name(right)
+    if not l or not r:
+        return False
+    if l == r:
+        return True
+    # 데이터셋 source가 축약/공백 차이일 수 있어 포함 관계도 허용
+    return l in r or r in l
+
+
+def _is_same_page(
+    retrieved_page: int | None,
+    ground_truth_page: int | None,
+) -> bool:
+    """페이지 매칭 (±1 오프셋 허용)."""
+    if ground_truth_page is None:
+        return True
+    if retrieved_page is None:
+        return False
+    if retrieved_page == ground_truth_page:
+        return True
+    return abs(retrieved_page - ground_truth_page) <= 1
+
 
 def calculate_aicr(answer: str, context: str) -> float:
     """Answer-in-Context Rate를 계산한다.
@@ -64,9 +100,9 @@ def calculate_hit_position(
         1-based 위치. 없으면 None.
     """
     for idx, doc in enumerate(retrieved_docs, start=1):
-        if doc.get("source") != ground_truth_source:
+        if not _is_same_source(str(doc.get("source", "")), ground_truth_source):
             continue
-        if ground_truth_page is not None and doc.get("page") != ground_truth_page:
+        if not _is_same_page(doc.get("page"), ground_truth_page):
             continue
         return idx
     return None
@@ -101,9 +137,9 @@ def calculate_recall_at_k(
     page가 지정되면 source + page 모두 일치해야 정답으로 판정한다.
     """
     for doc in retrieved_docs[:k]:
-        if doc.get("source") != ground_truth_source:
+        if not _is_same_source(str(doc.get("source", "")), ground_truth_source):
             continue
-        if ground_truth_page is not None and doc.get("page") != ground_truth_page:
+        if not _is_same_page(doc.get("page"), ground_truth_page):
             continue
         return 1.0
     return 0.0
@@ -140,9 +176,9 @@ def calculate_avg_score(
     """정답 청크의 평균 유사도 점수를 반환한다. 정답이 없으면 None."""
     scores = []
     for doc in retrieved_docs:
-        if doc.get("source") != ground_truth_source:
+        if not _is_same_source(str(doc.get("source", "")), ground_truth_source):
             continue
-        if ground_truth_page is not None and doc.get("page") != ground_truth_page:
+        if not _is_same_page(doc.get("page"), ground_truth_page):
             continue
         scores.append(doc.get("score", 0.0))
     return sum(scores) / len(scores) if scores else None

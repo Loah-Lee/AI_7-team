@@ -20,7 +20,7 @@ from src.utils.config import get_default_db_path, get_data_dir
 
 def main():
     """DB를 재구축합니다."""
-    db_path = get_default_db_path()
+    db_path = str(Path(get_default_db_path()).resolve())
     data_dir = get_data_dir()
     
     print("=" * 60)
@@ -41,7 +41,7 @@ def main():
     
     # 챗봇 초기화 (새 DB 생성)
     from src.graph.workflow import RAGChatbotV17
-    chatbot = RAGChatbotV17(data_dir=str(data_dir))
+    chatbot = RAGChatbotV17(data_dir=str(data_dir), db_path=db_path)
     
     print("\n" + "=" * 60)
     print("재구축 완료!")

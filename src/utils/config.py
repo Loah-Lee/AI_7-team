@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import hashlib
 from pathlib import Path
 
 # ============================================================================
@@ -39,17 +40,60 @@ LANGFUSE_BASE_URL: str = os.environ.get("LANGFUSE_BASE_URL", "https://cloud.lang
 # HuggingFace
 HF_TOKEN: str | None = os.environ.get("HF_TOKEN")
 
+
+def _get_env_int(name: str, default: int, *, min_value: int = 1) -> int:
+    """정수 환경 변수를 안전하게 파싱합니다."""
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return max(min_value, value)
+
+
+def _get_env_float(name: str, default: float, *, min_value: float = 0.1) -> float:
+    """실수 환경 변수를 안전하게 파싱합니다."""
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return max(min_value, value)
+
 # ============================================================================
 # 매직 넘버
 # ============================================================================
 
 MAX_TEXT_LENGTH: int = 20000
 MIN_SECTION_LENGTH: int = 50
-MAX_PAGES: int = 20
+# 0 이하로 설정하면 문서 전체 페이지를 추출합니다.
+MAX_PAGES: int = int(os.environ.get("MAX_PAGES", "120"))
 DEFAULT_TOP_K: int = 10
 DEFAULT_TOP_N: int = 5
 CHUNK_HASH_MOD: int = 1_000_000
 AMOUNT_UNITS: dict[str, int] = {"억": 100_000_000, "만": 10_000}
+
+# 검색/컨텍스트 성능 튜닝
+RETRIEVAL_EXPANSION_CAP: int = _get_env_int("RETRIEVAL_EXPANSION_CAP", 3, min_value=1)
+RETRIEVAL_SEARCH_PASSES: int = _get_env_int("RETRIEVAL_SEARCH_PASSES", 1, min_value=1)
+RETRIEVAL_HIGH_RECALL_K_MULTIPLIER: float = _get_env_float(
+    "RETRIEVAL_HIGH_RECALL_K_MULTIPLIER", 0.8, min_value=0.5
+)
+CONTEXT_TOP_RESULTS: int = _get_env_int("CONTEXT_TOP_RESULTS", 6, min_value=1)
+CONTEXT_MAX_CHARS: int = _get_env_int("CONTEXT_MAX_CHARS", 700, min_value=200)
+RETRIEVAL_MAX_HYBRID_CALLS: int = _get_env_int("RETRIEVAL_MAX_HYBRID_CALLS", 6, min_value=1)
+KEYWORD_SCAN_LIMIT: int = _get_env_int("KEYWORD_SCAN_LIMIT", 1200, min_value=100)
+INTENT_REGEX_FIRST: bool = os.environ.get("INTENT_REGEX_FIRST", "true").lower() == "true"
+DEBUG_RETRIEVAL_TIMING: bool = os.environ.get("DEBUG_RETRIEVAL_TIMING", "false").lower() == "true"
+ANSWER_QUALITY_MODE: str = os.environ.get("ANSWER_QUALITY_MODE", "balanced").strip().lower()
+CSV_SHORTCIRCUIT_ENABLED: bool = os.environ.get("CSV_SHORTCIRCUIT_ENABLED", "true").lower() == "true"
+HYBRID_LEXICAL_PREFILTER_K: int = _get_env_int("HYBRID_LEXICAL_PREFILTER_K", 120, min_value=10)
+HYBRID_LEXICAL_MIN_HITS: int = _get_env_int("HYBRID_LEXICAL_MIN_HITS", 1, min_value=1)
+HYBRID_RERANK_TOP_MULTIPLIER: int = _get_env_int("HYBRID_RERANK_TOP_MULTIPLIER", 4, min_value=1)
 
 # ============================================================================
 # 한국어 설정
@@ -86,4 +130,11 @@ def get_data_dir() -> Path:
 
 def get_default_db_path() -> str:
     """기본 DB 경로를 반환합니다."""
-    return str(get_data_dir() / "chroma_db_v17")
+    page_scope = str(MAX_PAGES) if MAX_PAGES > 0 else "all"
+    schema_version = os.environ.get("INDEX_SCHEMA_VERSION", "v2")
+    include_pattern = os.environ.get("DOC_INCLUDE_PATTERN", "").strip()
+    include_suffix = ""
+    if include_pattern:
+        digest = hashlib.sha1(include_pattern.encode("utf-8")).hexdigest()[:8]
+        include_suffix = f"_inc{digest}"
+    return str(get_data_dir() / f"chroma_db_v17_{schema_version}_p{page_scope}{include_suffix}")

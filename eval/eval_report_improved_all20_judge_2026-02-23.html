@@ -1,0 +1,1106 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>입찰메이트 v17 - 평가 리포트</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 2rem;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 1rem;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .header .subtitle {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .header .timestamp {
+            margin-top: 1rem;
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            padding: 2rem;
+            background: #f8f9fa;
+        }
+
+        .metric-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        .metric-card .label {
+            font-size: 0.85rem;
+            color: #666;
+            margin-bottom: 0.5rem;
+        }
+
+        .metric-card .value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .metric-card .value.score {
+            color: #f59e0b;
+        }
+
+        .section {
+            padding: 2rem;
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            margin-bottom: 1.5rem;
+            color: #333;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 0.5rem;
+        }
+
+        .result-card {
+            background: #f8f9fa;
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            border-left: 4px solid #667eea;
+        }
+
+        .result-card.correct {
+            border-left-color: #10b981;
+        }
+
+        .result-card.partial {
+            border-left-color: #f59e0b;
+        }
+
+        .result-card.incorrect {
+            border-left-color: #ef4444;
+        }
+
+        .result-card.no-judge {
+            border-left-color: #9ca3af;
+        }
+
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .result-id {
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .result-type {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 1rem;
+            font-size: 0.75rem;
+            font-weight: bold;
+            background: #e0e7ff;
+            color: #4338ca;
+        }
+
+        .result-question {
+            font-size: 1.1rem;
+            font-weight: 500;
+            margin-bottom: 1rem;
+            color: #1f2937;
+        }
+
+        .result-scores {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .score-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.75rem;
+            border-radius: 0.5rem;
+            font-size: 0.85rem;
+            font-weight: bold;
+        }
+
+        .score-badge.correctness {
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        .score-badge.coverage {
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        .score-badge.faithfulness {
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        .score-badge.context {
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        .answer-section {
+            margin-top: 1rem;
+        }
+
+        .answer-label {
+            font-size: 0.85rem;
+            color: #666;
+            margin-bottom: 0.25rem;
+            font-weight: 500;
+        }
+
+        .answer-content {
+            background: white;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            color: #374151;
+            line-height: 1.6;
+        }
+
+        .answer-content.expected {
+            border-left: 3px solid #10b981;
+        }
+
+        .answer-content.generated {
+            border-left: 3px solid #3b82f6;
+        }
+
+        .response-time {
+            font-size: 0.85rem;
+            color: #6b7280;
+            margin-top: 0.5rem;
+        }
+
+        .chart-container {
+            height: 200px;
+            margin: 1rem 0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        th {
+            background: #f3f4f6;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        tr:hover {
+            background: #f9fafb;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e5e7eb;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 0.5rem;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            transition: width 0.3s ease;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 1.5rem;
+            background: #f8f9fa;
+            color: #6b7280;
+            font-size: 0.9rem;
+        }
+
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 1rem;
+            background: white;
+            border-radius: 0.5rem;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: #6b7280;
+            margin-top: 0.25rem;
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            .container {
+                box-shadow: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>입찰메이트 v17 - 평가 리포트</h1>
+            <div class="subtitle">RFP 문서 기반 지능형 질의응답 시스템 (Judge 포함 평가)</div>
+            <div class="timestamp">생성일: 2026-02-23 15:38:41</div>
+        </div>
+
+        <div class="metrics">
+            <div class="metric-card">
+                <div class="label">정확성 (Correctness)</div>
+                <div class="value score">3.25/5</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">커버리지 (Coverage)</div>
+                <div class="value">3.05/5</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">충실성 (Faithfulness)</div>
+                <div class="value">3.00/5</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">검색 관련성 (Context)</div>
+                <div class="value">4.55/5</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">평균 응답 시간</div>
+                <div class="value">1.12s</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">전체 질문 수</div>
+                <div class="value">20</div>
+            </div>
+            
+            <div class="metric-card">
+                <div class="label">응답시간 P50</div>
+                <div class="value">1.20s</div>
+            </div>
+        
+
+            <div class="metric-card">
+                <div class="label">응답시간 P90</div>
+                <div class="value">1.53s</div>
+            </div>
+        
+
+            <div class="metric-card">
+                <div class="label">평균 Slot Fill</div>
+                <div class="value">1.000</div>
+            </div>
+        
+
+            <div class="metric-card">
+                <div class="label">평균 Confidence</div>
+                <div class="value">1.000</div>
+            </div>
+        
+
+            <div class="metric-card">
+                <div class="label">Answer Mode</div>
+                <div class="value">extractive:20</div>
+            </div>
+        
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">검색 메트릭</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>지표</th>
+                        <th>값</th>
+                        <th>진행률</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Recall@K (Source)</td>
+                        <td>0.7500</td>
+                        <td>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 75.0%"></div>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Recall@K (Page)</td>
+                        <td>0.2000</td>
+                        <td>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 20.0%"></div>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>MRR (Source)</td>
+                        <td>0.7219</td>
+                        <td>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 72.19285714285715%"></div>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>MRR (Page)</td>
+                        <td>0.0888</td>
+                        <td>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: 8.883526059996647%"></div>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">질문별 결과</h2>
+            
+        <div class="result-card correct">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#1 eval_001</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">고려대학교 차세대 포털·학사 정보시스템 구축사업에서 개발에 사용된 이미지·글꼴 등 인프라의 저작권 비용은 누가 부담해야 합니까?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 5.00/5</span>
+                <span class="score-badge coverage">커버리지: 5.00/5</span>
+                <span class="score-badge faithfulness">충실성: 2.00/5</span>
+                <span class="score-badge context">검색: 4.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">저작권에 문제가 없어야 하며, 비용이 발생할 경우 주사업자가 부담해야 합니다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">고려대학교 문서 기준 문서 기준 책임 주체는 `사업자(제안사/주사업자)`로 확인됩니다.
+
+### 근거 요약
+- 저작권에 문제가 없어야 하며, 비용이 발생할 경우 주사업자가 부담하여야 함
+
+### 출처
+- 고려대학교_차세대 포털·학사 정보시스템 구축사업.pdf p.80</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 1.08초
+                 | 정답 문서: 고려대학교_차세대 포털·학사 정보시스템 구축사업.pdf
+            </div>
+        </div>
+    
+
+        <div class="result-card correct">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#2 eval_002</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">남서울대학교 스마트 정보시스템 활성화(학사) 사업 수행 시 참여인원에 대한 정보보안교육은 얼마나 자주 실시해야 합니까?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 5.00/5</span>
+                <span class="score-badge coverage">커버리지: 5.00/5</span>
+                <span class="score-badge faithfulness">충실성: 1.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">참여인원에 대해 월 1회 정보보안교육을 수행하고, 교육결과는 발주기관의 확인을 받아야 합니다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">남서울대학교 문서 기준 문서 기준 값은 `1회`입니다.
+
+### 근거 요약
+- □ 참여인원에 대하여 월1회 정보보안교육을 수행하고, 교육결과에 대하여 발주기관의 확인을 받아야 한다.
+
+### 출처
+- 남서울대학교_[혁신-국고] 남서울대학교 스마트 정보시스템 활성화(학사.hwp p.19</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 1.41초
+                 | 정답 문서: 남서울대학교_[혁신-국고] 남서울대학교 스마트 정보시스템 활성화(학사.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card correct">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#3 eval_003</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">국가과학기술지식정보서비스 통합정보시스템 고도화 용역에서 기술능력 평가점수로 협상적격자를 선정할 때 기준은 무엇인가요?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 5.00/5</span>
+                <span class="score-badge coverage">커버리지: 5.00/5</span>
+                <span class="score-badge faithfulness">충실성: 5.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">기술능력 평가분야 배점한도의 85% 이상인 제안사를 협상적격자로 선정합니다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">A 문서: □ (사 업 명) 통합정보시스템 고도화 용역; 통합정보시스템 고도화 용역; 통합정보시스템 고도화 사업; ㅇ 제안서 평가결과 기술능력 평가점수 가 기술능력 평가분야 배점 한도의 85% 이상인 제안사 를 협상적격자 로 선정하며,
+B 문서: □ (사 업 명) 통합정보시스템 고도화 용역; 통합정보시스템 고도화 용역; 통합정보시스템 고도화 사업; ㅇ 제안서 평가결과 기술능력 평가점수 가 기술능력 평가분야 배점 한도의 85% 이상인 제안사 를 협상적격자 로 선정하며,
+공통: 공통적으로 `통합정보시스템, 고도화, 기술능력` 관련 요건...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 1.99초
+                 | 정답 문서: 국가과학기술지식정보서비스_통합정보시스템 고도화 용역.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card incorrect">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#4 eval_004</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">재단법인 스포츠윤리센터의 &#x27;스포츠윤리센터 LMS(학습지원시스템) 기능개선&#x27; 사업에서 비밀정보의 소유권은 누구에게 있습니까?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 1.00/5</span>
+                <span class="score-badge coverage">커버리지: 1.00/5</span>
+                <span class="score-badge faithfulness">충실성: 2.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">전항의 비밀정보의 소유권은 발주자가 계속 보유한다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">재단법인스포츠윤리센터 문서에서 질문 관련 조항을 확인했습니다.
+
+### 근거 요약
+- 제3조 (위탁업무의 목적 및 범위) “ 수탁자 ” 는 계약이 정하는 바에 따라 스포츠윤리센 터 LMS( 학습지원시스템) 기능개선 사업 목적으로 다음과 같은 개인정보 처리 업무 를 수행한다.
+- 위의 모든 사항을 확인하고 동의함을 확약하며, 상기인을 스포츠 윤리센터 LMS( 학습지원시스템) 기능개선 사업 제안심사에 발표자 로 지정함을 확인합니다.
+- □ 사 업 명 : 스포츠윤리센터 LMS( 학습지원시스템) 기능개선
+
+### 출처
+- 재단법인스포츠윤리...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 1.10초
+                 | 정답 문서: 재단법인스포츠윤리센터_스포츠윤리센터 LMS(학습지원시스템) 기능개선.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card correct">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#5 eval_005</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">대한적십자사 의료원_적십자병원 병원정보 재해복구시스템 구축 용역 문서에서 QUR-02(가용성 보장) 요구사항에 따르면 도입 하드웨어 및 소프트웨어의 운영 요구사항은 무엇인가?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 4.00/5</span>
+                <span class="score-badge coverage">커버리지: 4.00/5</span>
+                <span class="score-badge faithfulness">충실성: 4.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">정상상태에서 매일 24시간 무중단으로 운영되어야 하며, 통상적인 업무시간 동안 가용성을 보장해야 한다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">대한적십자사 의료원 문서 기준 문서 기준 운영 요구사항은 `◦ 도입 하드웨어 및 소프트웨어는 정상상태에서 매일 ·24 시간 무중단 운영되어야 함` 및 `◦ 본 사업에 필요한 장비는 확장성과 효율성이 뛰어난 최신의 고가용성 장비가 도입되어야 함. 그에 따른 장비 품질에 대한 제품보증서, 기술지원 확약서, 제조사 공급증명서( Certification), 제시한 장비 성능을 입증할 수 있는 자료의 서류 등을 제출하여 본 사업에 도입되는 장비에 대한 품질을 제안사가 보장하여야 함. 단, 해당 제품이 제출한 자료에 비해 성능이 낮거나 상이할...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 1.81초
+                 | 정답 문서: 대한적십자사 의료원_적십자병원 병원정보 재해복구시스템 구축 용역 .hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card incorrect">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#6 eval_006</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">한국수출입은행의 모잠비크 마푸토 지능형교통시스템(ITS) 구축사업 RFP 텍스트에 따르면 경제적 타당성 분석 시 참고해야 할 가이드는 무엇인가?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 1.00/5</span>
+                <span class="score-badge coverage">커버리지: 1.00/5</span>
+                <span class="score-badge faithfulness">충실성: 1.00/5</span>
+                <span class="score-badge context">검색: 4.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">Guidelines for the Economic Analysis of Projects(ADB) 및 Guide to Cost-Benefit Analysis of Investment Project(European Commission).</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">한국수출입은행 문서에서 질문 관련 조항을 확인했습니다.
+
+### 근거 요약
+- 「 모잠비크 마푸토 지능형교통시스템( ITS) 구축사업 」
+- 모잠비크 마푸토 지능형교통시스템(ITS) 구축사업
+- ◦ ➀ 지능형교통시스템( ITS) ➁ 스마트 주차장 ➂ 버스 구매 관련 사업실시기관의 요구사항 분석
+
+### 출처
+- 한국수출입은행_(긴급) 모잠비크 마푸토 지능형교통시스템(ITS) 구축사업.hwp p.1</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 0.78초
+                 | 정답 문서: 한국수출입은행_(긴급) 모잠비크 마푸토 지능형교통시스템(ITS) 구축사업.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card correct">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#7 eval_007</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">을지대학교 비교과시스템 개발 사업에서 계약상대자는 사업 완료 후 검사 승인을 받기 위해 어떤 서류를 을지대학교에 제출해야 합니까?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 4.00/5</span>
+                <span class="score-badge coverage">커버리지: 5.00/5</span>
+                <span class="score-badge faithfulness">충실성: 3.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">완료보고서, 납품 및 검사조서를 제출하여 감독관에게 검사 승인을 받아야 한다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">A 문서:  계약상대자는 본교의 요구사항에 맞게 사업을 완료 후 검사요청을 하여야 하며 본 사업 완료 후 완료보고서, 납품 및 검사조서를 제출하여 감독관에게 검사 승인을 받아야 한다.; ❍ 사업완료 후 생산된 최종 산출물은 인수 · 인계서를 통하여 을지대학교에 제출하고, PC 완전삭제 등 보안조치를 통해 사업관련 모든 산출물을 삭제하여야 하며, 대표자 명의 확약서를 제출하여야 함; ❍ 용역사업 수행 중 을지대학교 정보시스템에 위해를 가할 수 있는 행위 는 절대불가하며, 정보시스템 접근이 필요한 경우에는 을지대학교의 사전승인을 득한...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 0.62초
+                 | 정답 문서: 을지대학교_을지대학교 비교과시스템 개발.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card correct">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#8 eval_008</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">국민연금공단_2024년 이러닝시스템 운영 용역 세부산출내역서에 따르면 &#x27;직무교육&#x27;의 단위와 수량은 무엇인가?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 5.00/5</span>
+                <span class="score-badge coverage">커버리지: 5.00/5</span>
+                <span class="score-badge faithfulness">충실성: 3.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">단위는 &#x27;명&#x27;이며 수량은 11,000명이다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">국민연금공단 문서 기준 문서 기준 단위/수량 값은 `11,000명`입니다.
+
+### 근거 요약
+- ㆍ직무교육: 11,000명
+
+### 출처
+- 국민연금공단_2024년 이러닝시스템 운영 용역.hwp p.1</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 0.70초
+                 | 정답 문서: 국민연금공단_2024년 이러닝시스템 운영 용역.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card correct">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#9 eval_009</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">BioIN_의료기기산업 종합정보시스템(정보관리기관) 기능개선 사업(2차)에서 웹페이지의 용량은 얼마 이내로 개발해야 하나요?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 4.00/5</span>
+                <span class="score-badge coverage">커버리지: 4.00/5</span>
+                <span class="score-badge faithfulness">충실성: 2.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">웹페이지의 용량은 3MB 이내로 개발해야 하며 단, 홍보 등 특성에 따라 3MB를 초과할 수 있습니다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">BioIN 문서 기준 문서 기준 용량 값은 `3MB`입니다.
+
+### 근거 요약
+- - 웹페이지의 용량은 3 MB 이내 개발
+
+### 출처
+- BioIN_의료기기산업 종합정보시스템(정보관리기관) 기능개선 사업(2차).hwp p.8</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 0.68초
+                 | 정답 문서: BioIN_의료기기산업 종합정보시스템(정보관리기관) 기능개선 사업(2차).hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card correct">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#10 eval_010</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">한국농수산식품유통공사 농산물가격안정기금 정부예산회계연계시스템 RFP에서 시스템 장애 발생 시 데이터 복구 기한은 무엇인가요?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 5.00/5</span>
+                <span class="score-badge coverage">커버리지: 5.00/5</span>
+                <span class="score-badge faithfulness">충실성: 5.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">시스템은 장애가 발생하면 12시간 이내에 데이터를 복구해야 합니다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">한국농수산식품유통공사 문서 기준 문서 기준 복구기한은 `12시간이내`입니다.
+
+### 근거 요약
+- o 시스템은 장애가 발생하면 12시간 이내에 데이터를 복구해야 함
+
+### 출처
+- 한국농수산식품유통공사_농산물가격안정기금 정부예산회계연계시스템 .hwp p.10</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 0.88초
+                 | 정답 문서: 한국농수산식품유통공사_농산물가격안정기금 정부예산회계연계시스템 .hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card correct">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#11 eval_011</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">사단법인아시아물위원회사무국의 우즈벡-키르기즈스탄 기후변화대응 사업 제안서에서 핵심투입인력은 누구로 지정되어야 합니까?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 4.00/5</span>
+                <span class="score-badge coverage">커버리지: 4.00/5</span>
+                <span class="score-badge faithfulness">충실성: 4.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">핵심투입인력은 사업관리자(PM) 1명으로 지정하며 제안사 소속이어야 하고, 공동도급의 경우 대표사 소속으로 지정해야 합니다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">사단법인아시아물위원회사무국 문서 기준 문서 기준 핵심투입인력 관련 직접 근거는 `* 핵심투입인력은 사업관리자( PM) 1 명으로 지정하며 제안사 소속이어야 함`입니다.
+
+### 근거 요약
+- * 핵심투입인력은 사업관리자( PM) 1 명으로 지정하며 제안사 소속이어야 함
+- 3. (복무) ① 전문가는 사무국의 지휘 ․ 감독을 받으며, 국위를 손상하는 행 위를 하거나 파견목적에 배치되는 행위를 하여서는 아니 된다. ② 전문가 는 직무 이외에 영리를 목적으로 하는 활동을 할 수 없으며, 사무국의 사전허가 없이는 다른 직무를 겸할 수 없다...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 0.43초
+                 | 정답 문서: 사단법인아시아물위원회사무국_우즈벡-키르기즈스탄 기후변화대응 스.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card correct">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#12 eval_012</span>
+                    <span class="result-type">단일 문서</span>
+                </div>
+            </div>
+            <div class="result-question">(재)예술경영지원센터 통합 정보시스템 구축 사전 컨설팅 문서에 따르면 신규시스템에 우선 적용해야 할 문자셋은 무엇인가요?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 4.00/5</span>
+                <span class="score-badge coverage">커버리지: 5.00/5</span>
+                <span class="score-badge faithfulness">충실성: 2.00/5</span>
+                <span class="score-badge context">검색: 4.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">신규시스템에는 UTF-8을 우선 적용해야 한다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">(재)예술경영지원센터 문서 기준 문서 기준 우선 문자셋은 `UTF-8`입니다.
+
+### 근거 요약
+- - UTF-8( 단, 신규시스템은 UTF-8 우선 적용)
+- - EUC-KR
+
+### 출처
+- (재)예술경영지원센터_통합 정보시스템 구축 사전 컨설팅.hwp p.15</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 0.43초
+                 | 정답 문서: (재)예술경영지원센터_통합 정보시스템 구축 사전 컨설팅.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card partial">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#13 eval_013</span>
+                    <span class="result-type">다중 문서</span>
+                </div>
+            </div>
+            <div class="result-question">한국대학스포츠협의회(KUSF)의 ‘체육특기자 경기력 평가지표 개발’(특히 시뮬레이션 단계)에서 개인별 경기력 데이터를 처리·관리하는 시스템을 구축할 때, 평택시 ‘케빈랩 주식회사_강소형 스마트시티 AI 기반 영상감시 시스템’ RFP의 기술적 보안요건(SER-002) 중 어떤 보안 조치를 반드시 적용해야 하나요?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 2.00/5</span>
+                <span class="score-badge coverage">커버리지: 1.00/5</span>
+                <span class="score-badge faithfulness">충실성: 4.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">KUSF의 개인 경기력 평가지표 시스템(개발·시뮬레이션 단계 포함)에 대해 SER-002의 기술적 보안요건을 적용하면 다음 조치를 포함해야 한다: 사용자 권한에 따른 접근제어 구현; 네트워크 관리자 등 계정의 복잡한(기본이 아닌) 패스워드 사용; 사업계획·분석단계부터 소스 프로그램의 안전성 반영(안전한 개발); 서버·시스템에 대한 보안 취약성 사전점검 및 보완; 개발자용 PC 패스워드 사용 및 주기적 변경; 정기적 바이러스·해킹 도구 검사; 백업정책 수립·실행(복구 가능성 확보); 개인정보·주요정보의 저장·전송·전달 시 법적 요구사...</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">A 문서: SER-002 ; 기술적 보안 ; 품질 요구사항; SER-002 ; 요구사항 명칭 ; 기술적 보안
+B 문서: 2. 체육특기자 경기력 평가지표 개발 결과 7; 5. 용역사업 보안 사항 관련 61; * 본 사업은 “ 소프트웨어 개발사업 적정 사업기간 산정 기준에 따른 사업 ” 임; ㅇ 사업기간: 계약체결 후 2024년 12월 31일까지
+공통: 두 문서 모두 질문 주제와 연관된 조항/의무를 명시합니다.
+차이: A 문서는 `SER-002 ; 기술적 보안 ; 품질 요구사항; SER-002 ; 요구사항 명칭 ; 기술적 보안` 중심,...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 1.39초
+                 | 정답 문서: (사）한국대학스포츠협의회_KUSF 체육특기자 경기기록 관리시스템 개발.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card partial">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#14 eval_014</span>
+                    <span class="result-type">다중 문서</span>
+                </div>
+            </div>
+            <div class="result-question">재단법인 광주광역시 광주문화재단의 &#x27;2024년 광주문화예술통합플랫폼&#x27; 유지보수·보안 요구사항과 한국산업단지공단의 &#x27;산단 안전정보시스템 1차 구축 용역&#x27;의 HW/SW 조달·기술지원 요구사항을 모두 고려할 때, 계약상대자가 제출·이행해야 할 유지관리·보안 의무와 제조사 관련 제출서류 및 클라우드 검토 절차는 무엇인가요?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 3.00/5</span>
+                <span class="score-badge coverage">커버리지: 2.00/5</span>
+                <span class="score-badge faithfulness">충실성: 4.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">광주문화예술통합플랫폼(광주문화재단) 측에서는 계약상대자가 정기점검 계획서·정기·수시 점검 보고서를 문서화하고 유지보수내역서를 산출하며, 정보보안시스템을 이용한 취약점 진단·점검 및 사이버 침해사고 예·경보 대응 시 적극 협조해야 합니다. 또한 전산장비(OS 등) 업그레이드·패치로 인한 응용프로그램 변경에 대한 유지관리 전략과 성능·데이터 정합성·사용자 지원을 포함한 유지관리 방안을 제시·이행해야 합니다. 한국산단공의 산단 안전정보시스템에서는 OEM/ODM 제품을 제외하고 모든 HW·SW에 대해 제조사의 &#x27;물품공급 및 기술지원확약서&#x27;...</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">A 문서: ○ 홈페이지 SW 개발 보안가이드(행정안전부)를 준수하여 보안에 취약하지 않도록 시스 템 개편; 제7조(소유권) 본 사업수행 결과물은 ‘ 광주문화재단 ’ 와 ‘ 계약상대자 ’ 가 공동 으로 소유하며, 별도의 정함이 없는 한 지분은 균등하다. 다만, 계획 수립의 기여도 및 계약목적물의 특수성(보안, 영업비밀 등)을 고려 하여 계약 당사자 간의 협의를 통해 지식재산권 귀속 주체 등에 대 해 공동소유와 달리 정할 수 있으며, 지식재산권의 타 용도 및 상업 적 활용 시 반드시 ‘ 광주문화재단 ; ○ 유지보수 대상 품목에 대한 현...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 1.43초
+                 | 정답 문서: 재단법인 광주광역시 광주문화재단_2024년 광주문화예술통합플랫폼 시스.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card partial">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#15 eval_015</span>
+                    <span class="result-type">다중 문서</span>
+                </div>
+            </div>
+            <div class="result-question">한국해양조사협회의 &#x27;2024년 항해용 간행물 품질관리 업무보조 시스템 구축&#x27; 용역을 수행한 업체가 경기도 평택시의 &#x27;2024년도 평택시 버스정보시스템(BIS) 구축사업&#x27; 입찰에 해당 실적을 제출하려면 어떤 제출서류와 준수사항(비밀정보 취급·사본허가·하도급·공동도급·위약·실적증명원 등)을 충족해야 하나요?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 2.00/5</span>
+                <span class="score-badge coverage">커버리지: 1.00/5</span>
+                <span class="score-badge faithfulness">충실성: 5.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">요약: 두 문서를 근거로, 해당 실적을 제출하려면 아래를 충족해야 합니다. 1) 비밀관리·사본허가: 한국해양조사협회 계약상 비밀정보는 발주기관이 승인한 자만 취급 가능하며(허가받지 않은 복제·누설 금지), 제공받은 비밀정보나 그에 기초한 자료는 신중히 보관하고(복사본 포함) 발주기관 요구 시 즉시 반환해야 하므로(계약종료 후 포함) 실적 제출 시 발주기관의 자료 제공·복사 허가를 받아야 합니다. 2) 책임·위약: 동해·독도 표기 오류 등으로 사회적 문제가 발생하면 협회는 보안위규에 따른 위약금·손해배상을 부과할 수 있으니(제7·제8...</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">A 문서: 2. 본인은 보안 관련 규정을 준수하며 재직 중은 물론 퇴직 후에도 직무상 알게 된 비밀을 절대 누설하지 않는다.; ※ 단, 「 부패방지 및 국민권익위원회의 설치와 운영에 관한 법률 」 제66조제3항(제67조 에서 준용하는 경우를 포함한다) 및 「 공익신고자 보호법 」 제14조제3항( 「 부정청탁 및 금품등 수수의 금지에 관한 법률 」 제15조제 4항에서 준용하는 경우를 포함한다) 에 해당하는 경우에는 비밀준수의무를 위반한 것으로 보지 않는다 .; [ 별첨 제4호 서식 ] 보안확약서; 본인은 귀 협회와 계약한 「2024 ...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 1.30초
+                 | 정답 문서: 한국해양조사협회_2024년 항해용 간행물 품질관리 업무보조 시스템 구축.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card partial">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#16 eval_016</span>
+                    <span class="result-type">다중 문서</span>
+                </div>
+            </div>
+            <div class="result-question">인천공항운영서비스(주) 차세대 ERP시스템 구축과 전북대학교 JST 공유대학(원) xAPI기반 LRS시스템 구축에서 계약업체에 요구되는 데이터 이관·업무 연속성 및 보안관리 의무는 무엇인가요?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 2.00/5</span>
+                <span class="score-badge coverage">커버리지: 2.00/5</span>
+                <span class="score-badge faithfulness">충실성: 3.00/5</span>
+                <span class="score-badge context">검색: 4.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">인천공항운영서비스(주) 차세대 ERP사업에서는 기존 ERP의 데이터 이관을 통해 업무 연속성을 보장해야 한다. 전북대학교 사업에서는 계약 착수 시 참여인원 및 업체대표 명의의 보안서약서 제출, 용역 전 보안교육 실시, 수행 중 주기적 보안교육 및 대학 요구 교육 참석, 임의 인력교체 금지(불가피 시 즉시 보고), 업체 대표가 보안관리책임자 지정 및 보안업무 총괄 등의 의무가 있으며, 사업종료 시 대학으로부터 받은 장비·서류·중간·최종산출물 전량 반납·삭제(복사본 보관 금지), 전자매체는 교육부 지침(제40조 제4항)에 따른 삭제 후...</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">A 문서: ○ 사용자 인증정보, 주민등록번호, 패스워드 등 보안이 요구되는 정보를 소스 코드에 직접 하드코딩 하지 않아야 함; - 정보시스템 로그인시 정보통신망으로 전송되는 중요정보(아이디, 패스워드 와 같은 로그인 정보 및 주민등록번호 등)에 대해 SSL, TLS 등 네트워크 구간 암호화 조치를 수행하여야 함; - 웹 취약점 공격에 대한 보안 이슈 해결(보안 코딩 준수, SSL 적용, 인증 토큰값 사용); - (데이터 이관) 기존 ERP 시스템의 데이터 이관을 통한 업무 연속성 보장
+B 문서: ※ 주기적인 데이터 백업 및 비상연락...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 1.50초
+                 | 정답 문서: 인천공항운영서비스(주)_인천공항운영서비스㈜ 차세대 ERP시스템 구축 .hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card incorrect">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#17 eval_017</span>
+                    <span class="result-type">비교</span>
+                </div>
+            </div>
+            <div class="result-question">한국철도공사 용역 &#x27;운행정보기록 자동분석시스템&#x27;과 한국연구재단 사업 &#x27;2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선&#x27;에서 위반 발생 시 책임과 제재·이행절차는 어떻게 다른가요?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 1.00/5</span>
+                <span class="score-badge coverage">커버리지: 1.00/5</span>
+                <span class="score-badge faithfulness">충실성: 1.00/5</span>
+                <span class="score-badge context">검색: 3.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">한국철도공사(운행정보기록 자동분석시스템)는 주로 현장 안전·운행 지장·인적·물적 피해를 초래한 계약상대자의 귀책을 규정하며, 관련법령·철도안전관리체계에 따를 것을 명시하고 공사가 개선요청·이행권고를 할 수 있고, 지연손실·피해보상 책임은 계약상대자에게 있으며 필요시 피해구상도 가능하다. 일부 안전조항은 적용대상(차량·시설·전기 등)을 한정하고 페널티 부과는 계도기간 이후(&#x27;24.12.01부터) 시행됨을 밝힌다. 반면 한국연구재단(UICC 기능개선)은 정보보안 위반을 수준별(경미·보통 등)로 분류하고 위반 유형별 사례를 제시한 뒤, ...</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">A 문서: 1. 사업명: 2024년 대학 산학협력활동 실태조사 시스템( UICC) 기능개선; [ 2024 년 대학 산학협력활동 실태조사 시스템( UICC) 기능개선 ]; 2024년 대학 산학협력활동 실태조사 시스템( UICC) 기능개선; ❍ 사업자는 장비, 자료(산출물 및 사업관련 자료 포함), 네트워크 등에 대한 물리적ㆍ관리적ㆍ기술적 보안대책과 누출금지 대상 정보에 대한 보안관리 계획을 사업제안서에 기재해야하며, 누출 금지 대상 정보 누출 시 국가계약법 시행령 제76조에 따라 사업 자를 부정당업체로 등록하고 입찰 참가를 제한함
+B...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 1.32초
+                 | 정답 문서: 한국철도공사 (용역)_[재공고][긴급][협상형]운행정보기록 자동분석시스.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card partial">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#18 eval_018</span>
+                    <span class="result-type">비교</span>
+                </div>
+            </div>
+            <div class="result-question">기초과학연구원 &#x27;2025년도 중이온가속기용 극저온시스템 운전 용역&#x27;과 한국농어촌공사 &#x27;네팔 수자원관리 정보화사업‑Pilot 시스템 구축용역&#x27;에서 요구하는 주된 업무와 관리 초점은 어떻게 다른가?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 3.00/5</span>
+                <span class="score-badge coverage">커버리지: 2.00/5</span>
+                <span class="score-badge faithfulness">충실성: 4.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">기초과학연구원(중이온가속기 극저온시스템)은 주로 현장 운전·모니터링·제어와 주요 수치의 기록·분석, 24시간 교대운전(가동기간) 및 주간 중심의 유지보수·운전 경험 통합(휴지기간)에 초점을 둔다. 운전 장소는 극저온설비동과 헬륨압축기동(방사선구역 일부 제외)에 한정된다. 반면 한국농어촌공사(네팔 수자원관리 정보화사업)는 보안요구·제약사항·성능·인터페이스·시험(단위·통합·시스템·인수) 및 품질요구를 충족시키기 위한 구체적 설계·구현·테스트 방안과 일정·위험·보안·산출물 형상·문서관리 등 프로젝트 관리 방법론 수립에 중점을 둔다.</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">A 문서: 네팔 수자원관리 정보화사업 - Pilot 시스템 구축; 네팔 수자원관리 정보화사업 Pilot 시스템 구축; 네팔 수자원관리 정보화사업 용역단; ❍ 기자재 사양에서 요구하는 기능, 성능 등은 시스템 구축을 위한 기본적인 규격과 최소한의 요구조건을 제시한 것으로, 국내외 표준규격( KS, ISO, IEC 등) 또는 이와 동등 이상의 품질을 가진 것이어야 하며, 네팔 환경과 사업을 고려하여 공사와 계약자 간 협의를 통하여 정함
+B 문서: | 1. 서 론 1.1 목 적 기초과학연구원 중이온가속기연구소(이하 “연구원”)에서 운영중...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 0.82초
+                 | 정답 문서: 기초과학연구원_2025년도 중이온가속기용 극저온시스템 운전 용역.pdf
+            </div>
+        </div>
+    
+
+        <div class="result-card incorrect">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#19 eval_019</span>
+                    <span class="result-type">비교</span>
+                </div>
+            </div>
+            <div class="result-question">한국가스공사 &#x27;차세대 통합정보시스템(ERP) 구축&#x27;의 생산공급 시스템 재구축(SFR-049)과 인천광역시 &#x27;인천일자리플랫폼 정보시스템 구축 ISP 수립용역&#x27;의 보안요구사항(SER-001)을 비교하면, 각각이 요구하는 데이터 수정·이력관리 기능과 보안책임·통제 조치의 핵심 차이점은 무엇인가요?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 1.00/5</span>
+                <span class="score-badge coverage">커버리지: 1.00/5</span>
+                <span class="score-badge faithfulness">충실성: 1.00/5</span>
+                <span class="score-badge context">검색: 2.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">한국가스공사(차세대 통합정보시스템 ERP, SFR-049)는 주로 시스템 기능 측면에서 요구한다. 실적 데이터의 수정(일일마감 후 포함), 사용자 권한에 따른 수정 가능 시간 관리, 수정사항의 연계 시스템(SAP 등)에 대한 자동 업데이트 및 정상 여부 확인, 모든 변경의 누가·언제·무엇을 변경했는지에 대한 이력 기록과 원본 보관 및 롤백 기능, UI·DB 레벨의 이력관리, 사용자용 이력 조회와 프로세스 알림(메일/메신저) 등을 요구한다. 반면 인천광역시(인천일자리플랫폼 ISP, SER-001)는 조직·계약·관리적 보안 통제에 중점...</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">A 문서: SFR-049; SER-001 ; 보안관리 일반 ; 보안 법규 및 지침 준수; SFR-049 ; 요구사항 명 ; 기존 시스템 기능을 기반으로 업무 프로세스 및 사용자 요구사항을 반영하여 재설계한 기능 요구사항을 구현함
+B 문서: SER-001 ; 보안관련 일반사항 ; 시스템 및 개발 보안; SER-001 ; 요구사항 명칭 ; 보안관련 일반사항
+공통: 공통적으로 `ser001, ser, 시스템` 관련 요건을 포함합니다.
+차이: A 문서는 `SFR-049; SER-001 ; 보안관리 일반 ; 보안 법규 및 지침 준수; SFR...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 1.31초
+                 | 정답 문서: 한국가스공사_[재공고]차세대 통합정보시스템(ERP) 구축.hwp
+            </div>
+        </div>
+    
+
+        <div class="result-card correct">
+            <div class="result-header">
+                <div>
+                    <span class="result-id">#20 eval_020</span>
+                    <span class="result-type">비교</span>
+                </div>
+            </div>
+            <div class="result-question">2025 구미아시아육상경기선수권대회 조직위원회(입찰서약서)와 파주도시관광공사(&#x27;종량제봉투 판매관리 전산시스템 개선사업&#x27;) 요구사항을 각각 따르는 업체는 어떤 윤리·제재 의무와 어떤 재고·거래 기록·전송 기능을 충족해야 합니까?</div>
+            <div class="result-scores">
+                <span class="score-badge correctness">정확성: 4.00/5</span>
+                <span class="score-badge coverage">커버리지: 2.00/5</span>
+                <span class="score-badge faithfulness">충실성: 4.00/5</span>
+                <span class="score-badge context">검색: 5.00/5</span>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">기대 답변:</div>
+                <div class="answer-content expected">구미 아시아육상경기 조직위원회(입찰서약서): 입찰과정에서 담합·공정경쟁 저해 행위 금지 및 관계공무원에 대한 뇌물·금품 제공 금지. 위반 시 담합 주도자는 조직위 발주 입찰 참가자격 제한 2년, 입찰자간 사전 가격협정·담합은 1년, 담합 적발 시 공정위 고발 및 과징금 부과에 대한 이의 제기 금지. 뇌물 제공으로 계약 유리·부실시공 초래 시 2년, 관계 직원에게 유리하도록 뇌물 제공 시 1년, 금품·향응 제공 사실은 6개월 참가제한.  파주도시관광공사(전산시스템 요구사항): 종량제물품의 기초재고 등록(관리자 전용) 및 창고별 재고 ...</div>
+            </div>
+            <div class="answer-section">
+                <div class="answer-label">생성된 답변:</div>
+                <div class="answer-content generated">A 문서: - 주문 및 판매 내역, 재고관리, 결제내역 관리 및 보고서식 및 통계자료 등 조회; - 거래처 최근판매일 기준 주문빈도 표시 및 최근판매내역 조회; 당사는 부패 없는 투명한 기업경영과 공정한 행정이 사회발전과 국가 경쟁력에 중요한 관건이 됨을 깊이 인식하며, 귀 사가 실시하는 청렴계약제 시행 취지에 적극 동참하여 금번 발주하는 “ 종량제봉투 판매관리 전산시스템 개선 사업 ” 사업과 관련하여 당사는 물 론 당사와 관련이 있는 모든 협력업체 임직원과 대리인은 다음 서약내용을 반드시 이행 할 것을 서약합니다.; 가. 재고관리...</div>
+            </div>
+            <div class="response-time">
+                응답 시간: 1.35초
+                 | 정답 문서: 2025 구미 아시아육상경기선수권대회 조직위원회_2025 구미아시아육상경.hwp
+            </div>
+        </div>
+    
+        </div>
+
+        <div class="footer">
+            <p>입찰메이트 v17 | 7팀 | <a href="https://github.com/Loah-Lee/AI_7-team">GitHub</a></p>
+        </div>
+    </div>
+
+    <script>
+        // 동적 색상 적용
+        function getScoreColor(score) {
+            if (score >= 4) return '#10b981';
+            if (score >= 3) return '#f59e0b';
+            return '#ef4444';
+        }
+
+        function getScoreBackground(score) {
+            if (score >= 4) return '#d1fae5';
+            if (score >= 3) return '#fef3c7';
+            return '#fee2e2';
+        }
+
+        // 페이지 로드 후 점수 색상 적용
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.score-badge').forEach(badge => {
+                const scoreText = badge.textContent.match(/([0-5](?:\.\d+)?)/);
+                if (scoreText) {
+                    const score = parseFloat(scoreText[0]);
+                    badge.style.background = getScoreBackground(score);
+                    badge.style.color = getScoreColor(score);
+                }
+            });
+        });
+    </script>
+</body>
+</html>
