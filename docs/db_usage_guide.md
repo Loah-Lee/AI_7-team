@@ -15,8 +15,9 @@
 4. [hierarchy 컬렉션 (Dense 전용)](#4-hierarchy-컬렉션-dense-전용)
 5. [데이터 흐름](#5-데이터-흐름)
 6. [Python 검색 예시](#6-python-검색-예시)
-7. [메타데이터 참조](#7-메타데이터-참조)
-8. [주의 사항](#8-주의-사항)
+7. [Hybrid Search 구현](#7-hybrid-search-구현)
+8. [메타데이터 참조](#8-메타데이터-참조)
+9. [주의 사항](#9-주의-사항)
 
 ---
 
@@ -338,7 +339,210 @@ print(f"인덱싱된 명사: {sparse_embedding}")
 
 ---
 
-## 7. 메타데이터 참조
+## 7. Hybrid Search 구현 (Manual Hybrid Fusion)
+
+### 시스템 아키텍처 개요
+
+본 프로젝트는 **Chroma Cloud Native Hybrid** 기능을 사용하지 않고,
+로컬 환경에서 Dense 검색(의미 기반)과 Sparse 검색(BM25 키워드 기반)을
+**Python 레벨에서 직접 결합하는 Manual Hybrid Fusion** 구조를 채택합니다.
+
+- **Dense Retrieval (ChromaDB 담당)**
+  - 모델: `jhgan/ko-sroberta-multitask` (768차원)
+  - 역할: 문맥적 의미 유사도 검색
+  - 저장: HNSW 인덱스
+
+- **Sparse Retrieval (Python 레벨 BM25)**
+  - 토큰화: `kiwipiepy` 명사 추출
+  - 점수 계산: Python에서 dot-product
+  - 저장: 메타데이터의 `sparse_embedding` (JSON 문자열)
+
+- **Fusion 방식 (Python 수동 처리)**
+  - RRF 기반 순위 결합
+  - Sparse 점수 log 안정화
+  - 가중치 alpha 적용
+
+### 📊 데이터 흐름
+
+```
+사용자 쿼리
+  ↓
+Dense Retrieval (ChromaDB, top N × candidate_multiplier개 가져오기)
+  ↓
+Query용 Sparse Vector 생성 (kiwipiepy + BM25)
+  ↓
+저장된 각 청크의 sparse_embedding과 dot-product 계산
+  ↓
+RRF 기반 Manual Fusion → 결합 점수 계산
+  ↓
+점수 기준 재정렬 후 Top-K 반환
+```
+
+### 🧮 결합 점수 공식 (권장 안정형)
+
+```
+rrf_dense = 1 / (k + dense_rank)
+sparse_score_stable = log(1 + raw_sparse_score)
+combined_score = rrf_dense + (alpha × sparse_score_stable)
+```
+
+**파라미터 설명:**
+
+| 파라미터 | 기본값 | 설명 |
+|---------|------|------|
+| `k` (RRF 상수) | 60 | Dense 랭크의 민감도 제어 |
+| `dense_rank` | - | Dense 결과의 순위 (1부터 시작) |
+| `alpha` | 0.3~0.7 | Sparse 가중치 (실험 권장) |
+| `log(1 + raw_sparse_score)` | - | Sparse 점수 스케일 안정화 |
+
+### 💻 실무 안정형 구현 (권장)
+
+```python
+import math
+import json
+import chromadb
+from src.retrievers.build_db import client, bm25_ef, _kiwi
+from src.utils.config import CHROMA_PATH
+
+def extract_nouns(text: str) -> str:
+    """명사 추출 (한국어 최적화)"""
+    if not text:
+        return ""
+    tokens = _kiwi.tokenize(text)
+    return " ".join([t.form for t in tokens if t.tag in ('NNG', 'NNP', 'NNB')])
+
+
+def _sparse_to_dict(sparse_vec) -> dict:
+    """SparseVector를 dict로 변환"""
+    return {str(idx): float(val) for idx, val in zip(sparse_vec.indices, sparse_vec.values)}
+
+
+def hybrid_query(collection, query_text: str, n_results: int = 10,
+                 alpha: float = 0.5,
+                 candidate_multiplier: int = 3,
+                 rrf_k: int = 60):
+    """
+    Manual Hybrid Fusion: Dense + Sparse 수동 결합
+    
+    Args:
+        collection: ChromaDB 컬렉션 객체
+        query_text: 쿼리 텍스트
+        n_results: 최종 반환 결과 수
+        alpha: Sparse 가중치 (0.3~0.7 권장)
+        candidate_multiplier: Dense 후보 확대 배수
+        rrf_k: RRF 민감도 상수
+    
+    Returns:
+        결합 점수 순으로 정렬된 결과 리스트
+    """
+    
+    # 1️⃣ Candidate Expansion: Dense에서 더 많은 후보 가져오기
+    dense_results = collection.query(
+        query_texts=[query_text],
+        n_results=n_results * candidate_multiplier  # 보통 n_results * 3
+    )
+    
+    # 2️⃣ Query용 Sparse Vector 생성
+    query_nouns = extract_nouns(query_text)
+    query_sparse = _sparse_to_dict(bm25_ef([query_nouns])[0])
+    
+    scored_results = []
+    
+    # 3️⃣ Dense 결과 각각에 대해 Sparse 점수 계산 및 결합
+    for i, (uid, doc, meta) in enumerate(zip(
+        dense_results['ids'][0],
+        dense_results['documents'][0],
+        dense_results['metadatas'][0]
+    )):
+        # Sparse 점수: 저장된 sparse_embedding과 dot-product
+        doc_sparse = json.loads(meta.get('sparse_embedding', '{}'))
+        raw_sparse = sum(
+            query_sparse.get(k, 0.0) * v
+            for k, v in doc_sparse.items()
+        )
+        
+        # 음수 방지
+        raw_sparse = max(raw_sparse, 0.0)
+        
+        # 결합 점수 계산
+        dense_rank = i + 1  # 1-based rank
+        rrf_dense = 1 / (rrf_k + dense_rank)
+        sparse_score = math.log1p(raw_sparse)  # log(1 + x) 안정화
+        
+        combined = rrf_dense + (alpha * sparse_score)
+        
+        scored_results.append({
+            "id": uid,
+            "document": doc,
+            "metadata": meta,
+            "dense_rank": dense_rank,
+            "raw_sparse_score": raw_sparse,
+            "sparse_score": sparse_score,
+            "rrf_dense": rrf_dense,
+            "combined_score": combined
+        })
+    
+    # 4️⃣ 결합 점수 기준으로 재정렬
+    scored_results.sort(key=lambda x: x["combined_score"], reverse=True)
+    
+    # 5️⃣ Top-K 반환
+    return scored_results[:n_results]
+
+
+# 사용 예시
+client = chromadb.PersistentClient(path=CHROMA_PATH)
+chunks_coll = client.get_collection("chunks")
+
+query = "차세대 포털 시스템 구축"
+results = hybrid_query(chunks_coll, query, n_results=5, alpha=0.5)
+
+for result in results:
+    print(f"📄 {result['metadata']['document_title']}")
+    print(f"   결합 점수: {result['combined_score']:.4f}")
+    print(f"   (Dense rank: {result['dense_rank']}, Sparse: {result['sparse_score']:.3f})")
+    print(f"   섹션: {result['metadata']['section_level1']}")
+    print(f"   {result['document'][:150]}...\n")
+```
+
+### 🎯 파라미터 튜닝 가이드
+
+**Sparse 가중치 (`alpha`) 조정:**
+
+- `alpha` 증가 (0.7+) → 키워드 정확도 강화 ("IT 시스템" 같은 정확한 용어 찾기)
+- `alpha` 감소 (0.3-) → 의미 기반 검색 강화 (문맥 중심 탐색)
+- 권장: 0.5 (균형)
+
+**Candidate Multiplier 조정:**
+
+- 증가 → Sparse 재랭킹 안정성 증가, 처리 시간 증가
+- 감소 → 빠른 응답, Sparse 점수 활용 감소
+- 권장: 3 (top-10 결과면 30개 후보 평가)
+
+**RRF K 값 조정:**
+
+- 기본값 60: 일반적인 경우
+- 필요시 30~100 범위 실험
+
+### ⚠️ 재인덱싱이 필요한 경우
+
+- Dense 모델 변경 (`jhgan/ko-sroberta-multitask` → 다른 모델)
+- Sparse 토큰화 방식 변경 (Kiwipiepy 옵션 변경)
+- BM25 파라미터 변경 (k, b, avg_doc_length)
+
+이 경우 전체 청크를 다시 처리하고 벡터를 재계산해야 합니다.
+
+### ℹ️ 명확화
+
+**본 프로젝트의 Hybrid Search는:**
+
+- ❌ Chroma Native Hybrid 아님 (Cloud 자동 기능 아님)
+- ✅ Manual Hybrid Fusion (Python 수동 처리)
+  - Dense: ChromaDB 사용
+  - Sparse: Python에서 계산
+  - Fusion: Python에서 수동 결합
+
+
+## 8. 메타데이터 참조
 
 ### Where 필터 연산자
 
@@ -382,7 +586,7 @@ where={"section_level2": {"$ne": "N/A"}}
 
 ---
 
-## 8. 주의 사항
+## 9. 주의 사항
 
 ### 재실행 안전성
 
