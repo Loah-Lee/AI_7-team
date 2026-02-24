@@ -9,7 +9,7 @@ LLM-as-Judge 기반 End-to-End 평가 체계.
 
 ## LLM Judge 지표 (0~5점)
 
-### 1. Correctness (정확성)
+### 1. Correctness | 정확성
 
 > 생성된 답변이 기대 답변과 **의미적으로 일치**하는가?
 
@@ -28,7 +28,7 @@ LLM-as-Judge 기반 End-to-End 평가 체계.
 
 ---
 
-### 2. Answer Coverage (답변 커버리지)
+### 2. Answer Coverage | 답변 커버리지
 
 > 기대 답변의 핵심 정보가 생성 답변에 **얼마나 누락 없이** 포함되었는가?
 
@@ -48,7 +48,7 @@ LLM-as-Judge 기반 End-to-End 평가 체계.
 
 ---
 
-### 3. Faithfulness (충실성)
+### 3. Faithfulness | 충실성
 
 > 생성된 답변이 검색된 context에 **근거하고 있는가**? (환각 없는가)
 
@@ -66,7 +66,7 @@ LLM-as-Judge 기반 End-to-End 평가 체계.
 
 ---
 
-### 4. Context Relevance (검색 관련성)
+### 4. Context Relevance | 검색 관련성
 
 > 검색된 context가 질문에 **실제로 관련 있는가**?
 
@@ -86,15 +86,16 @@ LLM-as-Judge 기반 End-to-End 평가 체계.
 
 ## Retrieval 보조 지표
 
-### Recall@K (Source)
+### Recall@K (Source) | 검색 재현율 — 문서 단위
 
 > top-K 검색 결과에 정답 문서(**source 기준**)가 **포함된** 질문의 비율
 
 - 범위: 0.0 ~ 1.0
 - 계산: `(per-query Recall@K > 0인 질문 수) / 전체 질문 수`
 - 매칭: 파일명(source)만 일치하면 hit
+- **multi_doc/comparison**: `ground_truth.sources` 리스트의 어느 source라도 hit이면 1.0 (any-match)
 
-### Recall@K (Page)
+### Recall@K (Page) | 검색 재현율 — 페이지 단위
 
 > top-K 검색 결과에 정답 문서의 **정확한 페이지**가 **포함된** 질문의 비율
 
@@ -103,26 +104,46 @@ LLM-as-Judge 기반 End-to-End 평가 체계.
 - 매칭: source + page 모두 일치해야 hit
 - Source-level보다 엄격하며, 실제 검색 정밀도를 더 정확히 반영
 
-### MRR (Source)
+### MRR (Source) | 평균 역순위 — 문서 단위
 
 > 정답 문서(source 기준)가 검색 결과에서 **몇 번째**에 위치하는지의 역수 평균
 
 - 범위: 0.0 ~ 1.0
 - 계산: `mean(1/rank)` (정답 없으면 0)
 
-### MRR (Page)
+### MRR (Page) | 평균 역순위 — 페이지 단위
 
 > 정답 문서의 **정확한 페이지**가 검색 결과에서 **몇 번째**에 위치하는지의 역수 평균
 
 - 범위: 0.0 ~ 1.0
 - 계산: `mean(1/rank_page)` (source + page 모두 일치해야 hit)
 
-### Recall@K (per-query)
+### Recall@K (per-query) | 질문별 검색 재현율
 
 > 개별 질문에서 top-K에 정답이 포함되면 1.0, 아니면 0.0
 
 - **Source level**: 파일명만 매칭 → 같은 PDF의 다른 페이지가 검색돼도 1.0
 - **Page level**: source + page 모두 매칭 → 정확한 페이지가 검색돼야 1.0
+
+---
+
+---
+
+## 단계별 지연시간 지표 | Pipeline Latency
+
+> 각 LangGraph 노드의 처리 시간. `state["latencies"]`에 누적되어 `per_query` 결과에 포함된다.
+
+| 단계 (Node) | 한글명 | 설명 |
+|---|---|---|
+| `analyze_query` | 질의 분석 | LLM이 query_type, institution, keywords 등 메타데이터 추출 |
+| `retrieve` | 문서 검색 | ChromaDB MMR 검색 + 메타데이터 필터 적용 |
+| `extract_evidence` | 근거 추출 | 검색 결과에서 LLM이 핵심 근거 문장 압축 |
+| `generate` | 답변 생성 | 최종 RAG 답변 생성 |
+
+- 단위: 초(s)
+- `retrieve`는 DB I/O 위주라 수백ms 내외가 정상
+- `analyze_query` / `extract_evidence` / `generate`는 LLM 호출로 수 초 소요
+- 전체 소요 = `elapsed_seconds` (meta 필드)
 
 ---
 
