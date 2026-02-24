@@ -5,9 +5,11 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 project_root = Path(__file__).resolve().parents[1]
@@ -30,9 +32,23 @@ def _get_eval_dir() -> Path:
         return eval_resources
 
 
+def _resolve_path(path_like: str | None, default_path: Path) -> Path:
+    if not path_like:
+        return default_path
+    path = Path(path_like).expanduser()
+    if path.is_absolute():
+        return path
+    return project_root / path
+
+
 def build_html(results: dict) -> str:
     S = results["summary"]
     pq = results["per_query"]
+    meta = results.get("meta", {}) if isinstance(results.get("meta"), dict) else {}
+    label = str(meta.get("label", "current"))
+    generated_date = str(meta.get("generated_date", datetime.now().strftime("%Y-%m-%d")))
+    judge_model = str(meta.get("judge_model", "gpt-5-mini"))
+    elapsed_seconds = float(meta.get("elapsed_seconds", 0.0))
 
     # JSON 데이터를 inline으로 삽입
     inline_data = json.dumps(pq, ensure_ascii=False)
@@ -150,7 +166,7 @@ def build_html(results: dict) -> str:
     <h1>BiddingMate RAG 평가 리포트</h1>
     <p class="subtitle">LLM-as-Judge 기반 End-to-End 평가 결과</p>
     <div>
-      <span class="badge badge-blue">label: {results.get('meta',{}).get('label','current')}</span>
+      <span class="badge badge-blue">label: {label}</span>
       <span class="badge badge-green">{S['num_queries']}개 질문</span>
       <span class="badge badge-purple">top_k: {S['top_k']}</span>
     </div>
@@ -174,7 +190,7 @@ def build_html(results: dict) -> str:
   </div>
 
   <div class="footer">
-    BiddingMate RAG Evaluation &mdash; Generated 2026-02-10 &mdash; LLM-as-Judge (gpt-5-mini) &mdash; 소요 시간: {results.get('meta',{}).get('elapsed_seconds',0)}초
+    BiddingMate RAG Evaluation &mdash; Generated {generated_date} &mdash; LLM-as-Judge ({judge_model}) &mdash; 소요 시간: {elapsed_seconds:.1f}초
   </div>
 
 </div>
@@ -306,6 +322,23 @@ document.getElementById('insights').innerHTML = `
 const scoreClass = s => 's'+Math.min(5,Math.max(0,s));
 const typeClass = t => t==='single_doc'?'type-single':t==='multi_doc'?'type-multi':'type-comparison';
 const typeName = t => t==='single_doc'?'Single':t==='multi_doc'?'Multi':'Compare';
+const fmtGtSources = q => {{
+  const arr = Array.isArray(q.ground_truth_sources) ? q.ground_truth_sources : [];
+  if (arr.length > 0) {{
+    return arr.map(x => x?.source || '').filter(Boolean).join(' | ') || 'N/A';
+  }}
+  return q.ground_truth_source || 'N/A';
+}};
+const fmtGtPages = q => {{
+  const arr = Array.isArray(q.ground_truth_sources) ? q.ground_truth_sources : [];
+  if (arr.length > 0) {{
+    const pages = arr
+      .map(x => (x && x.page != null ? x.page : null))
+      .filter(v => v != null);
+    return pages.length ? pages.join(', ') : 'N/A';
+  }}
+  return q.ground_truth_page!=null ? q.ground_truth_page : 'N/A';
+}};
 
 const cardsContainer = document.getElementById('queryCards');
 PQ.forEach(q => {{
@@ -338,8 +371,8 @@ PQ.forEach(q => {{
         <span><strong>검색 문서:</strong> ${{q.num_retrieved||0}}개</span>
         <span><strong>Hit 위치 (source):</strong> ${{hit||'없음'}}</span>
         <span><strong>Hit 위치 (page):</strong> ${{q.hit_position_page||'없음'}}</span>
-        <span><strong>정답 문서:</strong> ${{q.ground_truth_source||'N/A'}}</span>
-        <span><strong>정답 페이지:</strong> ${{q.ground_truth_page!=null?q.ground_truth_page:'N/A'}}</span>
+        <span><strong>정답 문서:</strong> ${{fmtGtSources(q)}}</span>
+        <span><strong>정답 페이지:</strong> ${{fmtGtPages(q)}}</span>
       </div>
       <div class="answer-grid">
         <div class="answer-box expected">
@@ -405,9 +438,14 @@ function toggleAll() {{
 </html>"""
 
 
-def main():
-    input_path = _get_eval_dir() / "eval_results_current.json"
-    output_path = _get_eval_dir() / "eval_report.html"
+def main() -> None:
+    parser = argparse.ArgumentParser(description="eval_results JSON을 HTML 리포트로 변환")
+    parser.add_argument("--input", type=str, default=None, help="입력 JSON 경로")
+    parser.add_argument("--output", type=str, default=None, help="출력 HTML 경로")
+    args = parser.parse_args()
+
+    input_path = _resolve_path(args.input, _get_eval_dir() / "eval_results_current.json")
+    output_path = _resolve_path(args.output, _get_eval_dir() / "eval_report.html")
 
     if not input_path.exists():
         print(f"[ERROR] {input_path} 없음")

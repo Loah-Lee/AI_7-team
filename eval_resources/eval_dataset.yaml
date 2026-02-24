@@ -4,6 +4,9 @@
   ground_truth:
     source: 고려대학교_차세대 포털·학사 정보시스템 구축사업.pdf
     page: 39
+    sources:
+    - source: 고려대학교_차세대 포털·학사 정보시스템 구축사업.pdf
+      page: 39
   query_type: single_doc
   metadata_filter:
     institution: 고려대학교
@@ -13,6 +16,9 @@
   ground_truth:
     source: 남서울대학교_[혁신-국고] 남서울대학교 스마트 정보시스템 활성화(학사.hwp
     page: 45
+    sources:
+    - source: 남서울대학교_[혁신-국고] 남서울대학교 스마트 정보시스템 활성화(학사.hwp
+      page: 45
   query_type: single_doc
   metadata_filter:
     institution: 남서울대학교
@@ -22,6 +28,9 @@
   ground_truth:
     source: 국가과학기술지식정보서비스_통합정보시스템 고도화 용역.hwp
     page: 41
+    sources:
+    - source: 국가과학기술지식정보서비스_통합정보시스템 고도화 용역.hwp
+      page: 41
   query_type: single_doc
   metadata_filter:
     institution: 국가과학기술지식정보서비스
@@ -31,6 +40,9 @@
   ground_truth:
     source: 재단법인스포츠윤리센터_스포츠윤리센터 LMS(학습지원시스템) 기능개선.hwp
     page: 83
+    sources:
+    - source: 재단법인스포츠윤리센터_스포츠윤리센터 LMS(학습지원시스템) 기능개선.hwp
+      page: 83
   query_type: single_doc
   metadata_filter:
     institution: 재단법인스포츠윤리센터
@@ -41,6 +53,9 @@
   ground_truth:
     source: 대한적십자사 의료원_적십자병원 병원정보 재해복구시스템 구축 용역 .hwp
     page: 25
+    sources:
+    - source: 대한적십자사 의료원_적십자병원 병원정보 재해복구시스템 구축 용역 .hwp
+      page: 25
   query_type: single_doc
   metadata_filter:
     institution: 대한적십자사 의료원
@@ -52,6 +67,9 @@
   ground_truth:
     source: 한국수출입은행_(긴급) 모잠비크 마푸토 지능형교통시스템(ITS) 구축사업.hwp
     page: 50
+    sources:
+    - source: 한국수출입은행_(긴급) 모잠비크 마푸토 지능형교통시스템(ITS) 구축사업.hwp
+      page: 50
   query_type: single_doc
   metadata_filter:
     institution: 한국수출입은행
@@ -61,6 +79,9 @@
   ground_truth:
     source: 을지대학교_을지대학교 비교과시스템 개발.hwp
     page: 70
+    sources:
+    - source: 을지대학교_을지대학교 비교과시스템 개발.hwp
+      page: 70
   query_type: single_doc
   metadata_filter:
     institution: 을지대학교
@@ -70,6 +91,9 @@
   ground_truth:
     source: 국민연금공단_2024년 이러닝시스템 운영 용역.hwp
     page: 49
+    sources:
+    - source: 국민연금공단_2024년 이러닝시스템 운영 용역.hwp
+      page: 49
   query_type: single_doc
   metadata_filter:
     institution: 국민연금공단
@@ -79,6 +103,9 @@
   ground_truth:
     source: BioIN_의료기기산업 종합정보시스템(정보관리기관) 기능개선 사업(2차).hwp
     page: 20
+    sources:
+    - source: BioIN_의료기기산업 종합정보시스템(정보관리기관) 기능개선 사업(2차).hwp
+      page: 20
   query_type: single_doc
   metadata_filter:
     institution: BioIN
@@ -88,6 +115,9 @@
   ground_truth:
     source: 한국농수산식품유통공사_농산물가격안정기금 정부예산회계연계시스템 .hwp
     page: 23
+    sources:
+    - source: 한국농수산식품유통공사_농산물가격안정기금 정부예산회계연계시스템 .hwp
+      page: 23
   query_type: single_doc
   metadata_filter:
     institution: 한국농수산식품유통공사
@@ -98,6 +128,9 @@
   ground_truth:
     source: 사단법인아시아물위원회사무국_우즈벡-키르기즈스탄 기후변화대응 스.hwp
     page: 59
+    sources:
+    - source: 사단법인아시아물위원회사무국_우즈벡-키르기즈스탄 기후변화대응 스.hwp
+      page: 59
   query_type: single_doc
   metadata_filter:
     institution: 사단법인아시아물위원회사무국
@@ -107,6 +140,9 @@
   ground_truth:
     source: (재)예술경영지원센터_통합 정보시스템 구축 사전 컨설팅.hwp
     page: 33
+    sources:
+    - source: (재)예술경영지원센터_통합 정보시스템 구축 사전 컨설팅.hwp
+      page: 33
   query_type: single_doc
   metadata_filter:
     institution: (재)예술경영지원센터
@@ -122,8 +158,11 @@
     강화된 인증 적용; 계정 등록·이용·삭제 및 권한 변경 이력 기록·주기적 검토; 보호구역 외 시스템 관리·개인정보 처리는 원칙 금지하되 원격접근이
     불가피한 경우 책임자 승인, 접근 단말 지정·범위·기간 설정, 강화된 인증, 구간 암호화, 접속 단말 보안 등 보호대책 수립·적용.'
   ground_truth:
-    source: (사）한국대학스포츠협의회_KUSF 체육특기자 경기기록 관리시스템 개발.hwp
-    page: 7
+    sources:
+    - source: (사）한국대학스포츠협의회_KUSF 체육특기자 경기기록 관리시스템 개발.hwp
+      page: 7
+    - source: 케빈랩 주식회사_평택시 강소형 스마트시티 AI 기반의 영상감시 시스템 .md
+      page: null
   query_type: multi_doc
   metadata_filter:
     institution: (사）한국대학스포츠협의회
@@ -138,8 +177,11 @@
     도입 및 설치 장소·구성 방안은 국가정보자원관리원의 G-클라우드 서비스 이용 사전검토와 발주처 협의를 거쳐 결정해야 합니다(아키텍처 정의서·시스템
     구성도·설치계획서·설치결과서 등 산출물 기대).
   ground_truth:
-    source: 재단법인 광주광역시 광주문화재단_2024년 광주문화예술통합플랫폼 시스.hwp
-    page: 17
+    sources:
+    - source: 재단법인 광주광역시 광주문화재단_2024년 광주문화예술통합플랫폼 시스.hwp
+      page: 17
+    - source: 한국산업단지공단_산단 안전정보시스템 1차 구축 용역.md
+      page: null
   query_type: multi_doc
   metadata_filter:
     institution: 재단법인 광주광역시 광주문화재단
@@ -156,8 +198,11 @@
     등)을 첨부해야 합니다. 4) 하도급·공동도급 처리: 하도급 실적은 발주기관의 승인 받은 경우만 기재 가능하며, 공동도급은 계약금액란에 제안사
     지분만 기재해야 합니다. 5) 기타: 현재 수행 중인 업무도 연도순으로 포함하고, 모든 증빙은 부록으로 첨부해야 합니다.'
   ground_truth:
-    source: 한국해양조사협회_2024년 항해용 간행물 품질관리 업무보조 시스템 구축.hwp
-    page: 57
+    sources:
+    - source: 한국해양조사협회_2024년 항해용 간행물 품질관리 업무보조 시스템 구축.hwp
+      page: 57
+    - source: 경기도 평택시_2024년도 평택시 버스정보시스템(BIS) 구축사업.md
+      page: null
   query_type: multi_doc
   metadata_filter:
     institution: 한국해양조사협회
@@ -170,8 +215,11 @@
     받은 장비·서류·중간·최종산출물 전량 반납·삭제(복사본 보관 금지), 전자매체는 교육부 지침(제40조 제4항)에 따른 삭제 후 반출, 대표자·참여자용
     보안확약서 제출 및 대학 담당자의 보안조치 확인서 작성 등 보안관리조치를 이행해야 한다.
   ground_truth:
-    source: 인천공항운영서비스(주)_인천공항운영서비스㈜ 차세대 ERP시스템 구축 .hwp
-    page: 3
+    sources:
+    - source: 인천공항운영서비스(주)_인천공항운영서비스㈜ 차세대 ERP시스템 구축 .hwp
+      page: 3
+    - source: 전북대학교_JST 공유대학(원) xAPI기반 LRS시스템 구축.md
+      page: null
   query_type: multi_doc
   metadata_filter:
     institution: 인천공항운영서비스(주)
@@ -186,8 +234,11 @@
     포함한다. 요약하면 철도공사는 안전책임·손해배상·시행시한과 법적 근거를 강조하는 반면, 연구재단은 정보보안 위반의 등급화된 징계·교육·점검
     절차와 위약금 등급 분류를 구체적으로 규정한다.
   ground_truth:
-    source: 한국철도공사 (용역)_[재공고][긴급][협상형]운행정보기록 자동분석시스.hwp
-    page: 113
+    sources:
+    - source: 한국철도공사 (용역)_[재공고][긴급][협상형]운행정보기록 자동분석시스.hwp
+      page: 113
+    - source: 한국연구재단_2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선.md
+      page: 12
   query_type: comparison
   metadata_filter:
     institution: 한국철도공사 (용역)
@@ -199,8 +250,11 @@
     반면 한국농어촌공사(네팔 수자원관리 정보화사업)는 보안요구·제약사항·성능·인터페이스·시험(단위·통합·시스템·인수) 및 품질요구를 충족시키기
     위한 구체적 설계·구현·테스트 방안과 일정·위험·보안·산출물 형상·문서관리 등 프로젝트 관리 방법론 수립에 중점을 둔다.
   ground_truth:
-    source: 기초과학연구원_2025년도 중이온가속기용 극저온시스템 운전 용역.pdf
-    page: 7
+    sources:
+    - source: 기초과학연구원_2025년도 중이온가속기용 극저온시스템 운전 용역.pdf
+      page: 7
+    - source: 한국농어촌공사_아세안+3 식량안보정보시스템(AFSIS) 3단계 협력(캄보디아.md
+      page: 11
   query_type: comparison
   metadata_filter:
     institution: 기초과학연구원
@@ -218,8 +272,11 @@
     요구하고, SER-001은 인적·관리적 보안책임·계약적 통제 및 법적 제재를 강조한다(따라서 데이터 개방 계획은 SER-001의 보안제약을
     고려해 설계되어야 함).
   ground_truth:
-    source: 한국가스공사_[재공고]차세대 통합정보시스템(ERP) 구축.hwp
-    page: 52
+    sources:
+    - source: 한국가스공사_[재공고]차세대 통합정보시스템(ERP) 구축.hwp
+      page: 52
+    - source: 인천광역시_인천일자리플랫폼 정보시스템 구축 ISP 수립용역.md
+      page: 23
   query_type: comparison
   metadata_filter:
     institution: 한국가스공사
@@ -234,8 +291,11 @@
     등록·조회·확정을 통한 재고 반영 및 현황 출력, 공급신청서 출력·팩스전송(직인 출력) 등 문서출력·전송 기능. 또한 전자계산서 국세청 전송·현황조회,
     합계표 및 통계조회, 기간별 판매소별 발행내역 조회, 문자/팩스 전송내역 등 전송·통계·로그 기능을 통해 거래기록과 추적성을 확보해야 함.'
   ground_truth:
-    source: 2025 구미 아시아육상경기선수권대회 조직위원회_2025 구미아시아육상경.hwp
-    page: 59
+    sources:
+    - source: 2025 구미 아시아육상경기선수권대회 조직위원회_2025 구미아시아육상경.hwp
+      page: 59
+    - source: 파주도시관광공사_종량제봉투 판매관리 전산시스템 개선사업.md
+      page: null
   query_type: comparison
   metadata_filter:
     institution: 2025 구미 아시아육상경기선수권대회 조직위원회
