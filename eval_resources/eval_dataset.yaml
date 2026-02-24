@@ -162,7 +162,7 @@
     - source: (사）한국대학스포츠협의회_KUSF 체육특기자 경기기록 관리시스템 개발.hwp
       page: 7
     - source: 케빈랩 주식회사_평택시 강소형 스마트시티 AI 기반의 영상감시 시스템 .md
-      page: null
+      page: 28
   query_type: multi_doc
   metadata_filter:
     institution: (사）한국대학스포츠협의회
@@ -181,7 +181,7 @@
     - source: 재단법인 광주광역시 광주문화재단_2024년 광주문화예술통합플랫폼 시스.hwp
       page: 17
     - source: 한국산업단지공단_산단 안전정보시스템 1차 구축 용역.md
-      page: null
+      page: 24
   query_type: multi_doc
   metadata_filter:
     institution: 재단법인 광주광역시 광주문화재단
@@ -202,7 +202,7 @@
     - source: 한국해양조사협회_2024년 항해용 간행물 품질관리 업무보조 시스템 구축.hwp
       page: 57
     - source: 경기도 평택시_2024년도 평택시 버스정보시스템(BIS) 구축사업.md
-      page: null
+      page: 88
   query_type: multi_doc
   metadata_filter:
     institution: 한국해양조사협회
@@ -219,7 +219,7 @@
     - source: 인천공항운영서비스(주)_인천공항운영서비스㈜ 차세대 ERP시스템 구축 .hwp
       page: 3
     - source: 전북대학교_JST 공유대학(원) xAPI기반 LRS시스템 구축.md
-      page: null
+      page: 77
   query_type: multi_doc
   metadata_filter:
     institution: 인천공항운영서비스(주)
@@ -295,7 +295,7 @@
     - source: 2025 구미 아시아육상경기선수권대회 조직위원회_2025 구미아시아육상경.hwp
       page: 59
     - source: 파주도시관광공사_종량제봉투 판매관리 전산시스템 개선사업.md
-      page: null
+      page: 22
   query_type: comparison
   metadata_filter:
     institution: 2025 구미 아시아육상경기선수권대회 조직위원회

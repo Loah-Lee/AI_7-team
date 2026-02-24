@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import random
+import re
 import sys
 from pathlib import Path
 
@@ -95,8 +96,10 @@ GENERATION_PROMPT_SINGLE = """\
 
 규칙:
 1. 질문은 이 텍스트에서만 답할 수 있는 구체적인 사실 질문이어야 합니다.
-2. 답변은 텍스트에 근거하여 간결하게 (1~2문장) 작성합니다.
-3. 질문에 기관명이나 사업명을 포함하여 맥락이 명확하게 합니다.
+2. 답변은 문장 수를 인위적으로 제한하지 말고, 핵심 정보만 간결하게 전달합니다.
+3. 답변은 사용자 안내형 톤으로 작성하고, 마지막에 필요 시 후속 안내 문장을 1개 덧붙입니다.
+4. 답변에 '청크', '컨텍스트', '프롬프트' 같은 내부 용어를 쓰지 않습니다.
+5. 질문에 기관명이나 사업명을 포함하여 맥락이 명확하게 합니다.
 
 반드시 아래 JSON 형식으로만 응답하세요 (마크다운 없이):
 {{"question": "...", "expected_answer": "..."}}
@@ -119,8 +122,10 @@ GENERATION_PROMPT_MULTI = """\
 
 규칙:
 1. 질문은 두 문서의 정보를 모두 필요로 하는 질문이어야 합니다.
-2. 답변은 두 청크를 근거로 간결하게 작성합니다.
-3. 질문에 기관명/사업명을 포함합니다.
+2. 답변은 문장 수를 인위적으로 제한하지 말고, 두 문서의 핵심 정보만 간결하게 정리합니다.
+3. 답변은 사용자 안내형 톤으로 작성하고, 마지막에 필요 시 후속 안내 문장을 1개 덧붙입니다.
+4. 답변에 '청크', '컨텍스트', '프롬프트' 같은 내부 용어를 쓰지 않습니다.
+5. 질문에 기관명/사업명을 포함합니다.
 
 반드시 아래 JSON 형식으로만 응답하세요 (마크다운 없이):
 {{"question": "...", "expected_answer": "..."}}
@@ -218,6 +223,29 @@ def _parse_llm_json(text: str) -> dict | None:
         return None
 
 
+def _clean_generated_text(text: str, *, keep_newlines: bool) -> str:
+    """LLM 생성 텍스트의 줄바꿈/공백/번호 잔재를 정리한다."""
+    s = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
+    s = s.replace("\u00a0", " ")
+    s = re.sub(r"\\n", "\n", s)
+    s = re.sub(r"[ \t]+\n", "\n", s)
+    s = re.sub(r"\n[ \t]+", "\n", s)
+    # 예: "5.\n\n종합의견" -> "5. 종합의견"
+    s = re.sub(r"(\d+[.)])\s*\n+\s*", r"\1 ", s)
+    s = re.sub(r"([:;])\s*\n+\s*", r"\1 ", s)
+    # 내부 용어가 노출되지 않도록 최소 치환
+    s = re.sub(r"\b(?:chunk|context|prompt)\b", "", s, flags=re.IGNORECASE)
+    s = s.replace("본 청크", "문서")
+    s = s.replace("해당 청크", "문서")
+    s = s.replace("청크", "문서")
+    s = re.sub(r"[ \t]{2,}", " ", s)
+    if keep_newlines:
+        s = re.sub(r"\n{3,}", "\n\n", s)
+    else:
+        s = re.sub(r"\s+", " ", s)
+    return s.strip()
+
+
 def generate_eval_set(
     num_pairs: int = 20,
     model: str | None = None,
@@ -292,10 +320,19 @@ def generate_eval_set(
                 print(f"  [SKIP] JSON 파싱 실패 (single_doc #{i+1})")
                 continue
 
+            question = _clean_generated_text(parsed.get("question", ""), keep_newlines=False)
+            expected_answer = _clean_generated_text(
+                parsed.get("expected_answer", ""),
+                keep_newlines=True,
+            )
+            if not question or not expected_answer:
+                print(f"  [SKIP] 생성 텍스트 정규화 실패 (single_doc #{i+1})")
+                continue
+
             eval_items.append({
                 "id": f"eval_{len(eval_items)+1:03d}",
-                "question": parsed["question"],
-                "expected_answer": parsed["expected_answer"],
+                "question": question,
+                "expected_answer": expected_answer,
                 "ground_truth": {
                     "source": chunk["source"],
                     "page": chunk.get("page"),
@@ -352,10 +389,19 @@ def generate_eval_set(
                     print(f"  [SKIP] JSON 파싱 실패 ({qtype} #{i+1})")
                     continue
 
+                question = _clean_generated_text(parsed.get("question", ""), keep_newlines=False)
+                expected_answer = _clean_generated_text(
+                    parsed.get("expected_answer", ""),
+                    keep_newlines=True,
+                )
+                if not question or not expected_answer:
+                    print(f"  [SKIP] 생성 텍스트 정규화 실패 ({qtype} #{i+1})")
+                    continue
+
                 eval_items.append({
                     "id": f"eval_{len(eval_items)+1:03d}",
-                    "question": parsed["question"],
-                    "expected_answer": parsed["expected_answer"],
+                    "question": question,
+                    "expected_answer": expected_answer,
                     "ground_truth": {
                         "sources": [
                             {

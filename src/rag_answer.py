@@ -71,6 +71,11 @@ _PLACEHOLDER_PREFIXES = (
     "요약 생성을 위해 관련 문맥을 확보했습니다",
     "정확한 값 추출에는 실패했습니다",
 )
+_INTERNAL_ANSWER_TERM_RE = re.compile(
+    r"(청크|컨텍스트|프롬프트|리트리버|retriever|context|prompt|chunk)",
+    flags=re.IGNORECASE,
+)
+_GUIDANCE_CUE_RE = re.compile(r"(필요하시면|원하시면|추가로|더 자세히|도움이 필요하시면)")
 _FACTOID_STOPWORDS = {
     "무엇",
     "어떤",
@@ -189,6 +194,77 @@ def _query_numeric_spans(query: str) -> List[str]:
         if len(token) >= 2:
             out.append(token)
     return _dedupe_keep_order(out)
+
+
+def _to_numeric(token: str) -> float | None:
+    t = re.sub(r"[,\s]", "", str(token or ""))
+    if not re.fullmatch(r"\d+(?:\.\d+)?", t):
+        return None
+    try:
+        return float(t)
+    except Exception:
+        return None
+
+
+def _query_single_numeric_target(query: str) -> float | None:
+    spans = _query_numeric_spans(_query_target_segment(query))
+    singles: List[float] = []
+    for span in spans:
+        if re.search(r"[~\-–—→]", span):
+            continue
+        val = _to_numeric(span)
+        if val is not None:
+            singles.append(val)
+    if len(singles) == 1:
+        return singles[0]
+    return None
+
+
+def _window_has_range_covering_target(window: str, target: float) -> bool:
+    w = (window or "").replace(" ", "")
+    # 예: 1,000~2,000 / 1000-2000
+    for m in re.finditer(r"(\d[\d,]*(?:\.\d+)?)\s*(?:~|\-|–|—|→)\s*(\d[\d,]*(?:\.\d+)?)", w):
+        lo = _to_numeric(m.group(1))
+        hi = _to_numeric(m.group(2))
+        if lo is None or hi is None:
+            continue
+        low, high = (lo, hi) if lo <= hi else (hi, lo)
+        if low <= target <= high:
+            return True
+
+    # 예: 1,000이상2,000미만 / 1000이상2000이하
+    for m in re.finditer(
+        r"(\d[\d,]*(?:\.\d+)?)이상(\d[\d,]*(?:\.\d+)?)(미만|이하|초과|이상)",
+        w,
+    ):
+        lo = _to_numeric(m.group(1))
+        hi = _to_numeric(m.group(2))
+        if lo is None or hi is None:
+            continue
+        low, high = (lo, hi) if lo <= hi else (hi, lo)
+        upper_kw = m.group(3)
+        if upper_kw == "미만":
+            if low <= target < high:
+                return True
+        elif upper_kw == "이하":
+            if low <= target <= high:
+                return True
+        elif upper_kw == "초과":
+            if low < target < high:
+                return True
+        elif upper_kw == "이상":
+            if low <= target <= high:
+                return True
+    return False
+
+
+def _window_has_any_numeric_range(window: str) -> bool:
+    w = (window or "").replace(" ", "")
+    if re.search(r"\d[\d,]*(?:\.\d+)?\s*(?:~|\-|–|—|→)\s*\d[\d,]*(?:\.\d+)?", w):
+        return True
+    if re.search(r"\d[\d,]*(?:\.\d+)?이상\d[\d,]*(?:\.\d+)?(?:미만|이하|초과|이상)", w):
+        return True
+    return False
 
 
 def _query_table_terms(query: str) -> List[str]:
@@ -367,6 +443,22 @@ def _is_value_seeking_query(query: str) -> bool:
     )
 
 
+def _is_complex_comparison_query(query: str) -> bool:
+    q = (query or "").strip()
+    if not q:
+        return False
+    if re.search(r"(비교|차이|각각|동시에|모두|종합|요약|어떻게\s*다른)", q):
+        return True
+    if len(q) >= 35 and re.search(r"(의무|절차|요구사항|충족)", q):
+        return True
+    return False
+
+
+def _is_min_period_query(query: str) -> bool:
+    q = _normalize_compact(query)
+    return ("최소" in q) and ("사업기간" in q)
+
+
 def _score_factoid_candidate(query: str, text: str, value: str, kind: str) -> float:
     w = _match_window(text or "", value or "", radius=150)
     wl = w.lower()
@@ -387,6 +479,20 @@ def _score_factoid_candidate(query: str, text: str, value: str, kind: str) -> fl
             if span and span in _normalize_compact(w):
                 score += 0.8
                 break
+        # 단일 수치 규모(예: 1500) 질의는 해당 수치를 포함하는 구간 행을 강하게 우선
+        target_num = _query_single_numeric_target(q)
+        if target_num is not None:
+            if _window_has_range_covering_target(w, target_num):
+                score += 2.2
+            elif _window_has_any_numeric_range(w):
+                score -= 1.2
+        if _is_min_period_query(q):
+            if re.search(r"\d+(?:\.\d+)?\s*개월\s*이상", value or ""):
+                score += 1.0
+            elif re.search(r"\d+\s*개월", value or ""):
+                score -= 0.6
+            if re.search(r"\d+\.\d+\s*개월", value or ""):
+                score -= 1.4
     if _is_value_seeking_query(q) and not re.search(r"\d|[A-Za-z]", value or ""):
         score -= 0.6
     if len((value or "").strip()) > 120:
@@ -408,6 +514,7 @@ def _extract_table_value_candidates(query: str, kind: str, text: str) -> List[Tu
     terminal_field = _terminal_field_token(target_query)
 
     for table in tables:
+        table_title = str(table.get("title", "") or "")
         headers_raw = table.get("headers")
         rows_raw = table.get("rows")
         headers: List[str] = []
@@ -442,6 +549,12 @@ def _extract_table_value_candidates(query: str, kind: str, text: str) -> List[Tu
                 continue
             row_text = " | ".join(row)
             row_score = _overlap_count(row_text, terms)
+            target_num = _query_single_numeric_target(target_query)
+            if target_num is not None and re.search(r"(규모|구간)", target_query):
+                if _window_has_range_covering_target(row_text, target_num):
+                    row_score += 2.6
+                elif _window_has_any_numeric_range(row_text):
+                    row_score -= 1.3
             if row_score <= 0:
                 continue
 
@@ -471,6 +584,18 @@ def _extract_table_value_candidates(query: str, kind: str, text: str) -> List[Tu
                 continue
 
             score = (1.6 * row_score) + (1.2 * max(0, best_col_score)) + _value_kind_bonus(value, kind)
+            if kind == "period" and _is_min_period_query(target_query):
+                title_compact = _normalize_compact(table_title)
+                if "최소" in title_compact and "사업기간" in title_compact:
+                    score += 1.2
+                elif title_compact:
+                    score -= 0.8
+                if re.search(r"\d+(?:\.\d+)?\s*개월\s*이상", value):
+                    score += 0.8
+                elif re.search(r"\d+\s*개월", value):
+                    score -= 0.4
+                if re.search(r"\d+\.\d+\s*개월", value):
+                    score -= 1.2
             if "|" in value and ("분할" in target_query or "구간" in target_query):
                 score += 0.6
             if "번호" in target_query and re.fullmatch(r"\d{1,2}", value):
@@ -675,6 +800,7 @@ class ChromaRetriever:
         q_search = _rewrite_query_for_retrieval(q) if self._query_rewrite else q
         org = _extract_org_hint(q)
         kind = _question_kind(q)
+        is_multi_entity_comparison = _is_multi_entity_comparison_query(q)
 
         # 2-pass 검색:
         # 1) 기관 후보가 있으면 기관 필터 결과를 우선
@@ -697,6 +823,10 @@ class ChromaRetriever:
                     selected_org = cand
                     break
             mode = self._org_filter_mode
+            if is_multi_entity_comparison and mode == "hard":
+                # 비교 질의에서 기관이 2개 이상 감지되면 hard filter를 완화해
+                # 한쪽 기관으로의 과도한 편향을 줄인다.
+                mode = "soft"
             if mode == "hard":
                 results = filtered
                 if not results:
@@ -1140,6 +1270,77 @@ def _has_value_hint(text: str, kind: str) -> bool:
     return bool(re.search(r"(예산|금액|기간|마감|문의|담당|연락처|입찰|평가)", t))
 
 
+def _is_comparison_rewrite_query(query: str) -> bool:
+    q = (query or "").strip()
+    if not q:
+        return False
+    return bool(re.search(r"(비교|차이|각각|동시에|모두|어떻게\s*다른|서로)", q))
+
+
+def _comparison_rewrite_terms(query: str) -> List[str]:
+    q = (query or "").strip()
+    if not q:
+        return []
+
+    out: List[str] = []
+
+    def _add(v: str) -> None:
+        s = re.sub(r"\s+", " ", (v or "").strip())
+        if not s:
+            return
+        if len(s) < 2:
+            return
+        if s not in out:
+            out.append(s)
+
+    head = q.split("에서", 1)[0].strip() if "에서" in q else q
+    target = _query_target_segment(q)
+
+    # 1) 인용부호 안 문서명/사업명 앵커
+    quoted = re.findall(r"[\"'“”‘’]([^\"'“”‘’]{3,140})[\"'“”‘’]", q)
+    for item in quoted[:4]:
+        _add(item)
+
+    # 2) "A와 B" 형태의 동적 엔티티 앵커
+    parts = re.split(r"\s+(?:과|와|및)\s+", head)
+    for part in parts[:4]:
+        p = re.sub(r"[\"'“”‘’]", "", part).strip()
+        if not p:
+            continue
+        if _ORG_SUFFIX_RE.search(p) or re.search(r"(용역|사업|시스템|공고|입찰|조직위원회|대회)", p):
+            _add(p)
+
+    # 3) 비교 질문의 핵심어(책임/제재/요구사항 등)는 질의에서 동적으로 추출
+    for term in _query_focus_terms(target)[:8]:
+        _add(term)
+
+    # 4) 비교 질의 힌트
+    _add("비교")
+    _add("차이")
+    return out[:18]
+
+
+def _is_multi_entity_comparison_query(query: str) -> bool:
+    q = (query or "").strip()
+    if not _is_comparison_rewrite_query(q):
+        return False
+
+    quoted = re.findall(r"[\"'“”‘’]([^\"'“”‘’]{3,140})[\"'“”‘’]", q)
+    if len(quoted) >= 2:
+        return True
+
+    head = q.split("에서", 1)[0].strip() if "에서" in q else q
+    parts = re.split(r"\s+(?:과|와|및)\s+", head)
+    meaningful = 0
+    for part in parts:
+        p = re.sub(r"[\"'“”‘’]", "", part).strip()
+        if len(p) < 3:
+            continue
+        if _ORG_SUFFIX_RE.search(p) or re.search(r"(용역|사업|시스템|공고|입찰|조직위원회|대회)", p):
+            meaningful += 1
+    return meaningful >= 2
+
+
 def _rewrite_query_for_retrieval(query: str) -> str:
     q = (query or "").strip()
     if not q:
@@ -1147,6 +1348,8 @@ def _rewrite_query_for_retrieval(query: str) -> str:
 
     kind = _question_kind(q)
     additions: List[str] = []
+    if _is_comparison_rewrite_query(q):
+        additions.extend(_comparison_rewrite_terms(q))
     if kind == "money":
         additions += ["사업예산", "사업비", "총사업비", "예정가격", "기초금액", "금액"]
     elif kind == "date":
@@ -1372,7 +1575,7 @@ def _org_confidence(query: str, org: str | None) -> float:
     return 0.4
 
 
-def _pick_matches(text: str, kind: str) -> List[str]:
+def _pick_matches(text: str, kind: str, query: str = "") -> List[str]:
     if kind == "percent":
         matches: List[str] = []
         for m in _FRACTION_OF_100_RE.findall(text):
@@ -1397,8 +1600,11 @@ def _pick_matches(text: str, kind: str) -> List[str]:
     if kind == "generic":
         matches: List[str] = []
         matches.extend(_ALNUM_CODE_RE.findall(text))
-        matches.extend(re.findall(r"\b\d+(?:\.\d+)?\s*(?:식|건|명|개)\b", text))
-        matches.extend(re.findall(r"\b\d+(?:\.\d+)?\b", text))
+        matches.extend(re.findall(r"\b\d[\d,]*(?:\.\d+)?\s*(?:식|건|명|개|회|종)\b", text))
+        # generic 질의에서 단순 숫자만 반환되며 오답이 급증한 케이스를 줄이기 위해,
+        # 번호/코드 계열 질의에서만 bare number를 허용한다.
+        if re.search(r"(번호|코드|\bid\b|\bno\b)", query or "", re.IGNORECASE):
+            matches.extend(re.findall(r"\b\d+(?:\.\d+)?\b", text))
         return _dedupe_keep_order(matches)
 
     matches: List[str] = []
@@ -1435,7 +1641,7 @@ def _match_window(text: str, value: str, radius: int = 120) -> str:
 
 def _is_factoid_match_relevant(query: str, text: str, value: str, kind: str) -> bool:
     window = _match_window(text, value)
-    merged = window if kind == "date" else f"{window} {text[:400]}"
+    merged = window if kind in {"date", "period"} else f"{window} {text[:400]}"
     tokens = _factoid_tokens(query)
     overlap = sum(1 for t in tokens if t and t in merged.lower())
 
@@ -1443,6 +1649,18 @@ def _is_factoid_match_relevant(query: str, text: str, value: str, kind: str) -> 
         if not _BUDGET_KEYWORD_RE.search(merged):
             return False
     if kind == "period":
+        # 규모/구간 기반 기간 질의는 질의 수치가 속한 구간 근거가 함께 있어야 한다.
+        if re.search(r"(규모|구간)", query):
+            target_num = _query_single_numeric_target(query)
+            if target_num is not None:
+                has_target_range = _window_has_range_covering_target(merged, target_num)
+                compact = re.sub(r"\s+", "", merged)
+                n_int = int(target_num) if float(target_num).is_integer() else None
+                has_exact = False
+                if n_int is not None:
+                    has_exact = str(n_int) in compact or f"{n_int:,}" in compact
+                if not has_target_range and not has_exact:
+                    return False
         if re.search(r"(얼마나\s*(자주|빈도|주기)|주기|빈도|횟수|월\s*1회|매월|매주|매일)", query):
             if not re.search(r"(월\s*\d+\s*회|\d+\s*회|매월|매주|매일|주기|빈도)", merged):
                 return False
@@ -1573,16 +1791,77 @@ def _filter_budget_values(text: str, values: List[Tuple[float, str, int, int]]) 
     return filtered
 
 
+def _user_guidance_tail(query: str, kind: str) -> str:
+    if _is_complex_comparison_query(query):
+        return "필요하시면 기관별 차이와 적용 포인트를 이어서 정리해드릴게요."
+    if kind in {"money", "percent", "date", "period", "contact"}:
+        return "필요하시면 근거 기준과 확인 포인트도 함께 안내해드릴게요."
+    return "필요하시면 관련 기준을 더 자세히 안내해드릴게요."
+
+
+def _format_user_facing_answer(answer: str, *, status: str, query: str, kind: str) -> str:
+    text = str(answer or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return text
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n[ \t]+", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = _INTERNAL_ANSWER_TERM_RE.sub("문서", text).strip()
+
+    if status not in {"ok", "partial"}:
+        return text
+    if "문서에 해당 정보가 없습니다" in text:
+        return text
+    if _GUIDANCE_CUE_RE.search(text):
+        return text
+
+    guidance = _user_guidance_tail(query, kind)
+    if "\n" in text:
+        trimmed = text.rstrip()
+        if not trimmed.endswith((".", "!", "?")):
+            trimmed += "."
+        return f"{trimmed}\n{guidance}"
+
+    trimmed = text.rstrip()
+    if not trimmed.endswith((".", "!", "?")):
+        trimmed += "."
+    return f"{trimmed} {guidance}"
+
+
+def _finalize_answer_payload(
+    payload: Dict[str, object],
+    *,
+    query: str,
+    kind: str,
+) -> Dict[str, object]:
+    out = dict(payload)
+    status = str(out.get("status", "")).strip().lower()
+    answer = _format_user_facing_answer(
+        str(out.get("answer", "")),
+        status=status,
+        query=query,
+        kind=kind,
+    )
+    out["status"] = status
+    out["answer"] = answer
+    return out
+
+
 def generate_money_rank_answer(
     query: str,
     contexts: Sequence[ChunkRecord],
 ) -> Dict[str, object]:
     if not contexts:
-        return {
+        return _finalize_answer_payload(
+            {
             "status": "not_found",
             "answer": "문서에 해당 정보가 없습니다.",
             "citations": [],
-        }
+            },
+            query=query,
+            kind="money",
+        )
 
     top_n = _parse_top_n_for_rank_query(query, default=3)
     best_by_org: Dict[str, Tuple[float, str, int]] = {}
@@ -1604,22 +1883,30 @@ def generate_money_rank_answer(
             best_by_org[org] = (best[0], best[1], idx)
 
     if not best_by_org:
-        return {
+        return _finalize_answer_payload(
+            {
             "status": "not_found",
             "answer": "사업비 근거를 찾지 못했습니다.",
             "citations": [],
-        }
+            },
+            query=query,
+            kind="money",
+        )
 
     ranked = sorted(best_by_org.items(), key=lambda x: (-x[1][0], x[0]))[:top_n]
     lines = [f"{i}. {org} - {amount}" for i, (org, (_, amount, _)) in enumerate(ranked, start=1)]
     citations = sorted({ref_idx for _, (_, _, ref_idx) in ranked})
 
     status = "ok" if len(ranked) >= top_n else "partial"
-    return {
-        "status": status,
-        "answer": "\n".join(lines),
-        "citations": citations,
-    }
+    return _finalize_answer_payload(
+        {
+            "status": status,
+            "answer": "\n".join(lines),
+            "citations": citations,
+        },
+        query=query,
+        kind="money",
+    )
 
 
 def _rule_based_answer(query: str, contexts: Sequence[ChunkRecord]) -> Dict[str, object]:
@@ -1632,6 +1919,20 @@ def _rule_based_answer(query: str, contexts: Sequence[ChunkRecord]) -> Dict[str,
 
     kind = _question_kind(query)
     use_factoid_guard = _env_flag("RAG_EXP5_FACTOID_GUARD", default=True)
+    # 비교/복합 질의는 규칙 기반 단일 값 추출의 오답 위험이 높아 LLM 요약으로 넘긴다.
+    if _is_complex_comparison_query(query):
+        return {
+            "status": "skip",
+            "answer": "",
+            "citations": [],
+        }
+    # generic 질의는 값 탐색형이 아니면 규칙 기반 추출을 시도하지 않는다.
+    if kind == "generic" and not _is_value_seeking_query(query):
+        return {
+            "status": "skip",
+            "answer": "",
+            "citations": [],
+        }
     # 개요/설명형 질의는 규칙 기반 placeholder를 만들지 않고 LLM 생성으로 넘긴다.
     if kind == "overview":
         return {
@@ -1663,7 +1964,7 @@ def _rule_based_answer(query: str, contexts: Sequence[ChunkRecord]) -> Dict[str,
     generic_candidates: List[Tuple[float, int, str]] = []
 
     for i, c in enumerate(contexts, start=1):
-        matches = _pick_matches(c.text, kind)
+        matches = _pick_matches(c.text, kind, query=query)
         if not matches:
             continue
 
@@ -1743,9 +2044,9 @@ def generate_answer(
     rule_contexts: Sequence[ChunkRecord] = contexts if kind != "overview" else cleaned_contexts
     rule_ans = _rule_based_answer(query, rule_contexts)
     if rule_ans["status"] == "ok":
-        return rule_ans
+        return _finalize_answer_payload(rule_ans, query=query, kind=kind)
     if not cleaned_contexts and rule_ans["status"] == "not_found":
-        return rule_ans
+        return _finalize_answer_payload(rule_ans, query=query, kind=kind)
 
     client = _get_client()
     use_structured_complex = _env_flag("RAG_EXP6_STRUCTURED_COMPLEX", default=False)
@@ -1760,6 +2061,9 @@ def generate_answer(
         "status는 'ok', 'partial', 'not_found' 중 하나만 사용하세요.",
         "정확한 값은 없지만 관련 문맥이 있으면 partial로 답하세요.",
         "근거가 전혀 없으면 answer를 '문서에 해당 정보가 없습니다.'로 반환하세요.",
+        "문장 수를 인위적으로 제한하지 말고 핵심 정보만 간결하게 답하세요.",
+        "answer는 사용자 안내형 톤으로 작성하세요. 첫 문장은 핵심 결론, 마지막에는 필요 시 한 문장 안내를 덧붙이세요.",
+        "answer에 내부 용어(청크/컨텍스트/프롬프트/리트리버)는 사용하지 마세요.",
     ]
     if kind in {"money", "percent", "date", "period", "contact"}:
         instruction_parts.append(
@@ -1767,10 +2071,10 @@ def generate_answer(
         )
     if use_structured_complex and is_complex_query:
         instruction_parts.append(
-            "복합/비교 질의이므로 answer를 다음 순서로 작성하세요: 1) 문서A 핵심 요구사항, 2) 문서B 핵심 요구사항, 3) 차이점 요약."
+            "복합/비교 질의이므로 answer를 다음 순서로 작성하세요: 1) 문서A 핵심, 2) 문서B 핵심, 3) 차이점 핵심."
         )
         instruction_parts.append(
-            "각 섹션에는 최소 2개 이상 핵심 항목을 포함하고, 누락 없이 간결하게 정리하세요."
+            "각 섹션은 핵심 1~2항목 위주로 간결하게 작성하고 불필요한 배경 설명은 생략하세요."
         )
 
     payload = {
@@ -1822,24 +2126,28 @@ def generate_answer(
 
     if not answer:
         if rule_ans["status"] == "ok":
-            return rule_ans
+            return _finalize_answer_payload(rule_ans, query=query, kind=kind)
         answer = "문서에 해당 정보가 없습니다." if status == "not_found" else ""
 
     if "문서에 해당 정보가 없습니다" in answer:
         if rule_ans["status"] == "ok":
-            return rule_ans
+            return _finalize_answer_payload(rule_ans, query=query, kind=kind)
         status = "not_found"
     elif status == "not_found" and rule_ans["status"] == "ok":
-        return rule_ans
+        return _finalize_answer_payload(rule_ans, query=query, kind=kind)
 
     if not citations and rule_ans["status"] == "ok" and rule_ans["citations"]:
         citations = list(rule_ans["citations"])
 
-    return {
-        "status": status,
-        "answer": answer,
-        "citations": citations,
-    }
+    return _finalize_answer_payload(
+        {
+            "status": status,
+            "answer": answer,
+            "citations": citations,
+        },
+        query=query,
+        kind=kind,
+    )
 
 
 def _expand_candidates_with_neighbors(
