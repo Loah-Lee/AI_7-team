@@ -103,6 +103,8 @@ def evaluate_e2e(
         expected_answer = item.get("expected_answer", "")
         gt = item.get("ground_truth", {})
         gt_source = gt.get("source", "")
+        # multi_doc: sources 리스트 지원 (없으면 단일 source로 폴백)
+        gt_sources: list[str] | str = gt.get("sources") or gt_source
         gt_page = gt.get("page")
         metadata_filter = item.get("metadata_filter")
 
@@ -134,11 +136,13 @@ def evaluate_e2e(
             for doc in retrieved_docs
         ]
 
-        recall = calculate_recall_at_k(retrieved_for_metrics, gt_source, k=top_k)
-        hit_pos = calculate_hit_position(retrieved_for_metrics, gt_source)
+        # source-level: multi_doc는 여러 source any-match
+        recall = calculate_recall_at_k(retrieved_for_metrics, gt_sources, k=top_k)
+        hit_pos = calculate_hit_position(retrieved_for_metrics, gt_sources)
         recalls.append(recall)
         hit_positions.append(hit_pos)
 
+        # page-level: 첫 번째(대표) source + page 기준
         recall_page = calculate_recall_at_k(retrieved_for_metrics, gt_source, ground_truth_page=gt_page, k=top_k)
         hit_pos_page = calculate_hit_position(retrieved_for_metrics, gt_source, ground_truth_page=gt_page)
         recalls_page.append(recall_page)
@@ -189,7 +193,9 @@ def evaluate_e2e(
             "recall_at_k_page": recall_page,
             "num_retrieved": len(retrieved_docs),
             "ground_truth_source": gt_source,
+            "ground_truth_sources": gt_sources if isinstance(gt_sources, list) else [gt_source],
             "ground_truth_page": gt_page,
+            "latencies": state.get("latencies", {}),
         })
 
     # 집계
