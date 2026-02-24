@@ -272,24 +272,21 @@ def insert_body_headers(
         return -1
 
     lines = text.split('\n')
-    assignments: List[Tuple[int, int]] = []
-
+    # ── Phase 1: 모든 본문 heading 후보 수집 ──
+    candidates: List[Tuple[int, str, int]] = []  # (line_idx, type_name, char_pos)
     char_pos = 0
     for idx, line in enumerate(lines):
         line_start = char_pos
         char_pos += len(line) + 1
-
         if line_start < page2_start:
             continue
         if _pos_to_page(line_start) in toc_pages:
             continue
-
         s = line.strip()
         if not s or _PAGE_MARKER_RE.match(s) or s.startswith('#') or s.startswith('|'):
             continue
 
         clean = _BOLD_STRIP_RE.sub(r'\1', s)
-
         # heading 패턴 매칭
         matched_type = None
         for type_name, regex in _HEADING_RE_NAMED:
@@ -300,16 +297,31 @@ def insert_body_headers(
                 else:
                     matched_type = type_name
                 break
-
-        # TOC 매핑에 있는 타입만 헤더 삽입
         if matched_type and matched_type in toc_type_level:
-            level = toc_type_level[matched_type]
-            if level <= 2:
-                assignments.append((idx, level))
+            candidates.append((idx, matched_type, line_start))
 
-    if not assignments:
+    if not candidates:
         return text
 
+    # ── Phase 2: bracket 검증 ──
+    # bracket 뒤에 다른 L1 타입이 등장하면 해당 bracket은 heading이 아님
+    l1_non_bracket = {t for t, lvl in toc_type_level.items() if lvl == 1 and t != 'bracket'}
+    last_l1_pos = max(
+        (pos for _, t, pos in candidates if t in l1_non_bracket),
+        default=-1,
+    )
+    filtered = [
+        (idx, t, p) for idx, t, p in candidates
+        if t != 'bracket' or p > last_l1_pos
+    ]
+
+    # ── Phase 3: 헤더 삽입 ──
+    assignments: List[Tuple[int, int]] = [
+        (idx, toc_type_level[t]) for idx, t, _ in filtered
+        if toc_type_level[t] <= 2
+    ]
+    if not assignments:
+        return text
     for idx, level in reversed(assignments):
         prefix = '# ' if level == 1 else '## '
         lines[idx] = prefix + lines[idx]
@@ -377,7 +389,8 @@ def audit_file(input_path: str, output_path: str) -> None:
 
 
 if __name__ == '__main__':
-    input_dir = Path('output')
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    input_dir = PROJECT_ROOT / 'output'
     parsed_files = sorted(input_dir.glob('step1_parsed_*.md'))
 
     if not parsed_files:

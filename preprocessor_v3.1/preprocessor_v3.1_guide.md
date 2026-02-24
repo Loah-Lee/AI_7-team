@@ -77,27 +77,28 @@ pip install -r requirements.txt
 ## 3. 디렉터리 구조
 
 ```
-preprocessor_v3.1/
-├── preprocessor.py          # 파이프라인 오케스트레이터 (메인 진입점)
-├── pdf_loader.py            # PDF 로더 (pymupdf4llm + fitz 교차 검증)
-├── auditor_step2.py         # 텍스트 감사기 (TOC 감지, 헤더 삽입)
-├── chunker_step4.py         # 7단계 청킹 파이프라인
-├── storage_step5.py         # ChromaDB 하이브리드 저장소
-├── text_cleaner.py          # 텍스트 클리닝 유틸리티
-├── table_flattener.py       # 마크다운 테이블 → 자연어 변환
-├── output/
-│   ├── temp_pdf/            # HWP 변환 PDF 및 원본 PDF 복사본
-│   ├── step1_parsed_*.md    # PDF 로더 출력 (마크다운)
-│   ├── step2_audited_*.md   # 감사기 출력 (정제된 마크다운)
-│   ├── chunks/              # 청커 출력 (JSON 파일)
+# 프로젝트 루트 (AI_7-team/)
+├── data/                        # 원본 HWP/PDF 문서 (git 제외)
+├── hwp_converter.py             # HWP→PDF 변환기
+├── output/                      # 파이프라인 출력 (프로젝트 루트 기준)
+│   ├── temp_pdf/                # HWP 변환 PDF 및 원본 PDF 복사본
+│   ├── step1_parsed_*.md        # PDF 로더 출력 (마크다운)
+│   ├── step2_audited_*.md       # 감사기 출력 (정제된 마크다운)
+│   ├── chunks/                  # 청커 출력 (JSON 파일)
 │   └── execution_summary.csv
-└── DB/
-    └── chroma_db/           # ChromaDB 영구 저장소
-
-# 프로젝트 루트 (preprocessor_v3.1/ 상위)
-hwp_converter.py             # HWP→PDF 변환기
-data/                        # 원본 HWP/PDF 문서 (git 제외)
+├── DB/
+│   └── chroma_db/               # ChromaDB 영구 저장소
+└── preprocessor_v3.1/
+    ├── preprocessor.py          # 파이프라인 오케스트레이터 (메인 진입점)
+    ├── pdf_loader.py            # PDF 로더 (pymupdf4llm + fitz 교차 검증)
+    ├── auditor_step2.py         # 텍스트 감사기 (TOC 감지, 헤더 삽입)
+    ├── chunker_step4.py         # 7단계 청킹 파이프라인
+    ├── storage_step5.py         # ChromaDB 하이브리드 저장소
+    ├── text_cleaner.py          # 텍스트 클리닝 유틸리티
+    └── table_flattener.py       # 마크다운 테이블 → 자연어 변환
 ```
+
+모든 출력 파일은 `preprocessor_v3.1/` 하위가 아닌 **프로젝트 루트**의 `output/` 및 `DB/`에 저장된다. 각 스크립트는 `Path(__file__).resolve().parent.parent`로 프로젝트 루트를 자동 계산한다.
 
 ---
 
@@ -346,9 +347,14 @@ PDF 파일을 로드하여 LangChain Document 리스트로 반환한다.
     neutralize_toc() — TOC 페이지 내용을 2칸 들여쓰기로 중립화
          |
          v
-[Loop 2] 본문 헤더 삽입
-    insert_body_headers() — TOC 매핑에 있는 타입만 #/## 삽입
+[Loop 2] 본문 헤더 삽입 (3-Phase)
+    insert_body_headers():
+      Phase 1: 본문의 모든 heading 후보 수집 (line_idx, type_name, char_pos)
+      Phase 2: Bracket 검증 — 다른 L1 타입의 마지막 위치(last_l1_pos) 이후의 bracket만 유지
+      Phase 3: 살아남은 후보에 대해 #/## 삽입
 ```
+
+**Bracket 검증 규칙**: `bracket` 타입은 문서에서 다른 L1 타입(예: `roman`)의 마지막 출현 이후에만 유효한 heading으로 인정된다. 예를 들어, 로마자 헤더(Ⅰ~Ⅵ) 뒤에 나타나는 `[별첨]`, `[서식]`은 L1으로 유지되지만, 중간에 나타나는 `[표 1]`, `[기술성평가기준표]` 등은 heading에서 제외된다.
 
 **중요**: `_extract_toc_heading_types()`는 반드시 `neutralize_toc()` 호출 전에 실행해야 한다. 중립화 후에는 원본 TOC 텍스트를 읽을 수 없다.
 
@@ -428,12 +434,16 @@ TOC 페이지를 파싱하여 헤딩 타입과 계층 레벨의 매핑을 생성
 | `toc_pages` | `Set[int]` | TOC 페이지 번호 집합 (해당 페이지는 건너뜀) |
 | `toc_type_level` | `Dict[str, int]` | `_extract_toc_heading_types()` 반환값 |
 
-동작 조건:
+3-Phase 동작:
+- **Phase 1**: 본문의 모든 heading 후보를 `(line_idx, type_name, char_pos)`로 수집한다.
+- **Phase 2 (Bracket 검증)**: `toc_type_level`에서 bracket이 아닌 L1 타입(`l1_non_bracket`)을 찾고, 해당 타입의 마지막 출현 위치(`last_l1_pos`)를 계산한다. `bracket` 후보 중 `pos > last_l1_pos`인 것만 유지하고 나머지는 제외한다.
+- **Phase 3**: 살아남은 후보 중 `level <= 2`인 것에 `#`/`##` 삽입한다.
+
+기타 조건:
 - `toc_type_level`이 비어 있으면 아무것도 삽입하지 않는다.
-- 1페이지(표지)는 건너뛴다.
-- TOC 페이지는 건너뛴다.
-- 이미 `#`으로 시작하는 줄, 테이블 행(`|`), 페이지 마커는 건너뛴다.
-- L3 이상은 마크다운 헤더를 삽입하지 않는다.
+- 1페이지(표지)는 건너뜌다.
+- TOC 페이지는 건너뜌다.
+- 이미 `#`으로 시작하는 줄, 테이블 행(`|`), 페이지 마커는 건너뜌다.
 
 **`validate_tables(text: str) -> None`**
 
@@ -457,10 +467,10 @@ TOC 페이지를 파싱하여 헤딩 타입과 계층 레벨의 매핑을 생성
 
 감사기와 청커는 헤딩 처리를 분담한다:
 
-- **감사기**: TOC에 명시된 헤딩 타입(`roman`, `numbered_d1` 등)에만 `#`/`##` 삽입
-- **청커 Step 3**: 감사기가 처리하지 않은 나머지 타입(`korean_letter`, `legal`, `bracket` 등)을 독립적으로 처리
+- **감사기**: TOC에 명시된 헤딩 타입(`roman`, `numbered_d1` 등)에만 `#`/`##` 삽입. Bracket은 마지막 L1 이후 위치만 유지.
+- **청커 Step 3**: 감사기가 처리하지 않은 나머지 타입(`korean_letter`, `legal` 등)을 독립적으로 처리. 단, 감사기가 이미 `#`/`##`를 삽입한 경우 L1/L2는 점유된 것으로 간주하여 나머지 타입을 L3부터 배정한다.
 
-이 분업 덕분에 TOC가 없는 문서도 청커가 독립적으로 계층 구조를 추출할 수 있다.
+이 분업 덕분에 TOC가 있는 문서는 정확한 계층 구조를, TOC가 없는 문서는 청커가 독립적으로 계층 구조를 추출할 수 있다.
 
 ---
 
@@ -522,8 +532,10 @@ YAML frontmatter(`---` 블록)를 파싱하여 메타데이터 딕셔너리와 �
 반환값: `[(헤딩 텍스트, 레벨, 문자 위치), ...]`
 
 레벨 할당 알고리즘:
+- **Bracket 검증**: `all_matches` 수집 후, bracket이 아닌 L1 타입의 마지막 위치(`last_l1_pos`) 이후의 bracket만 유지. 나머지 bracket은 필터링.
+- **Auditor 헤더 감지**: 텍스트에 이미 `#`/`##` 헤더가 존재하면(감사기가 삽입), `max_level`을 2로 설정하여 L1/L2를 점유된 것으로 간주한다.
 - **Phase 1 (Group A — 법적 헤딩)**: `편 → 장 → 절 → 조 → 항` 순서로 문서에 존재하는 타입만 순차적으로 레벨 1, 2, 3... 할당
-- **Phase 2 (Group B — 나머지)**: 첫 등장 순서대로 다음 레벨 할당. 단, `bracket` 타입은 항상 L1
+- **Phase 2 (Group B — 나머지)**: 첫 등장 순서대로 `max_level + 1` 할당. `bracket` 타입은 항상 L1. TOC가 없는 문서에서는 `max_level`이 0부터 시작하여 first-encounter 기준으로 동작.
 
 **`step4_insert_headers(text: str, hierarchy: List[Tuple[str, int, int]]) -> str`**
 
@@ -606,9 +618,10 @@ chunk_overlap=100 # CHUNK_OVERLAP 상수 사용
 #### 주요 상수 및 초기화
 
 ```python
-CHROMA_PATH = "DB/chroma_db"          # ChromaDB 영구 저장 경로
-CHUNK_DIR = "output/chunks"           # 청크 JSON 디렉터리
-EMBEDDING_MODEL = 'jhgan/ko-sroberta-multitask'  # Dense 임베딩 모델 (768차원)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+CHROMA_PATH = str(PROJECT_ROOT / 'DB' / 'chroma_db')    # ChromaDB 영구 저장 경로
+CHUNK_DIR = str(PROJECT_ROOT / 'output' / 'chunks')     # 청크 JSON 디렉터리
+EMBEDDING_MODEL = 'jhgan/ko-sroberta-multitask'         # Dense 임베딩 모델 (768차원)
 
 # BM25 Sparse 임베딩 파라미터
 bm25_ef = ChromaBm25EmbeddingFunction(
@@ -892,8 +905,14 @@ total_pages: 42
 처리 결과를 CSV 파일로 저장한다. 컬럼: `file`, `status`, `duration_sec`, `chunk_count`, `sparse_count`, `dense_count`, `hierarchy_count`, `reindexed`, `error`.
 
 #### CLI 동작 (`__main__`)
+```
+usage: preprocessor.py [-h] [--input INPUT]
 
-1. `data/` 디렉터리 스캔
+options:
+  --input INPUT, -i INPUT  입력 폴더 경로 (기본값: <프로젝트 루트>/data)
+```
+
+1. 입력 폴더(`--input` 또는 기본 `data/`) 디렉터리 스캔
 2. `.hwp` 파일: `hwp_converter.py`로 PDF 변환 후 `output/temp_pdf/`에 저장
 3. 기타 파일: `output/temp_pdf/`에 직접 복사
 4. `output/temp_pdf/*.pdf` 전체를 `process_single_pdf()`로 순차 처리
@@ -931,8 +950,8 @@ total_pages: 42
 
 | 상수 | 기본값 | 설명 |
 |---|---|---|
-| `CHROMA_PATH` | `"DB/chroma_db"` | ChromaDB 영구 저장 경로 |
-| `CHUNK_DIR` | `"output/chunks"` | 청크 JSON 디렉터리 |
+| `CHROMA_PATH` | `PROJECT_ROOT / 'DB' / 'chroma_db'` | ChromaDB 영구 저장 경로 (프로젝트 루트 기준) |
+| `CHUNK_DIR` | `PROJECT_ROOT / 'output' / 'chunks'` | 청크 JSON 디렉터리 (프로젝트 루트 기준) |
 | `EMBEDDING_MODEL` | `'jhgan/ko-sroberta-multitask'` | Dense 임베딩 모델 (768차원, 한국어 최적화) |
 | BM25 `k` | `1.2` | Term frequency 포화 파라미터 |
 | BM25 `b` | `0.75` | 문서 길이 정규화 파라미터 |
@@ -943,13 +962,15 @@ total_pages: 42
 
 ## 7. CLI 사용 예시
 
-모든 명령은 `preprocessor_v3.1/` 디렉터리에서 실행한다.
+모든 명령은 `preprocessor_v3.1/` 디렉터리에서 실행한다. 출력은 프로젝트 루트의 `output/` 및 `DB/`에 저장된다.
 
 ### 전체 파이프라인 실행
-
 ```bash
-# data/ 디렉터리의 모든 HWP/PDF 파일을 처리
+# 기본: 프로젝트 루트/data 디렉터리의 모든 HWP/PDF 파일 처리
 conda run -n langc python3 preprocessor.py
+# 입력 폴더 지정
+conda run -n langc python3 preprocessor.py --input /path/to/documents
+conda run -n langc python3 preprocessor.py -i ./my_docs
 ```
 
 실행 결과:

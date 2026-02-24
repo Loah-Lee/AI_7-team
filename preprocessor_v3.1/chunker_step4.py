@@ -195,6 +195,24 @@ def step3_extract_hierarchy(text: str) -> List[Tuple[str, int, int]]:
 
     all_matches.sort(key=lambda x: x[2])
 
+    # ── Bracket validation: bracket 뒤에 다른 L1 타입이 나오면 bracket 제외 ──
+    _l1_types: set = set()
+    _detected_legal_for_filter: set = set()
+    for _, _tn, _ in all_matches:
+        if _tn.startswith('제N'):
+            _detected_legal_for_filter.add(_tn[2:])
+    for _k in LEGAL_ORDER:
+        if _k in _detected_legal_for_filter:
+            _l1_types.add(f'제N{_k}')
+            break
+    if not _l1_types:
+        for _, _tn, _ in all_matches:
+            if _tn != 'bracket' and not _tn.startswith('제N'):
+                _l1_types.add(_tn)
+                break
+    _last_l1_pos = max((p for _, t, p in all_matches if t in _l1_types), default=-1)
+    all_matches = [(h, t, p) for h, t, p in all_matches if t != 'bracket' or p > _last_l1_pos]
+
     # --- Level assignment ---
     type_level_map: Dict[str, int] = {}
     max_level = 0
@@ -209,6 +227,13 @@ def step3_extract_hierarchy(text: str) -> List[Tuple[str, int, int]]:
         if k in detected_legal:
             max_level += 1
             type_level_map[f"제N{k}"] = max_level
+
+    # Auditor가 이미 #/## 삽입한 경우 L1/L2는 점유된 것으로 간주
+    if max_level < 2:
+        if re.search(r'^## ', text, re.MULTILINE):
+            max_level = max(max_level, 2)
+        elif re.search(r'^# ', text, re.MULTILINE):
+            max_level = max(max_level, 1)
 
     # Phase 2: Group B — 첫 등장 순서대로 max_level + 1 (bracket은 항상 L1)
     result: List[Tuple[str, int, int]] = []
@@ -450,8 +475,9 @@ if __name__ == '__main__':
     print("✂️  CHUNKER STAGE (v3 Pipeline)")
     print("=" * 60 + "\n")
 
-    input_dir = Path('output')
-    output_dir = Path('output/chunks')
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    input_dir = PROJECT_ROOT / 'output'
+    output_dir = PROJECT_ROOT / 'output' / 'chunks'
     output_dir.mkdir(parents=True, exist_ok=True)
 
     final_files = sorted(input_dir.glob('step2_audited_*.md'))

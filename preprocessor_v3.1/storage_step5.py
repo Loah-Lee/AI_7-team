@@ -26,11 +26,11 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # 1. 환경 설정 및 초기화
 # ---------------------------------------------------------------------------
-CHROMA_PATH = "DB/chroma_db"
-CHUNK_DIR = "output/chunks"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+CHROMA_PATH = str(PROJECT_ROOT / 'DB' / 'chroma_db')
+CHUNK_DIR = str(PROJECT_ROOT / 'output' / 'chunks')
 EMBEDDING_MODEL = 'jhgan/ko-sroberta-multitask'
-
-os.makedirs('DB', exist_ok=True)
+os.makedirs(PROJECT_ROOT / 'DB', exist_ok=True)
 _kiwi = Kiwi()
 client = chromadb.PersistentClient(path=CHROMA_PATH)
 

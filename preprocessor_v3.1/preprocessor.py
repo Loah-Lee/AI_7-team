@@ -1,4 +1,5 @@
 import csv
+import argparse
 import json
 import os
 import shutil
@@ -134,16 +135,21 @@ def write_summary(results: List[Dict], output_path: Path) -> None:
 
 
 if __name__ == '__main__':
-    data_dir = Path('./data')
-    pdf_dir = Path('output/temp_pdf')
-    output_dir = Path('output')
+    parser = argparse.ArgumentParser(description='Preprocessor v3.1 Pipeline')
+    parser.add_argument('--input', '-i', type=str, default=None,
+                        help='입력 폴더 경로 (기본값: <프로젝트 루트>/data)')
+    args = parser.parse_args()
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    data_dir = Path(args.input).resolve() if args.input else PROJECT_ROOT / 'data'
+    pdf_dir = PROJECT_ROOT / 'output' / 'temp_pdf'
+    output_dir = PROJECT_ROOT / 'output'
     pdf_dir.mkdir(parents=True, exist_ok=True)
 
     if data_dir.exists():
         for file in data_dir.iterdir():
             if file.suffix == '.hwp':
                 if not (pdf_dir / f'{file.stem}.pdf').exists():
-                    os.system(f"python hwp_converter.py '{file}' -o '{pdf_dir}'")
+                    os.system(f"python '{PROJECT_ROOT / 'hwp_converter.py'}' '{file}' -o '{pdf_dir}'")
             else:
                 shutil.copy2(file, pdf_dir / file.name)
 
