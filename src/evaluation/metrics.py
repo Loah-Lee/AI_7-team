@@ -55,22 +55,43 @@ def calculate_hit_position(
 ) -> int | None:
     """정답 문서가 검색 결과에서 몇 번째에 위치하는지 반환한다.
 
+    단일 source: 첫 번째 일치 위치를 반환한다.
+    다중 source (strict): 모든 source가 발견된 경우, 마지막으로 발견된 source의
+        위치를 반환한다 (= 모든 정답을 포함하기 위해 필요한 최소 rank).
+        하나라도 누락이면 None.
+
     Args:
-        retrieved_docs: 검색된 문서 리스트 (RetrievedDoc 딕셔너리).
-        ground_truth_source: 정답 문서의 source 값. 리스트인 경우 any-match.
+        retrieved_docs: 검색된 문서 리스트.
+        ground_truth_source: 정답 source. 리스트인 경우 strict-match (전부 필요).
         ground_truth_page: 정답 페이지. 지정 시 source + page 모두 일치해야 hit.
 
     Returns:
         1-based 위치. 없으면 None.
     """
-    sources = [ground_truth_source] if isinstance(ground_truth_source, str) else ground_truth_source
+    sources = (
+        [ground_truth_source]
+        if isinstance(ground_truth_source, str)
+        else list(dict.fromkeys(ground_truth_source))  # dedup, preserve order
+    )
+
+    if len(sources) == 1:
+        for idx, doc in enumerate(retrieved_docs, start=1):
+            if doc.get("source") != sources[0]:
+                continue
+            if ground_truth_page is not None and doc.get("page") != ground_truth_page:
+                continue
+            return idx
+        return None
+
+    # Multi-source strict: 모든 source의 첫 hit 위치를 수집 → max 반환
+    found_at: dict[str, int] = {}
     for idx, doc in enumerate(retrieved_docs, start=1):
-        if doc.get("source") not in sources:
-            continue
-        if ground_truth_page is not None and doc.get("page") != ground_truth_page:
-            continue
-        return idx
-    return None
+        src = doc.get("source")
+        if src in sources and src not in found_at:
+            found_at[src] = idx
+        if len(found_at) == len(sources):
+            return max(found_at.values())
+    return None  # 하나 이상 미발견
 
 
 def calculate_empty_retrieval_rate(
@@ -97,19 +118,30 @@ def calculate_recall_at_k(
     ground_truth_page: int | None = None,
     k: int = 5,
 ) -> float:
-    """Recall@K — 정답 source가 top-K 내에 존재하면 1.0, 아니면 0.0.
+    """Recall@K — top-K 내에 정답 source가 있으면 1.0, 아니면 0.0.
 
-    ground_truth_source가 리스트인 경우 any-match (multi_doc 지원).
-    page가 지정되면 source + page 모두 일치해야 정답으로 판정한다.
+    단일 source: top-K에 source (+ page) 일치 문서가 있으면 1.0.
+    다중 source (strict): top-K 안에 모든 source가 존재해야 1.0.
+        하나라도 누락이면 0.0. page는 단일 source 호출에서만 적용.
     """
-    sources = [ground_truth_source] if isinstance(ground_truth_source, str) else ground_truth_source
-    for doc in retrieved_docs[:k]:
-        if doc.get("source") not in sources:
-            continue
-        if ground_truth_page is not None and doc.get("page") != ground_truth_page:
-            continue
-        return 1.0
-    return 0.0
+    sources = (
+        [ground_truth_source]
+        if isinstance(ground_truth_source, str)
+        else list(dict.fromkeys(ground_truth_source))
+    )
+
+    if len(sources) == 1:
+        for doc in retrieved_docs[:k]:
+            if doc.get("source") != sources[0]:
+                continue
+            if ground_truth_page is not None and doc.get("page") != ground_truth_page:
+                continue
+            return 1.0
+        return 0.0
+
+    # Multi-source strict: top-K 안에 모든 source가 있어야 1.0
+    found = {doc.get("source") for doc in retrieved_docs[:k]} & set(sources)
+    return 1.0 if found == set(sources) else 0.0
 
 
 def calculate_recall_at_k_summary(
