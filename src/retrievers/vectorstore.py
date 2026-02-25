@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-import sys, json, math
+import sys, json, math, unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -101,7 +101,16 @@ class VectorStore:
         if new.has_hwp:
             existing.has_hwp = True
 
-
+    def _normalize_metadata(self, metadata: dict) -> dict:
+        """메타데이터의 문자열을 NFC normalize한다."""
+        normalized = {}
+        for k, v in metadata.items():
+            if isinstance(v, str):
+                normalized[k] = unicodedata.normalize('NFC', v)
+            else:
+                normalized[k] = v
+        return normalized
+    
     def extract_nouns(self, text: str) -> str:
         """명사 추출 (한국어 최적화)"""
         if not text:
@@ -172,7 +181,7 @@ class VectorStore:
             scored_results.append({
                 "id": uid,
                 "document": doc,
-                "metadata": meta,
+                "metadata": self._normalize_metadata(meta),
                 "dense_rank": dense_rank,
                 "raw_sparse_score": raw_sparse,
                 "sparse_score": sparse_score,

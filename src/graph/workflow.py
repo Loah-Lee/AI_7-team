@@ -117,7 +117,6 @@ class RAGChatbotV17:
         if verbose:
             print(f"\n📊 CSV 파일 처리 중: {csv_file.name}")
 
-        from src.parsers.csv_loader import CSVMarkdownConverter
         markdowns = self.vector_store.csv_converter.convert_file(csv_file)
         if verbose:
             print(f"  변환된 마크다운: {len(markdowns)}개")
@@ -151,9 +150,9 @@ class RAGChatbotV17:
                     "type": "csv"
                 })
 
-        if chunks:
+        '''if chunks:
             self.vector_store.add_documents(chunks)
-            print(f"  벡터 DB에 {len(chunks)}개 청크 추가")
+            print(f"  벡터 DB에 {len(chunks)}개 청크 추가")'''
 
     def _create_org_info_from_markdown(self, md_data) -> Any:
         """마크다운 데이터에서 기관 정보를 생성합니다."""
@@ -185,6 +184,8 @@ class RAGChatbotV17:
                 "answer": "관련 정보를 찾을 수 없습니다.",
                 "found": False
             }
+        
+        summary = self._create_multi_org_summary(results, query)
 
         # LLM로 답변 생성
         if self.client:
@@ -195,14 +196,17 @@ class RAGChatbotV17:
                 text = r.get('text', '')
                 context_parts.append(f"[{org} - {source}]\n{text[:8000]}")
 
+            context_parts.append(summary)
+
             context = "\n\n---\n\n".join(context_parts)
             answer = self.answer_generator.generate(query, context)
+
+            print(answer)
 
             if answer and "오류:" not in answer:
                 return {"answer": answer, "found": True}
 
         # 기관 요약 반환
-        summary = self._create_multi_org_summary(results, query)
         return {"answer": summary, "found": True}
 
     def _extract_org_name_from_query(self, query: str) -> str | None:
@@ -219,6 +223,7 @@ class RAGChatbotV17:
 
     def _create_multi_org_summary(self, results: list, query: str) -> dict[str, Any]:
         """여러 기관의 요약 답변을 생성합니다 - 입찰 요약 형식."""
+
         seen_orgs = set()
         org_rows = []
 
@@ -228,12 +233,12 @@ class RAGChatbotV17:
                 seen_orgs.add(org_name)
 
                 org_info = self.vector_store.org_registry.get(org_name)
+
                 if org_info:
                     # 입찰 요약 형식: 기관명 | 사업비 | 사업명
                     project = org_info.project_name[:20] + "..." if org_info.project_name and len(org_info.project_name) > 20 else (org_info.project_name or "-")
                     amount = format_amount(org_info.amount_numeric) if org_info.amount_numeric > 0 else "-"
                     org_rows.append(f"| {org_info.name} | {amount} | {project} |")
-
         if org_rows:
             # 테이블 헤더
             header = f"📊 **검색된 {len(org_rows)}개 사업** (입찰 요약)\n\n"

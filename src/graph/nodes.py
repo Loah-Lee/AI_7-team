@@ -14,7 +14,7 @@ from openai import OpenAI
 
 # 설정
 sys.path.insert(0, 'src')
-from src.utils.config import DEFAULT_MODEL
+from src.utils.config import REASONING_MODEL
 from src.prompts.templates import INTENT_ANALYSIS_PROMPT, ANSWER_GENERATION_PROMPT, RFP_SYSTEM_PROMPT
 from src.graph.state import QueryIntent
 
@@ -138,13 +138,12 @@ class RFPAnswerGenerator:
 
         try:
             response = self.client.chat.completions.create(
-                model=DEFAULT_MODEL,
+                model=REASONING_MODEL,
                 messages=[
                     {"role": "system", "content": RFP_SYSTEM_PROMPT},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.1,  # 낮춰서 더 정확한 답변
-                max_tokens=2000   # 더 긴 답변 허용
+                max_completion_tokens=2000   # 더 긴 답변 허용
             )
             answer = response.choices[0].message.content
             return self._clean_final_answer(answer)
