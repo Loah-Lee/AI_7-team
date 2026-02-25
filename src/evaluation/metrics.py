@@ -10,6 +10,10 @@ KPI.md에 정의된 메트릭을 계산한다:
 from __future__ import annotations
 
 import unicodedata
+from pathlib import Path
+
+
+_CONVERTED_DOC_EXTS = {"hwp", "hwpx", "pdf"}
 
 
 def _normalize_source_name(source: str | None) -> str:
@@ -17,14 +21,56 @@ def _normalize_source_name(source: str | None) -> str:
 
     - Unicode NFC 정규화
     - 앞뒤 공백 제거
-    - 확장자 제거 (hwp/pdf 차이를 완화)
+    - 파일명 기준 비교를 위해 basename 추출
+    - 기본은 확장자 포함 exact 매칭
     """
     if not source:
         return ""
     normalized = unicodedata.normalize("NFC", str(source)).strip()
-    if "." in normalized:
-        normalized = normalized.rsplit(".", 1)[0]
-    return normalized
+    normalized = Path(normalized).name
+    return normalized.lower()
+
+
+def _split_source_parts(source: str | None) -> tuple[str, str, str]:
+    """정규화된 source를 (name, stem, ext)로 분해한다."""
+    normalized = _normalize_source_name(source)
+    if not normalized:
+        return "", "", ""
+    parsed = Path(normalized)
+    ext = parsed.suffix.lower().lstrip(".")
+    return normalized, parsed.stem.lower(), ext
+
+
+def _normalize_stem_for_equivalence(stem: str) -> str:
+    """파일 stem 비교를 위한 추가 정규화(구두점/공백 차이 무시)."""
+    if not stem:
+        return ""
+    normalized = unicodedata.normalize("NFKC", stem.lower())
+    return "".join(ch for ch in normalized if ch.isalnum())
+
+
+def _is_equivalent_source_name(a: str | None, b: str | None) -> bool:
+    """두 source 문자열이 동일 문서를 가리키는지 판정한다.
+
+    규칙:
+    - exact filename 일치면 동일
+    - stem이 같고 확장자가 hwp/hwpx/pdf 변환군 내이면 동일
+    """
+    a_name, a_stem, a_ext = _split_source_parts(a)
+    b_name, b_stem, b_ext = _split_source_parts(b)
+    if not a_name or not b_name:
+        return False
+    if a_name == b_name:
+        return True
+    if a_stem == b_stem and a_ext in _CONVERTED_DOC_EXTS and b_ext in _CONVERTED_DOC_EXTS:
+        return True
+    if (
+        _normalize_stem_for_equivalence(a_stem) == _normalize_stem_for_equivalence(b_stem)
+        and a_ext in _CONVERTED_DOC_EXTS
+        and b_ext in _CONVERTED_DOC_EXTS
+    ):
+        return True
+    return False
 
 
 def _normalize_ground_truth_sources(
@@ -48,7 +94,10 @@ def _is_source_match(
     ground_truth_sources: list[str],
 ) -> bool:
     """retrieved source가 정답 source 집합과 일치하는지 판정한다."""
-    return _normalize_source_name(retrieved_source) in set(ground_truth_sources)
+    for gt_source in ground_truth_sources:
+        if _is_equivalent_source_name(retrieved_source, gt_source):
+            return True
+    return False
 
 
 def calculate_aicr(answer: str, context: str) -> float:
@@ -164,6 +213,7 @@ def calculate_recall_at_k(
     - 단일 source: top-K 내 포함 시 1.0
     - 다중 source: top-K 내에 모든 source가 포함되어야 1.0 (strict)
     - page가 지정되면 단일 source 케이스에서 source + page 모두 일치해야 정답으로 판정한다.
+    - 단, source 확장자가 hwp/hwpx/pdf 변환군인 경우 stem 동일 시 동일 문서로 간주한다.
     """
     gt_sources = _normalize_ground_truth_sources(ground_truth_source)
     if not gt_sources:
@@ -175,20 +225,19 @@ def calculate_recall_at_k(
     if len(gt_sources) == 1:
         target = gt_sources[0]
         for doc in top_k_docs:
-            if _normalize_source_name(doc.get("source")) != target:
+            if not _is_equivalent_source_name(doc.get("source"), target):
                 continue
             if ground_truth_page is not None and doc.get("page") != ground_truth_page:
                 continue
             return 1.0
         return 0.0
 
-    # 다중 source는 strict match: 모든 source가 top-K에 있어야 hit.
-    retrieved_sources = {
-        _normalize_source_name(doc.get("source"))
-        for doc in top_k_docs
-        if _normalize_source_name(doc.get("source"))
-    }
-    return 1.0 if set(gt_sources).issubset(retrieved_sources) else 0.0
+    # 다중 source는 strict match: 모든 GT source가 top-K 내 매칭되어야 hit.
+    for gt_source in gt_sources:
+        matched = any(_is_equivalent_source_name(doc.get("source"), gt_source) for doc in top_k_docs)
+        if not matched:
+            return 0.0
+    return 1.0
 
 
 def calculate_recall_at_k_summary(

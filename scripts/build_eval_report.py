@@ -482,13 +482,100 @@ document.getElementById('insights').innerHTML = `
 const scoreClass = s => 's'+Math.min(5,Math.max(0,s));
 const typeClass = t => t==='single_doc'?'type-single':t==='multi_doc'?'type-multi':t==='csv_match'?'type-csv':'type-comparison';
 const typeName = t => t==='single_doc'?'Single':t==='multi_doc'?'Multi':t==='csv_match'?'CSV':'Compare';
+const CONVERTED_DOC_EXTS = new Set(['hwp', 'hwpx', 'pdf']);
+
+function normalizeSourceName(src) {{
+  return (src || '').toString().normalize('NFC').trim().split(/[\\\\/]/).pop().toLowerCase();
+}}
+
+function splitSourceParts(src) {{
+  const name = normalizeSourceName(src);
+  const dot = name.lastIndexOf('.');
+  if (dot <= 0) return {{ name, stem: name, ext: '' }};
+  return {{ name, stem: name.slice(0, dot), ext: name.slice(dot + 1) }};
+}}
+
+function normalizeStemForEquivalence(stem) {{
+  return (stem || '')
+    .toString()
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[^0-9a-z\\u3131-\\uD79D]+/g, '');
+}}
+
+function isEquivalentSource(a, b) {{
+  const pa = splitSourceParts(a);
+  const pb = splitSourceParts(b);
+  if (!pa.name || !pb.name) return false;
+  if (pa.name === pb.name) return true;
+  if (pa.stem === pb.stem && CONVERTED_DOC_EXTS.has(pa.ext) && CONVERTED_DOC_EXTS.has(pb.ext)) {{
+    return true;
+  }}
+  if (
+    normalizeStemForEquivalence(pa.stem) === normalizeStemForEquivalence(pb.stem)
+    && CONVERTED_DOC_EXTS.has(pa.ext)
+    && CONVERTED_DOC_EXTS.has(pb.ext)
+  ) {{
+    return true;
+  }}
+  return false;
+}}
+
+function cleanAnswerForDisplay(text) {{
+  const raw = (text || '').toString().normalize('NFKC').replace(/\\r\\n/g, '\\n');
+  if (!raw.trim()) return raw;
+
+  const lines = [];
+  for (const original of raw.split('\\n')) {{
+    let line = original
+      .replace(/^\\s*[-*•]\\s*/, '')
+      .replace(/^#+\\s*/, '')
+      .replace(/\\s+/g, ' ')
+      .trim();
+
+    if (!line) continue;
+
+    line = line
+      .replace(/Col\\d+\\s*:\\s*/gi, '')
+      .replace(/요구\\s*사항\\s*상세\\s*설명\\s*,?/g, '')
+      .replace(/세부\\s*내용\\s*,?/g, '')
+      .replace(/\\[\\s*\\d+\\s*\\[/g, '[')
+      .replace(/(\\S+)\\s+\\1(\\s+\\1)+/g, '$1')
+      .trim();
+
+    if (!line) continue;
+    if (!/[A-Za-z0-9가-힣]/.test(line)) continue;
+
+    const weirdChars = (line.match(/[^\\w\\s가-힣\\.\\,\\-\\:\\;\\(\\)\\/%\\`\\|\\[\\]'\\"~]/g) || []).length;
+    if (line.length >= 24 && weirdChars / line.length > 0.35) continue;
+
+    const compact = line.replace(/\\s+/g, '');
+    if (compact.length > 120 && !/[.!?]/.test(line)) {{
+      line = `${{line.slice(0, 120)}} ...`;
+    }}
+
+    lines.push(line);
+  }}
+
+  const deduped = [];
+  const seen = new Set();
+  for (const line of lines) {{
+    const key = line.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(line);
+  }}
+
+  if (!deduped.length) return raw.trim();
+  return deduped.join('\\n');
+}}
 
 const cardsContainer = document.getElementById('queryCards');
 PQ.forEach(q => {{
   const cs = q.correctness?.score??0, acs = q.answer_coverage?.score??0, fs = q.faithfulness?.score??0, crs = q.context_relevance?.score??0;
   const cReason = q.correctness?.reason??'', acReason = q.answer_coverage?.reason??'', fReason = q.faithfulness?.reason??'', crReason = q.context_relevance?.reason??'';
-  const gen = q.generated_answer || '(답변 없음)';
-  const exp = q.expected_answer || '(정답 없음)';
+  const gen = cleanAnswerForDisplay(q.generated_answer || '(답변 없음)');
+  const exp = cleanAnswerForDisplay(q.expected_answer || '(정답 없음)');
   const hit = q.hit_position;
   const qt = q.query_type || 'unknown';
 
@@ -518,7 +605,7 @@ PQ.forEach(q => {{
       <div class="meta-row" style="flex-direction:column;gap:0.4rem">
         <span><strong>정답 문서:</strong> ${{(q.ground_truth_sources||[]).map(s=>`<code style="font-size:0.76rem;background:rgba(59,130,246,0.1);color:#93c5fd;padding:0.1rem 0.4rem;border-radius:3px">${{s}}</code>`).join(' ')}}</span>
         <span><strong>검색된 문서:</strong> ${{(q.retrieved_sources||[]).map(s=>{{
-          const isHit = (q.ground_truth_sources||[]).includes(s);
+          const isHit = (q.ground_truth_sources||[]).some(gt=>isEquivalentSource(s, gt));
           return `<code style="font-size:0.76rem;background:${{isHit?'rgba(34,197,94,0.12)':'rgba(239,68,68,0.08)'}};color:${{isHit?'#86efac':'#fca5a5'}};padding:0.1rem 0.4rem;border-radius:3px">${{s}}</code>`;
         }}).join(' ')}}</span>
       </div>
