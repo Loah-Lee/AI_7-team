@@ -1,4 +1,4 @@
-# 프로젝트 로그 통합 보고서 (수동 최신화, as-of 2026-02-23)
+# 프로젝트 로그 통합 보고서 (수동 최신화, as-of 2026-02-24)
 
 ## 1) Executive Summary
 - 본 문서는 자동생성이 아닌 수동 업데이트 기준으로 최신 실험 결과를 반영한다.
@@ -13,6 +13,13 @@
 - 최고 속도 프로파일(20문항 No-Judge): `eval/eval_results_rework_2026-02-23_all20_nojudge_impl_sources20_v2.json`
   - `avg_response_time=0.9599s`, `p90=1.2837s`
   - `recall_at_k_source=0.9500`, `recall_at_k_page=0.2500`
+- 생성 evalset 프로파일(20문항 No-Judge): `eval/eval_results_generated_evalset_2026-02-24_all20_nojudge.json`
+  - `avg_response_time=2.6997s`
+  - `recall_at_k_source=0.6500`, `recall_at_k_page=0.6000`
+- 생성 evalset 프로파일(20문항 Judge ON): `eval/eval_results_generated_evalset_2026-02-24_all20_judge.json`
+  - `avg_correctness=1.6500`, `avg_coverage=1.3500`
+  - `avg_faithfulness=2.5500`, `avg_context_relevance=4.1500`
+  - `avg_response_time=2.8884s`
 - 2026-02-23 핵심 패치:
   - 기관 경계 강화 + 사업비 오탐 방지
   - CSV strict short-circuit + lexical prefilter -> vector rerank
@@ -27,6 +34,7 @@
 - `2026-02-23`: 정확도 보호 패치(기관 경계 + 사업비 전용 추출)
 - `2026-02-23`: CSV 단축 경로 + 렉시컬->벡터 하이브리드 전환
 - `2026-02-23`: 정확도 우선 모드 + 정밀 사실 질의 추출 강화
+- `2026-02-24`: generated evalset/issue-target 셋 구축 + judge/no-judge 회귀 기준선 추가
 
 ## 3) Experiment Ledger (ID 순)
 - `EXP-2026-02-13-01`
@@ -45,6 +53,7 @@
 - `EXP-2026-02-23-01`
 - `EXP-2026-02-23-02`
 - `EXP-2026-02-23-03`
+- `EXP-2026-02-24-01`
 
 ## 4) Metric Trend Table (핵심 런)
 | file | label | questions | correctness | coverage | faithfulness | context | recall(src) | recall(page) | latency(s) |
@@ -55,6 +64,8 @@
 | eval_results_speed15_all20_nojudge_v7.json | speed15_all20_nojudge_v7 | 20 | - | - | - | - | 0.9500 | 0.1500 | 2.3154 |
 | eval_results_rework_2026-02-23_all20_nojudge_impl_sources20_v2.json | rework_2026-02-23_all20_nojudge_impl_sources20_v2 | 20 | - | - | - | - | 0.9500 | 0.2500 | 0.9599 |
 | eval_results_improved2_all20_nojudge_2026-02-23.json | improved2_all20_nojudge_2026-02-23 | 20 | - | - | - | - | 0.7500 | 0.2000 | 1.0642 |
+| eval_results_generated_evalset_2026-02-24_all20_nojudge.json | generated_evalset_2026-02-24_all20_nojudge | 20 | - | - | - | - | 0.6500 | 0.6000 | 2.6997 |
+| eval_results_generated_evalset_2026-02-24_all20_judge.json | generated_evalset_2026-02-24_all20_judge | 20 | 1.6500 | 1.3500 | 2.5500 | 4.1500 | 0.6500 | 0.6000 | 2.8884 |
 
 ## 5) 실패/회귀 사례 Top N (latest all20 no-judge 기준)
 - 대상 파일: `eval/eval_results_improved2_all20_nojudge_2026-02-23.json`
@@ -103,9 +114,12 @@
 - `eval/eval_results_rework_2026-02-23_all20_nojudge_impl_sources20_v2.json`
 - `eval/eval_results_improved2_all20_nojudge_2026-02-23.json`
 - `eval/eval_results_improved2_all20_judge_2026-02-23.json`
+- `eval/eval_results_generated_evalset_2026-02-24_all20_nojudge.json`
+- `eval/eval_results_generated_evalset_2026-02-24_all20_judge.json`
+- `eval/eval_report_generated_evalset_2026-02-24_all20_judge.html`
 - `eval/eval_report_latest_all20_nojudge.html`
 - `eval/eval_report_latest_all20_judge.html`
-- `docs/EXPERIMENT_LOG.md` (`EXP-2026-02-23-01`, `EXP-2026-02-23-02`, `EXP-2026-02-23-03`)
+- `docs/EXPERIMENT_LOG.md` (`EXP-2026-02-23-01`, `EXP-2026-02-23-02`, `EXP-2026-02-23-03`, `EXP-2026-02-24-01`)
 - `src/graph/workflow.py`
 - `src/retrievers/vectorstore.py`
 - `src/utils/config.py`

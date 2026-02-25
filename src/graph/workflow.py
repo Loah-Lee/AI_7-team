@@ -951,12 +951,19 @@ class RAGChatbotV17:
         else:
             org_name = explicit_org or intent.org_name or ""
         question_plan = self.question_planner.build(query, target_org=org_name)
+        # 단일 기관 사업비 질의가 비교 분기로 새지 않도록 강제한다.
+        is_single_org_budget_query = self._is_budget_query(query) and len(direct_explicit_orgs) <= 1
         comparison_like_query = (
             question_plan.query_kind in {"multi_doc", "comparison"}
             or question_plan.is_comparison
             or self._is_comparison_query(query)
             or len(direct_explicit_orgs) >= 2
         )
+        if is_single_org_budget_query:
+            comparison_like_query = False
+            question_plan.is_comparison = False
+            if question_plan.query_kind in {"multi_doc", "comparison"}:
+                question_plan.query_kind = "fact_numeric"
         multi_target_query = comparison_like_query
         coverage_targets = self._resolve_query_target_orgs(
             query,
@@ -1133,6 +1140,10 @@ class RAGChatbotV17:
             or self._is_comparison_query(query)
             or len(comparison_targets or []) >= 2
         )
+        # 단일 기관 사업비 질의는 비교 포맷을 금지한다.
+        direct_query_orgs = self._extract_org_names_from_query(query, allow_project_fallback=False)
+        if self._is_budget_query(query) and len(direct_query_orgs) <= 1:
+            query_is_comparison_like = False
         resolved_targets = comparison_targets or []
         if query_is_comparison_like and not resolved_targets:
             resolved_targets = self._resolve_query_target_orgs(query, min_targets=2)
@@ -1174,7 +1185,11 @@ class RAGChatbotV17:
         # 사실형/기한/책임 질의는 생성 전에 추출 우선으로 답변 시도
         if self._should_try_extractive_first(query, question_plan):
             extractive_answer = self._build_non_llm_answer(query, results, intent)
-            if extractive_answer and not self._looks_uncertain_answer(extractive_answer):
+            if (
+                extractive_answer
+                and not self._looks_uncertain_answer(extractive_answer)
+                and (query_is_comparison_like or not self._has_comparison_structure(extractive_answer))
+            ):
                 self.conversation.add_exchange(query, extractive_answer, intent)
                 slot_fill_rate = self._estimate_slot_fill_rate(question_plan, extractive_answer, evidence_spans)
                 confidence = self._estimate_confidence(slot_fill_rate, evidence_spans, answer_mode="extractive")
@@ -1227,13 +1242,22 @@ class RAGChatbotV17:
                 time.perf_counter() - generation_started
             )
             perf_stats["llm_calls"] = int(perf_stats.get("llm_calls", 0)) + 1
-        if question_plan.is_comparison:
+        if question_plan.is_comparison and query_is_comparison_like:
             answer = self._enforce_comparison_template(query, answer, results)
         answer_mode = "generative"
+        if not query_is_comparison_like and self._has_comparison_structure(answer):
+            fallback = self._build_non_llm_answer(query, results, intent)
+            if fallback and not self._has_comparison_structure(fallback):
+                answer = fallback
+                answer_mode = "hybrid"
         # LLM이 과도하게 "명시 없음"으로 수렴하면 규칙 기반 근거 답변으로 보완
         if self._looks_uncertain_answer(answer):
             fallback = self._build_non_llm_answer(query, results, intent)
-            if fallback and not self._looks_uncertain_answer(fallback):
+            if (
+                fallback
+                and not self._looks_uncertain_answer(fallback)
+                and (query_is_comparison_like or not self._has_comparison_structure(fallback))
+            ):
                 answer = fallback
                 answer_mode = "hybrid"
         if answer and "오류:" not in answer:

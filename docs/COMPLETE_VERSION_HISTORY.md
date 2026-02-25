@@ -2,9 +2,9 @@
 
 - 프로젝트명: 입찰메이트 RFP 챗봇
 - 팀: 7팀
-- 개발/개편 범위: 2026-02-04 ~ 2026-02-23
+- 개발/개편 범위: 2026-02-04 ~ 2026-02-24
 - 버전 범위: v1 ~ v17 + 운영 안정화/평가 개선
-- 정정 기준일: 2026-02-23
+- 정정 기준일: 2026-02-24
 
 ---
 
@@ -19,6 +19,7 @@
 - 2026-02-23: 기관 질의 경계 강화 + 사업비 추출 정확도 보호 패치
 - 2026-02-23: CSV strict short-circuit + 렉시컬 prefilter->벡터 재정렬 하이브리드 전환
 - 2026-02-23: 정확도 우선 모드 + 정밀 사실 질의 앵커 근거 검증 강화
+- 2026-02-24: generated evalset + issue target셋 생성, judge/no-judge 회귀 기준선 추가
 
 ---
 
@@ -124,6 +125,19 @@
 - 회귀 테스트 추가:
   - `tests/test_workflow_fact_and_org.py`
 
+### v17+ evalset 생성/회귀셋 구축 (2026-02-24)
+
+- eval 리소스에서 생성형 데이터셋 20문항 생성:
+  - `eval_resources/eval_dataset_generated_2026-02-24.yaml`
+  - 분포: `single_doc=12`, `multi_doc=4`, `comparison=4`
+- 이슈 재현용 타깃셋 12문항 구성:
+  - `eval_resources/eval_dataset_issue_target_2026-02-24.yaml`
+  - 분포: `single_doc=4`, `multi_doc=4`, `comparison=4`
+- generated evalset 평가 산출물:
+  - `eval/eval_results_generated_evalset_2026-02-24_all20_nojudge.json`
+  - `eval/eval_results_generated_evalset_2026-02-24_all20_judge.json`
+  - `eval/eval_report_generated_evalset_2026-02-24_all20_judge.html`
+
 ---
 
 ## 3. 공개 평가 지표 스냅샷 (eval JSON 기준)
@@ -142,13 +156,17 @@
 | 비교 지표 (all20 No-Judge, speed15 2차 파라미터) | `eval/eval_results_speed15_all20_nojudge_v7_stage2.json` | 20 | - | - | - | - | 0.9500 | 0.1500 | 0.8633 | 0.0726 | 3.1899 |
 | 최신 지표 (all20 No-Judge, impl sources20 v2) | `eval/eval_results_rework_2026-02-23_all20_nojudge_impl_sources20_v2.json` | 20 | - | - | - | - | 0.9500 | 0.2500 | 0.9500 | 0.1134 | 0.9599 |
 | 최신 동일코드 지표 (all20 No-Judge, improved2) | `eval/eval_results_improved2_all20_nojudge_2026-02-23.json` | 20 | - | - | - | - | 0.7500 | 0.2000 | 0.7219 | 0.0888 | 1.0642 |
+| generated evalset (all20 No-Judge) | `eval/eval_results_generated_evalset_2026-02-24_all20_nojudge.json` | 20 | - | - | - | - | 0.6500 | 0.6000 | 0.6199 | 0.4129 | 2.6997 |
+| generated evalset (all20 Judge ON) | `eval/eval_results_generated_evalset_2026-02-24_all20_judge.json` | 20 | 1.6500 | 1.3500 | 2.5500 | 4.1500 | 0.6500 | 0.6000 | 0.6199 | 0.4129 | 2.8884 |
 
-- 사실 기준 결론: 2026-02-23 현재 공개 20문항 Judge ON 기준 `avg_correctness >= 4.0`에는 도달하지 못함
+- 사실 기준 결론: 2026-02-24 현재 공개 20문항 Judge ON 기준 `avg_correctness >= 4.0`에는 도달하지 못함
 - 속도 튜닝 결론(all20 No-Judge):
   - `21.1919s(speed_tuned_v5) -> 2.3154s(speed15_v7)`로 `89.0740%` 단축, 목표 `<=15.0s` 달성
   - 최신 추가 개선: `2.3154s(speed15_v7) -> 0.9599s(impl_sources20_v2)`로 `58.5415%` 추가 단축
   - 정확도 우선 동일코드 지표는 `1.0642s`로 여전히 속도 목표(`<=5s`)를 충족
-- 상태 표기: **2026-02-23 all20 Judge ON 재실행 완료(`improved2_all20_judge_2026-02-23`)**
+- 상태 표기:
+  - **운영 기준선(기존 eval_dataset): 2026-02-23 all20 Judge ON 재실행 완료(`improved2_all20_judge_2026-02-23`)**
+  - **생성 evalset 기준선: 2026-02-24 all20 Judge/No-Judge 실행 완료(`generated_evalset_2026-02-24_*`)**
 
 ---
 
@@ -162,14 +180,15 @@
 
 ## 5. 현재 상태 및 다음 단계
 
-- 현재 상태(2026-02-23): 정확도 개선 중간 단계 + 실행 안정화 반영
+- 현재 상태(2026-02-24): 정확도 개선 중간 단계 + 생성 evalset 회귀 기준선 반영
   - 달성: retrieval 계열 지표 개선, 추출 우선/비교 강제 구조 반영
   - 달성: DB 경로 일관성 확보, 부분 인덱싱 후 재시작 시 누적 진행 가능
   - 달성: 답변 포맷 가독성 정규화 및 no-judge 평균 지연 목표(`<=5s`) 통과
   - 달성: CSV strict short-circuit + 렉시컬->벡터 하이브리드 재구성 반영
   - 달성: Judge ON all20 `avg_correctness=3.40`, `avg_coverage=3.30`로 상승
+  - 달성: generated evalset/issue-target 셋 생성 및 judge/no-judge 평가 파이프라인 검증
   - 미달성: Judge ON 20문항 `avg_correctness >= 4.0`, `avg_coverage >= 3.8`
-  - 관찰: 정확도 우선 코드에서는 no-judge recall(source/page) `0.75/0.20`으로 하락
+  - 관찰: generated evalset에서는 recall(source/page) `0.65/0.60`, judge `avg_correctness=1.65`로 난도/채점 편차가 큼
 - 다음 단계:
   1. page miss 다발 문항(`eval_002/003/004/006/007/008/011/012/013/014/015/016/017/019/020`) 정합 스코어 보정
   2. 정확도 우선 모드의 recall 하락 구간에 대해 기관 스코프 재탐색 상한 조정
@@ -197,6 +216,13 @@
 - latest no-judge 구현 반영 지표:
   - `eval/eval_results_rework_2026-02-23_all20_nojudge_impl_sources20_v2.json`
   - `eval/eval_results_improved2_all20_nojudge_2026-02-23.json`
+- 2026-02-24 generated evalset 지표:
+  - `eval/eval_results_generated_evalset_2026-02-24_all20_nojudge.json`
+  - `eval/eval_results_generated_evalset_2026-02-24_all20_judge.json`
+  - `eval/eval_report_generated_evalset_2026-02-24_all20_judge.html`
+- 2026-02-24 데이터셋 산출물:
+  - `eval_resources/eval_dataset_generated_2026-02-24.yaml`
+  - `eval_resources/eval_dataset_issue_target_2026-02-24.yaml`
 - 운영/속도 패치 근거:
   - `src/graph/workflow.py`
   - `src/utils/config.py`
@@ -214,9 +240,16 @@
   - `src/graph/workflow.py` (`_is_precision_fact_query`, `_has_precision_anchor_evidence`, `_extract_project_hints_from_query`)
   - `tests/test_workflow_fact_and_org.py`
   - `docs/EXPERIMENT_LOG.md` (`EXP-2026-02-23-03`)
+- 2026-02-24 evalset 생성/평가 근거:
+  - `eval_resources/generate_eval_set.py`
+  - `eval_resources/eval_dataset_generated_2026-02-24.yaml`
+  - `eval_resources/eval_dataset_issue_target_2026-02-24.yaml`
+  - `eval/eval_results_generated_evalset_2026-02-24_all20_nojudge.json`
+  - `eval/eval_results_generated_evalset_2026-02-24_all20_judge.json`
+  - `docs/EXPERIMENT_LOG.md` (`EXP-2026-02-24-01`)
 
 ---
 
-- 문서 버전: v2.5
-- 최종 업데이트: 2026-02-23
+- 문서 버전: v2.6
+- 최종 업데이트: 2026-02-24
 - 작성자: 7팀

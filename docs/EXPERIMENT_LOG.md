@@ -20,7 +20,7 @@
 
 ---
 
-## 현재까지 변경 요약 (2026-02-23 기준)
+## 현재까지 변경 요약 (2026-02-24 기준)
 
 | 실험 ID | 핵심 문제 | 왜 변경했는가 | 변경 후 개선 |
 |---|---|---|---|
@@ -39,6 +39,7 @@
 | `EXP-2026-02-23-01` | 기관 질의가 타기관 근거로 답변되거나 사업비 질문에서 `60분` 같은 오답 수치 선택 | 실제 문서 근거 우선 원칙을 회복하고 기관 경계 오염을 차단하기 위해 | 단일 기관 필터 강제 + 사업비 전용 추출/재랭크/검색 가드 추가, 오답 경로 차단 |
 | `EXP-2026-02-23-02` | 구조화 질의도 매번 DB 검색으로 지연 발생 + 하이브리드가 의미 재정렬보다 단순 병합 위주 | CSV 즉답 가능한 질의는 즉시 처리하고, 검색은 렉시컬 후보 축소 후 벡터로 재정렬해 속도/정합을 동시에 개선하기 위해 | CSV strict short-circuit + lexical->vector hybrid 전환, all20 no-judge `0.9599s`, page recall `0.25` |
 | `EXP-2026-02-23-03` | 속도는 확보됐지만 Judge 정확도/커버리지가 목표 대비 낮음 | 5초 이내 지연을 유지하면서 정밀 사실/비교 질의의 정답률을 올리기 위해 | 정확도 우선 모드(`ANSWER_QUALITY_MODE`) + 정밀 사실 앵커 가드 적용, all20 Judge `C=3.40/Cv=3.30`, no-judge `1.0642s` |
+| `EXP-2026-02-24-01` | 최신 데이터셋 기반 회귀 검증셋 부재로 이슈 재현/회귀 확인이 느림 | 생성형 evalset + 이슈 타깃셋을 분리해 반복 측정과 회귀 확인을 빠르게 돌리기 위해 | generated evalset(20문항) + issue target셋(12문항) 구성, judge/no-judge 평가 및 HTML 리포트 갱신 |
 
 ---
 
@@ -783,3 +784,60 @@
   - 정확도 프로파일에서 source/page recall 회복(기관 스코프 재탐색 상한/페이지 정합 스코어 보정)
   - 저점 문항(`013/016/020`, 정밀 사실형) 집중 회귀셋으로 재검증
   - 목표 프로파일(정확도 우선/속도 우선)별 기본 ENV preset 문서화
+
+---
+
+## EXP-2026-02-24-01
+
+- 실험 ID: `EXP-2026-02-24-01`
+- 날짜: `2026-02-24`
+- 목표:
+  - eval 리소스에서 생성형 평가셋을 새로 만들고, 해당 셋으로 judge/no-judge 평가를 실행해 기준선을 확보
+  - single/multi/compare 실패 유형을 빠르게 재현할 수 있도록 소형 이슈 타깃셋을 별도로 구성
+- 가설:
+  - 생성형 evalset을 주기적으로 갱신하면 특정 문항 과적합 여부를 더 빨리 확인할 수 있다.
+  - 이슈 타깃셋(균등 분포)을 별도 운영하면 회귀 검증 시간과 디버깅 시간이 줄어든다.
+- 실행 범위:
+  - `eval_resources/generate_eval_set.py`로 20문항 생성
+  - 생성 셋(`eval_dataset_generated_2026-02-24.yaml`) 기반 no-judge/judge 평가
+  - judge 결과 HTML 리포트 생성
+  - 이슈 타깃셋(`single/multi/compare` 각 4문항) 작성
+- 변경 파일:
+  - `eval_resources/eval_dataset_generated_2026-02-24.yaml`
+  - `eval_resources/eval_dataset_issue_target_2026-02-24.yaml`
+  - `eval/eval_results_generate_eval_set_2026-02-24_all20_nojudge.json`
+  - `eval/eval_results_generated_evalset_2026-02-24_all20_nojudge.json`
+  - `eval/eval_results_generated_evalset_2026-02-24_all20_judge.json`
+  - `eval/eval_report_generated_evalset_2026-02-24_all20_judge.html`
+- 실행 커맨드:
+  - `venv/bin/python eval_resources/generate_eval_set.py --num_pairs 20 --output eval_resources/eval_dataset_generated_2026-02-24.yaml`
+  - `venv/bin/python scripts/eval_retrieval.py --dataset eval_resources/eval_dataset_generated_2026-02-24.yaml --slice all --label generated_evalset_2026-02-24_all20_nojudge --output eval/eval_results_generated_evalset_2026-02-24_all20_nojudge.json --no-judge`
+  - `venv/bin/python scripts/eval_retrieval.py --dataset eval_resources/eval_dataset_generated_2026-02-24.yaml --slice all --label generated_evalset_2026-02-24_all20_judge --output eval/eval_results_generated_evalset_2026-02-24_all20_judge.json`
+  - `venv/bin/python scripts/build_eval_report.py --input eval/eval_results_generated_evalset_2026-02-24_all20_judge.json --output eval/eval_report_generated_evalset_2026-02-24_all20_judge.html`
+- 결과 요약:
+  - 생성셋 구성: `20문항` (`single_doc=12`, `multi_doc=4`, `comparison=4`)
+  - 이슈 타깃셋 구성: `12문항` (`single_doc=4`, `multi_doc=4`, `comparison=4`)
+  - generated evalset no-judge:
+    - `avg_response_time=2.6997s`
+    - `recall_at_k_source=0.6500`
+    - `recall_at_k_page=0.6000`
+    - `mrr_source=0.6199`, `mrr_page=0.4129`
+  - generated evalset judge:
+    - `avg_correctness=1.6500`
+    - `avg_coverage=1.3500`
+    - `avg_faithfulness=2.5500`
+    - `avg_context_relevance=4.1500`
+    - `avg_response_time=2.8884s`
+  - 참고(no-judge 기존 실행 파일):
+    - `eval/eval_results_generate_eval_set_2026-02-24_all20_nojudge.json`
+    - `avg_response_time=1.1375s`, `recall_at_k_source=0.7500`, `recall_at_k_page=0.2000`
+- 문제/원인:
+  - 생성형 데이터셋에서 `multi_doc/comparison` 답변의 정답 스팬 길이가 길어 Judge 점수 편차가 큼
+  - page 기준 정합은 높아졌지만 source 기준 정합이 낮아져 검색 가중치 재조정 필요
+- 조치 내용:
+  - 이슈 타깃셋을 `single/multi/compare` 균등 분포로 별도 운영해 실패 유형별 회귀를 분리
+  - judge/no-judge 결과와 HTML 리포트를 함께 저장해 검증 루프를 단축
+- 다음 액션:
+  - 이슈 타깃셋 12문항으로 빠른 회귀 스모크 파이프라인 추가
+  - generated evalset에 대해 source recall 보정용 검색 파라미터 스윕(기관 스코프/렉시컬 가중치)
+  - Judge 기준 정답 스팬 길이 과대 문항을 재작성해 채점 변동성 완화
