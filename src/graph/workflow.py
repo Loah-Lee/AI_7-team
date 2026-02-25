@@ -2282,8 +2282,9 @@ class RAGChatbotV17:
             or self._is_precision_fact_query(query)
             or any(marker in normalized_query for marker in fact_style_markers)
         )
-        # 명시 기관/사실형 질문은 랭킹·카테고리 단축 처리에서 제외한다.
-        if intent.query_type in {"ranking", "category"} and (explicit_org_candidates or is_fact_style_query):
+        # 명시 기관이 있는 경우에만 랭킹/카테고리 단축 처리를 해제한다.
+        # (예: "사업비가 가장 많은 3곳"은 랭킹 경로를 유지해야 빠르고 정확하다.)
+        if intent.query_type in {"ranking", "category"} and explicit_org_candidates:
             intent.query_type = "search"
             intent.confidence = min(intent.confidence, 0.7)
         if intent.query_type == "ranking":
@@ -5345,24 +5346,64 @@ class RAGChatbotV17:
         # 오름차순/내림차순 결정
         reverse = intent.rank_order != "asc"  # 기본은 내림차순 (많은 순)
 
-        # 사업비 기준 정렬
-        sorted_orgs = sorted(
-            [o for o in self.vector_store.org_registry.values() if o.amount_numeric > 0],
-            key=lambda x: x.amount_numeric,
-            reverse=reverse
+        # 1) CSV 메타데이터를 기관 단위로 집계하여 순위를 계산한다.
+        # 동일 기관이 여러 사업을 갖는 경우 가장 큰 사업비를 대표값으로 사용한다.
+        org_best: dict[str, dict[str, Any]] = {}
+        for row in self.csv_metadata_rows:
+            org_name = str(row.get("org_name", "")).strip()
+            if not org_name:
+                continue
+            amount_numeric = float(row.get("amount_numeric", 0) or 0)
+            if amount_numeric <= 0:
+                continue
+
+            normalized_org = self.vector_store.normalize_org_name(org_name)
+            existing = org_best.get(normalized_org)
+            if existing and float(existing.get("amount_numeric", 0) or 0) >= amount_numeric:
+                continue
+
+            org_best[normalized_org] = {
+                "org_name": normalized_org,
+                "amount_numeric": amount_numeric,
+                "project_name": str(row.get("project_name", "")).strip(),
+                "source": str(row.get("filename", "")).strip() or "data_list.csv",
+            }
+
+        ranked_items = sorted(
+            org_best.values(),
+            key=lambda item: float(item.get("amount_numeric", 0) or 0),
+            reverse=reverse,
         )
-        if not sorted_orgs:
-            self._ensure_chunk_budget_cache()
-            sorted_orgs = sorted(
-                [o for o in self.vector_store.org_registry.values() if o.amount_numeric > 0],
-                key=lambda x: x.amount_numeric,
+
+        # 2) CSV에 금액이 부족하면 org_registry로 보강한다.
+        if len(ranked_items) < top_n:
+            if not ranked_items:
+                self._ensure_chunk_budget_cache()
+            for org in self.vector_store.org_registry.values():
+                amount_numeric = float(getattr(org, "amount_numeric", 0) or 0)
+                if amount_numeric <= 0:
+                    continue
+                org_name = self.vector_store.normalize_org_name(str(getattr(org, "name", "") or "").strip())
+                if not org_name:
+                    continue
+                existing = org_best.get(org_name)
+                if existing and float(existing.get("amount_numeric", 0) or 0) >= amount_numeric:
+                    continue
+                org_best[org_name] = {
+                    "org_name": org_name,
+                    "amount_numeric": amount_numeric,
+                    "project_name": str(getattr(org, "project_name", "") or "").strip(),
+                    "source": "org_registry",
+                }
+
+            ranked_items = sorted(
+                org_best.values(),
+                key=lambda item: float(item.get("amount_numeric", 0) or 0),
                 reverse=reverse,
             )
 
-        # 상위 N개 선택
-        top_orgs = sorted_orgs[:top_n]
-
-        if not top_orgs:
+        top_items = ranked_items[:top_n]
+        if not top_items:
             return {
                 "answer": "사업비 정보가 있는 기관을 찾을 수 없습니다.",
                 "found": False,
@@ -5374,14 +5415,15 @@ class RAGChatbotV17:
             }
 
         # 테이블 생성
-        org_rows = []
-        for org in top_orgs:
-            project = org.project_name[:25] + "..." if org.project_name and len(org.project_name) > 25 else (org.project_name or "-")
-            amount = format_amount(org.amount_numeric)
-            rank_desc = "높은" if reverse else "낮은"
-            org_rows.append(f"| {org.name} | {amount} | {project} |")
+        org_rows: list[str] = []
+        for item in top_items:
+            project_name = str(item.get("project_name", "")).strip()
+            project = project_name[:25] + "..." if len(project_name) > 25 else (project_name or "-")
+            amount = format_amount(float(item.get("amount_numeric", 0) or 0))
+            org_rows.append(f"| {item.get('org_name', '-')} | {amount} | {project} |")
 
-        header = f"📊 **사업비가 {rank_desc} {len(top_orgs)}개 기관**\n\n"
+        rank_desc = "높은" if reverse else "낮은"
+        header = f"📊 **사업비가 {rank_desc} {len(top_items)}개 기관**\n\n"
         header += "| 기관명 | 사업비 | 사업명 |\n"
         header += "|--------|--------|--------|\n"
         answer = header + "\n".join(org_rows)
@@ -5392,7 +5434,7 @@ class RAGChatbotV17:
         return {
             "answer": answer,
             "found": True,
-            "source_type": "csv" if any(o.file_format.lower() == "csv" for o in top_orgs if o.file_format) else "pdf",
+            "source_type": "csv",
             "answer_mode": "extractive",
             "slot_fill_rate": 1.0,
             "evidence_count": 0,
