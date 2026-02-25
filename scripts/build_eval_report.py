@@ -174,6 +174,7 @@ def build_html(results: dict) -> str:
   .type-single {{ background: rgba(59,130,246,0.15); color: var(--accent); }}
   .type-multi {{ background: rgba(168,85,247,0.15); color: var(--purple); }}
   .type-comparison {{ background: rgba(6,182,212,0.15); color: var(--cyan); }}
+  .type-csv {{ background: rgba(234,179,8,0.15); color: #eab308; }}
 
   .hit-badge {{ font-size: 0.75rem; font-weight: 600; }}
   .hit-yes {{ color: var(--green); }}
@@ -318,7 +319,7 @@ const cardDefs = [
       <div class="tt-desc">top-K 검색 결과에 정답 문서(source 기준)가 포함된 질문의 비율</div>
       <div class="tt-kv"><strong>범위:</strong> 0.0 ~ 1.0</div>
       <div class="tt-kv"><strong>매칭:</strong> 파일명(source)만 일치하면 hit</div>
-      <div class="tt-kv"><strong>multi_doc/comparison (Strict):</strong> sources 리스트의 모든 source가 top-K에 있어야 1.0. 하나라도 누락 시 0.0</div>
+      <div class="tt-kv"><strong>multi_doc (Strict):</strong> sources 리스트의 모든 source가 top-K에 있어야 1.0. 하나라도 누락 시 0.0</div>
       <span class="tt-formula">(Recall@K > 0인 질문 수) / 전체 질문 수</span>`}},
   {{label:'MRR (Source)',ko:'평균 역순위·문서',value:(S.mrr_source||0).toFixed(2),max:'',color:'var(--yellow)',
     tooltip:`<div class="tt-title">MRR (Source) · 평균 역순위 — 문서 단위</div>
@@ -360,8 +361,8 @@ new Chart(document.getElementById('radarChart'), {{
 }});
 
 // --- Bar by type ---
-const types = ['single_doc','multi_doc','comparison'];
-const typeLabels = ['Single Doc','Multi Doc','Comparison'];
+const types = ['csv_match','single_doc','multi_doc'];
+const typeLabels = ['CSV Match','Single Doc','Multi Doc'];
 const byType = {{}};
 PQ.forEach(q => {{
   const t = q.query_type || 'unknown';
@@ -432,7 +433,7 @@ document.getElementById('insights').innerHTML = `
   <div class="insight-item"><div class="insight-icon">✅</div><div class="insight-text"><strong>Faithfulness ${{S.avg_faithfulness}}/5</strong> <span>— 환각이 거의 없음. context에 없는 정보를 만들어내지 않음</span></div></div>
   <div class="insight-item"><div class="insight-icon">🎯</div><div class="insight-text"><strong>Correctness 만점 ${{perfect}}/20건</strong> <span>— single_doc 유형에서 특히 강함. 정답 청크가 검색되면 높은 정확도</span></div></div>
   <div class="insight-item"><div class="insight-icon">⚠️</div><div class="insight-text"><strong>저조 항목 ${{weak}}건 (Correctness ≤ 2)</strong> <span>— 공통 원인: 정답 청크가 top-5에 미포함 → "근거 없음" 응답</span></div></div>
-  <div class="insight-item"><div class="insight-icon">📊</div><div class="insight-text"><strong>유형별 격차</strong> <span>— single_doc > multi_doc > comparison 순. 복잡한 질문일수록 성능 하락</span></div></div>
+  <div class="insight-item"><div class="insight-icon">📊</div><div class="insight-text"><strong>유형별 격차</strong> <span>— single_doc > multi_doc 순. csv_match는 벡터 검색 미사용 (별도 판단 필요)</span></div></div>
   <div class="insight-item"><div class="insight-icon">🔍</div><div class="insight-text"><strong>병목: Retrieval 정밀도</strong> <span>— Hit Rate 90%이지만, 정답 "페이지"가 아닌 다른 페이지가 검색되어 Correctness 하락</span></div></div>
 `;
 
@@ -442,9 +443,9 @@ document.getElementById('insights').innerHTML = `
   const stageLabels = ['analyze_query','retrieve','extract_evidence','generate'];
   const groups = {{
     '전체 평균': PQ,
+    'CSV Match': PQ.filter(q=>q.query_type==='csv_match'),
     'Single Doc': PQ.filter(q=>q.query_type==='single_doc'),
     'Multi Doc':  PQ.filter(q=>q.query_type==='multi_doc'),
-    'Comparison': PQ.filter(q=>q.query_type==='comparison'),
   }};
 
   // 최대 total 구해서 bar 너비 기준 잡기
@@ -459,9 +460,9 @@ document.getElementById('insights').innerHTML = `
   </tr></thead>`;
 
   const rows = Object.entries(groups).map(([label, items], idx) => {{
-    const withLat = items.filter(q=>q.latencies);
+    const withLat = items.filter(q=>q.latencies && Object.keys(q.latencies).length > 0);
     const n = withLat.length;
-    if (!n) return `<tr><td colspan="7" style="color:var(--text2);padding:0.5rem 0.75rem">${{label}}: 데이터 없음</td></tr>`;
+    if (!n) return `<tr><td colspan="7" style="color:var(--text2);padding:0.5rem 0.75rem">${{label}}: 레이턴시 데이터 없음 (chatbot 모드)</td></tr>`;
     const avgs = stages.map(k => withLat.reduce((s,q)=>s+(q.latencies[k]||0),0)/n);
     const total = avgs.reduce((a,b)=>a+b,0);
     const barW = Math.round((total/maxTotal)*80);
@@ -479,8 +480,8 @@ document.getElementById('insights').innerHTML = `
 
 // --- Query Cards (expandable with answers) ---
 const scoreClass = s => 's'+Math.min(5,Math.max(0,s));
-const typeClass = t => t==='single_doc'?'type-single':t==='multi_doc'?'type-multi':'type-comparison';
-const typeName = t => t==='single_doc'?'Single':t==='multi_doc'?'Multi':'Compare';
+const typeClass = t => t==='single_doc'?'type-single':t==='multi_doc'?'type-multi':t==='csv_match'?'type-csv':'type-comparison';
+const typeName = t => t==='single_doc'?'Single':t==='multi_doc'?'Multi':t==='csv_match'?'CSV':'Compare';
 
 const cardsContainer = document.getElementById('queryCards');
 PQ.forEach(q => {{
