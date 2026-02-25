@@ -12,13 +12,25 @@
 | `scripts/eval_retrieval.py` | E2E 평가 진입점. 평가셋 로드 → RAG 실행 → Retrieval 지표 계산 → LLM Judge 채점 → JSON 저장 |
 | `scripts/build_eval_report.py` | 평가 결과 JSON → HTML 대시보드 생성 |
 
-### 실행 명령
-```bash
-# 평가 실행
-uv run python scripts/eval_retrieval.py --label current --top_k 5
+### 실행 명령 (버전 관리)
 
-# HTML 리포트 생성
-uv run python scripts/build_eval_report.py
+`--label` 로 버전을 지정하면 결과가 누적 저장됨. 두 스크립트에서 동일 label 사용.
+
+```bash
+# 평가 실행 → eval_resources/eval_results_{label}.json 저장
+uv run python scripts/eval_retrieval.py --label v5-pdf-fix --top_k 5
+
+# HTML 리포트 생성 → eval_resources/eval_report_{label}.html 저장
+uv run python scripts/build_eval_report.py --label v5-pdf-fix
+```
+
+#### 누적 파일 예시
+```
+eval_resources/
+  eval_results_v4-newdb.json      # DB 교체 전
+  eval_results_v5-pdf-fix.json    # .hwp→.pdf 수정 후
+  eval_report_v4-newdb.html
+  eval_report_v5-pdf-fix.html
 ```
 
 ---
