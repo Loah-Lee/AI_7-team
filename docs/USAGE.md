@@ -1,45 +1,40 @@
-# 입찰메이트 v17 사용법
+# USAGE
 
-## 빠른 시작
+`workspace_collab` 기준 실행 명령 모음입니다.
+
+## 환경 준비
 
 ```bash
-# 1. 가상 환경 생성
-python -m venv venv
-source venv/bin/activate  # Linux/macOS
-# 또
-.\venv\Scripts\activate  # Windows
-
-# 2. 의존성 설치
+cd workspace_collab
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
 pip install -r requirements.txt
-
-# 3. 환경 변수 설정
 cp .env.example .env
-# .env 파일에 OPENAI_API_KEY 입력
-
-# 4. 실행
-python -m app.main
 ```
 
-## Streamlit 웹 버전
+## 앱 실행
 
 ```bash
 streamlit run app/main.py
 ```
 
-## CLI 버전
+## 기본 점검 질문
+
+- 고려대학교 사업비는 얼마인가요?
+- 서울특별시의 사업비는?
+- 서울시립대학교 정보 알려줘
+- 사업비가 가장 많은 3곳은?
+
+## 평가
 
 ```bash
-python -m src.graph.workflow
+python scripts/generate_eval_set.py --num_pairs 20
+python scripts/eval_retrieval.py --label collab --top_k 5
 ```
 
-## DB 재구축
+## 주의사항
 
-```bash
-python scripts/rebuild_db.py
-```
+- `data_index/chroma_B`가 비어 있으면 첫 실행에 인덱싱 시간이 필요합니다.
+- HWP/HWPX 처리를 위해 LibreOffice가 필요합니다.
 
-## 테스트
-
-```bash
-python tests/test_conversation.py
-```

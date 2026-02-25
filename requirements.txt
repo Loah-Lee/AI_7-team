@@ -1,22 +1,25 @@
-# 입찰메이트 v17 의존성
-
-# OpenAI
+# Core runtime
 openai>=1.0.0
-
-# 벡터 DB
-chromadb>=0.4.0
-
-# PDF 처리
-pdfplumber>=0.10.0
-
-# 환경 변수
 python-dotenv>=1.0.0
+streamlit>=1.32.0
+pandas>=2.0.0
 
-# 웹 프레임워크
-streamlit>=1.20.0
+# LangChain stack
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-openai>=0.2.0
+langchain-text-splitters>=0.3.0
+langsmith>=0.1.0
 
-# 한국어 임베딩 (폴백)
+# Retrieval / Vector DB
+chromadb>=0.5.0
 sentence-transformers>=2.2.0
 
-# 데이터 처리
-pandas>=2.0.0
+# Document parsing
+pymupdf>=1.24.0
+pymupdf4llm>=0.0.17
+kiwipiepy>=0.20.0
+
+# Optional tracing and evaluation
+langfuse>=2.0.0
+PyYAML>=6.0.0

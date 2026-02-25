@@ -1,60 +1,33 @@
-# 입찰메이트 v17 아키텍처
+# ARCHITECTURE
 
-## 시스템 개요
+## 런타임 구성
 
-```
-┌─────────────────────────────────────────────────────┐
-│           Streamlit Web UI (app/main.py)       │
-└──────────────────────┬──────────────────────────┘
-                       │
-                       ▼
-┌──────────────────────────────────────────────────┐
-│     RAG Chatbot (src/graph/workflow.py)      │
-│  - QueryIntentParser                          │
-│  - ConversationContext                        │
-│  - RFPAnswerGenerator                         │
-└──┬──────────────────┬──────────────┬────────┘
-   │                  │              │
-   ▼                  ▼              ▼
-┌─────────┐    ┌──────────┐  ┌──────────┐
-│ Parsers │    │Retrievers│  │ Prompts  │
-│ - CSV   │    │- Vector  │  │ Templates│
-│ - PDF   │    │  Store   │  │          │
-│ - HWP   │    │- Embedding│  └──────────┘
-└─────────┘    └──────────┘
+```mermaid
+flowchart TD
+    U[User Query] --> UI[Streamlit app/main.py]
+    UI --> WF[RAGChatbotV17\nsrc/graph/workflow.py]
+    WF --> P[QueryIntentParser\nsrc/graph/nodes.py]
+    WF --> VS[VectorStore\nsrc/retrievers/vectorstore.py]
+    WF --> GEN[RFPAnswerGenerator\nsrc/graph/nodes.py]
+
+    VS --> CH[(Chroma\ndata_index/chroma_B)]
+    WF --> CSV[(CSV Metadata\ndata_index/files/data_list*.csv)]
+    WF --> DOCS[(PDF/HWP\ndata_index/files)]
 ```
 
-## 핵심 컴포넌트
+## 핵심 포인트
 
-### 1. 질문 파싱 (Query Parsing)
-- **QueryIntentParser**: LLM 기반 질문 의도 분석
-- **ConversationContext**: 대화 기록 및 후속 질문 처리
+- `CSV short-circuit`:
+질문이 사업비/공고번호/마감일 등 구조화 필드면 LLM 호출 없이 빠르게 응답
+- `Org overview short-circuit`:
+`~ 정보 알려줘` 유형은 기관 메타데이터로 즉시 응답
+- `Fallback retrieval`:
+org 필터로 결과 0건이면 필터 없는 재검색 후 그래프 단에서 재필터링
+- `Follow-up memory`:
+주어 생략 후속질문에 대해 이전 기관 문맥을 유지
 
-### 2. 문서 처리 (Document Processing)
-- **CSVMarkdownConverter**: CSV → 마크다운
-- **PDFMarkdownConverter**: PDF → 마크다운
-- **HWPMarkdownConverter**: HWP → 마크다운
+## 데이터 경로
 
-### 3. 검색 (Retrieval)
-- **VectorStore**: ChromaDB 기반 벡터 검색
-- **OpenAI Embeddings**: text-embedding-3-small
+- 문서 원본: `workspace_collab/data_index/files`
+- 기본 DB: `workspace_collab/data_index/chroma_B`
 
-### 4. 답변 생성 (Generation)
-- **RFPAnswerGenerator**: 간결한 RFP 답변 생성
-- **RFP_SYSTEM_PROMPT**: 핵심 정보 추출 프롬프트
-
-## 데이터 흐름
-
-```
-1. 사용자 질문 입력
-       ↓
-2. QueryIntentParser 분석
-       ↓
-3. ConversationContext 확인 (후속 질문?)
-       ↓
-4. VectorStore 검색
-       ↓
-5. RFPAnswerGenerator 답변 생성
-       ↓
-6. 답변 출력 + 대화 기록 저장
-```
