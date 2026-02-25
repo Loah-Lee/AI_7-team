@@ -589,11 +589,24 @@ function toggleAll() {{
 
 
 def main():
-    input_path = _get_eval_dir() / "eval_results_current.json"
-    output_path = _get_eval_dir() / "eval_report.html"
+    import argparse
+
+    parser = argparse.ArgumentParser(description="eval_results JSON → HTML 대시보드")
+    parser.add_argument(
+        "--label",
+        type=str,
+        default="current",
+        help="eval_results_{label}.json 을 읽어 eval_report_{label}.html 생성 (기본: current)",
+    )
+    args = parser.parse_args()
+
+    eval_dir = _get_eval_dir()
+    input_path = eval_dir / f"eval_results_{args.label}.json"
+    output_path = eval_dir / f"eval_report_{args.label}.html"
 
     if not input_path.exists():
         print(f"[ERROR] {input_path} 없음")
+        print(f"       먼저 실행: uv run python scripts/eval_retrieval.py --label {args.label}")
         return
 
     with open(input_path, encoding="utf-8") as f:

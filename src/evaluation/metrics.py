@@ -9,6 +9,13 @@ KPI.md에 정의된 메트릭을 계산한다:
 
 from __future__ import annotations
 
+import unicodedata
+
+
+def _nfc(s: str | None) -> str:
+    """None-safe NFC 정규화. macOS DB 메타데이터(NFD)와 YAML(NFC) 불일치 방지."""
+    return unicodedata.normalize("NFC", s) if s else ""
+
 
 def calculate_aicr(answer: str, context: str) -> float:
     """Answer-in-Context Rate를 계산한다.
@@ -68,15 +75,17 @@ def calculate_hit_position(
     Returns:
         1-based 위치. 없으면 None.
     """
-    sources = (
-        [ground_truth_source]
-        if isinstance(ground_truth_source, str)
-        else list(dict.fromkeys(ground_truth_source))  # dedup, preserve order
-    )
+    sources = [
+        _nfc(s) for s in (
+            [ground_truth_source]
+            if isinstance(ground_truth_source, str)
+            else list(dict.fromkeys(ground_truth_source))
+        )
+    ]
 
     if len(sources) == 1:
         for idx, doc in enumerate(retrieved_docs, start=1):
-            if doc.get("source") != sources[0]:
+            if _nfc(doc.get("source")) != sources[0]:
                 continue
             if ground_truth_page is not None and doc.get("page") != ground_truth_page:
                 continue
@@ -86,7 +95,7 @@ def calculate_hit_position(
     # Multi-source strict: 모든 source의 첫 hit 위치를 수집 → max 반환
     found_at: dict[str, int] = {}
     for idx, doc in enumerate(retrieved_docs, start=1):
-        src = doc.get("source")
+        src = _nfc(doc.get("source"))
         if src in sources and src not in found_at:
             found_at[src] = idx
         if len(found_at) == len(sources):
@@ -124,15 +133,17 @@ def calculate_recall_at_k(
     다중 source (strict): top-K 안에 모든 source가 존재해야 1.0.
         하나라도 누락이면 0.0. page는 단일 source 호출에서만 적용.
     """
-    sources = (
-        [ground_truth_source]
-        if isinstance(ground_truth_source, str)
-        else list(dict.fromkeys(ground_truth_source))
-    )
+    sources = [
+        _nfc(s) for s in (
+            [ground_truth_source]
+            if isinstance(ground_truth_source, str)
+            else list(dict.fromkeys(ground_truth_source))
+        )
+    ]
 
     if len(sources) == 1:
         for doc in retrieved_docs[:k]:
-            if doc.get("source") != sources[0]:
+            if _nfc(doc.get("source")) != sources[0]:
                 continue
             if ground_truth_page is not None and doc.get("page") != ground_truth_page:
                 continue
@@ -140,7 +151,7 @@ def calculate_recall_at_k(
         return 0.0
 
     # Multi-source strict: top-K 안에 모든 source가 있어야 1.0
-    found = {doc.get("source") for doc in retrieved_docs[:k]} & set(sources)
+    found = {_nfc(doc.get("source")) for doc in retrieved_docs[:k]} & set(sources)
     return 1.0 if found == set(sources) else 0.0
 
 
