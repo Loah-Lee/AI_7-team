@@ -70,6 +70,25 @@ except ImportError:
 _CHATBOT_SINGLETON = None
 
 
+def _normalize_source_label(source: str | None) -> str:
+    """source 문자열을 소문자/확장자 제거 형태로 정규화한다."""
+    if not source:
+        return ""
+    label = str(source).strip().lower().replace("\\", "/").rsplit("/", 1)[-1]
+    if "." in label:
+        label = label.rsplit(".", 1)[0]
+    return label
+
+
+def _has_csv_ground_truth(gt_sources: list[str]) -> bool:
+    """GT source 목록에 data_list.csv 계열이 포함되어 있는지 판정한다."""
+    for source in gt_sources:
+        normalized = _normalize_source_label(source)
+        if normalized == "data_list" or normalized.startswith("data_list_"):
+            return True
+    return False
+
+
 def load_eval_dataset(path: Path) -> list[dict]:
     """평가셋 YAML 파일을 로드한다."""
     if not path.exists():
@@ -156,7 +175,10 @@ def run_rag_pipeline(question: str, metadata_filter: dict | None, top_k: int) ->
     return {
         "answer": response.get("answer", ""),
         "evidence": evidence_text,
+        "evidence_items": evidence_items if isinstance(evidence_items, list) else [],
         "retrieved_docs": retrieved_docs,
+        "csv_short_circuit": bool(response.get("csv_short_circuit", False)),
+        "source_type": str(response.get("source_type", "") or "").lower(),
         "latencies": {},
     }
 
@@ -201,6 +223,8 @@ def evaluate_e2e(
         generated_answer = state.get("answer", "")
         evidence = state.get("evidence", "")
         retrieved_docs = state.get("retrieved_docs", [])
+        source_type = str(state.get("source_type", "") or "").lower()
+        csv_short_circuit = bool(state.get("csv_short_circuit", False))
 
         # 2) Retrieval 지표 (보조 — Source 단위)
         retrieved_for_metrics = [
@@ -211,8 +235,26 @@ def evaluate_e2e(
             }
             for doc in retrieved_docs
         ]
+
+        # CSV short-circuit 질의는 vector retrieval을 거치지 않으므로
+        # data_list.csv를 pseudo source로 주입해 source-level 지표를 평가한다.
+        if _has_csv_ground_truth(gt_sources) and (csv_short_circuit or source_type == "csv"):
+            already_has_data_list = any(
+                _normalize_source_label(doc.get("source")) == "data_list"
+                for doc in retrieved_for_metrics
+            )
+            if not already_has_data_list:
+                retrieved_for_metrics = [
+                    {
+                        "source": "data_list.csv",
+                        "page": None,
+                        "score": 1.0,
+                    },
+                    *retrieved_for_metrics,
+                ]
+
         retrieved_sources = list(dict.fromkeys(
-            doc.get("source", "unknown") for doc in retrieved_docs
+            doc.get("source", "unknown") for doc in retrieved_for_metrics
         ))
 
         recall = calculate_recall_at_k(retrieved_for_metrics, gt_sources, k=top_k)
@@ -261,6 +303,8 @@ def evaluate_e2e(
             "hit_position": hit_pos,
             "recall_at_k": recall,
             "num_retrieved": len(retrieved_docs),
+            "csv_short_circuit": csv_short_circuit,
+            "source_type": source_type,
             "ground_truth_sources": gt_sources,
             "retrieved_sources": retrieved_sources,
             "latencies": state.get("latencies", {}),
