@@ -36,6 +36,7 @@ class MarkdownData:
     filename: str = ""
     file_format: str = ""
     row_num: int = 0
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -50,6 +51,35 @@ class QueryIntent:
     categories: list[str] = field(default_factory=list)
     raw_query: str = ""
     confidence: float = 0.0
+
+
+@dataclass
+class QuestionPlan:
+    """질문 처리 계획(유형/필수 슬롯/비교 여부)."""
+    query_kind: str = "single_doc"  # fact_numeric, deadline, owner, single_doc, multi_doc, comparison
+    required_slots: list[str] = field(default_factory=list)
+    is_comparison: bool = False
+    target_org: str = ""
+
+
+@dataclass
+class EvidenceSpan:
+    """답변 근거 span."""
+    source: str
+    page: int | None
+    text: str
+    slot: str = ""
+    score: float = 0.0
+
+
+@dataclass
+class AnswerDraft:
+    """최종 답변 초안 메타데이터."""
+    final_answer: str = ""
+    slot_fill_rate: float = 0.0
+    confidence: float = 0.0
+    evidence_refs: list[EvidenceSpan] = field(default_factory=list)
+    answer_mode: str = "generative"  # extractive|hybrid|generative
 
 
 # ============================================================================

@@ -213,26 +213,14 @@ data/
 output/
 !data/.gitkeep
 
-# Large local indexes / artifacts (do not track)
-data_index/
+# Workspace runtime caches / local artifacts
 .hf_cache/
-notebooks/data_assets/
-notebooks/data_chunks_rich/
-notebooks/data_chunks_rich_asset_v1/
-notebooks/data_chunks_rich_chroma_clean_v1/
-notebooks/data_chunks_rich_joined.jsonl
-notebooks/data_rich/
-notebooks/runs/
+processed_runtime/
+data_index/processed_runtime/
 
-# eval / run outputs (keep skeleton only)
-results/*
-!results/.gitkeep
-!results/figures/
-!results/figures/.gitkeep
-!results/logs/
-!results/logs/.gitkeep
-!results/outputs/
-!results/outputs/.gitkeep
+# Local Chroma DB is large and rebuilt on first run
+data_index/chroma_B/*
+!data_index/chroma_B/.gitkeep
 
 # Model Weights (LLM 가중치는 HuggingFace 등에서 다운로드)
 *.pth
@@ -242,3 +230,9 @@ checkpoint/
 
 # OS specific
 .DS_Store
+
+# Data files (keep folder only)
+data_index/files/*
+!data_index/files/.gitkeep
+data/files/*
+!data/files/.gitkeep

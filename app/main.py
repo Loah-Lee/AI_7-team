@@ -6,6 +6,8 @@
 import os
 import sys
 import time
+import hashlib
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import streamlit as st
@@ -17,8 +19,16 @@ _PROJECT_ROOT = os.path.dirname(_CURRENT_DIR)
 sys.path.insert(0, _PROJECT_ROOT)
 sys.path.insert(0, os.path.join(_PROJECT_ROOT, 'src'))
 
-# 설정 로드
-load_dotenv()
+# 설정 로드 (.env 위치를 명시적으로 탐색)
+def _load_runtime_env() -> None:
+    project_root = Path(_PROJECT_ROOT).resolve()
+    parent_root = project_root.parent
+    load_dotenv(project_root / ".env", override=False)
+    load_dotenv(parent_root / ".env", override=False)
+    load_dotenv(override=False)
+
+
+_load_runtime_env()
 
 # LangSmith 트레이싱 활성화
 from src.utils.config import (
@@ -36,7 +46,7 @@ if LANGSMITH_TRACING and LANGSMITH_API_KEY:
 
 from src.utils.config import *
 from src.utils.helpers import format_amount
-from src.utils.config import get_data_dir
+from src.utils.config import get_data_dir, get_default_db_path
 
 # Streamlit 페이지 설정
 st.set_page_config(
@@ -123,12 +133,34 @@ st.markdown(STYLES, unsafe_allow_html=True)
 # ============================================================================
 
 @st.cache_resource
-def get_chatbot():
+def get_chatbot(cache_key: str):
     """챗봇을 로드합니다."""
+    # cache_key는 코드/데이터 변경 시 캐시 무효화를 위한 더미 인자입니다.
+    _ = cache_key
     from src.graph.workflow import RAGChatbotV17
-    
+
     data_dir = str(get_data_dir())
-    return RAGChatbotV17(data_dir=data_dir)
+    db_path = str(Path(get_default_db_path()).resolve())
+    return RAGChatbotV17(data_dir=data_dir, db_path=db_path)
+
+
+def build_chatbot_cache_key() -> str:
+    """워크플로/프롬프트/설정 파일 변경 시 챗봇 캐시 키를 갱신합니다."""
+    watch_files = [
+        Path(_PROJECT_ROOT) / "src" / "graph" / "workflow.py",
+        Path(_PROJECT_ROOT) / "src" / "graph" / "nodes.py",
+        Path(_PROJECT_ROOT) / "src" / "prompts" / "templates.py",
+        Path(_PROJECT_ROOT) / "src" / "utils" / "config.py",
+    ]
+    parts = [str(get_data_dir()), str(Path(get_default_db_path()).resolve())]
+    for file_path in watch_files:
+        try:
+            stat = file_path.stat()
+            parts.append(f"{file_path}:{stat.st_mtime_ns}:{stat.st_size}")
+        except FileNotFoundError:
+            parts.append(f"{file_path}:missing")
+    digest = hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()
+    return digest[:12]
 
 
 # ============================================================================
@@ -204,6 +236,9 @@ def render_sidebar(chatbot) -> None:
                 st.session_state.user_input = q
 
         st.divider()
+        if st.button("♻️ 챗봇 캐시 초기화", use_container_width=True):
+            st.cache_resource.clear()
+            st.rerun()
 
         st.subheader("📊 등록된 기관")
 
@@ -274,7 +309,7 @@ def process_user_query(chatbot, query: str) -> None:
     with st.chat_message("assistant"):
         with st.spinner("🔍 RFP 핵심 정보 추출 중..."):
             start_time = time.time()
-            result = chatbot.answer(query)
+            result = chatbot.answer(query, top_k=16)
             response_time = time.time() - start_time
 
         render_answer(result.get("answer", "죄송합니다. 답변을 생성할 수 없습니다."), result.get("source_type", "csv"))
@@ -296,7 +331,7 @@ def process_user_query(chatbot, query: str) -> None:
 
 def main() -> None:
     """메인 진입점 함수."""
-    chatbot = get_chatbot()
+    chatbot = get_chatbot(build_chatbot_cache_key())
 
     if not chatbot:
         st.error("❌ 챗봇을 로드할 수 없습니다.")
