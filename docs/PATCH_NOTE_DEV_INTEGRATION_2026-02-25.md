@@ -38,3 +38,25 @@
 ## 통합 정책
 - 코드/문서만 dev 반영
 - 평가 실행 결과 파일은 dev 커밋에서 제외
+
+---
+
+## 추가 통합 (Clone Ready) — 2026-02-25
+
+목표: 팀원이 `dev`를 클론한 뒤 바로 동일 동작을 재현할 수 있도록 로컬 그래프 로직을 동기화.
+
+### 반영 파일
+- `src/graph/nodes.py`
+- `src/graph/workflow.py`
+
+### 의도
+- 로컬에서 사용 중이던 질의 해석/워크플로우 로직을 `dev`로 통합
+- 실행 산출물(평가 JSON/HTML/로그)은 저장소에 포함하지 않고 코드만 반영
+
+### 제외 항목(의도적 미포함)
+- `eval_resources/eval_results_*.json`
+- `eval_resources/eval_report*.html`
+- `eval_resources/*.log`
+
+### 검증
+- `python -m py_compile src/graph/nodes.py src/graph/workflow.py` 통과

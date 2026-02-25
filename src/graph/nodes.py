@@ -90,27 +90,44 @@ class QueryIntentParser:
         from src.utils.config import RANKING_KEYWORDS, MAX_RANKING_KEYWORDS, MIN_RANKING_KEYWORDS
 
         intent = QueryIntent(raw_query=query, confidence=0.6)
+        normalized_query = query.lower().strip()
 
-        # 1. 랭킹 질문 우선 확인 ("가장 많은", "TOP5", "랭킹" 등)
-        ranking_pattern = bool(re.search(r"(top\s*\d+|\d+\s*(?:위|곳|개))", query.lower()))
-        if any(kw in query.lower() for kw in RANKING_KEYWORDS) or ranking_pattern:
-            intent.query_type = "ranking"
-            intent.confidence = 0.95
-            if any(kw in query.lower() for kw in MAX_RANKING_KEYWORDS):
-                intent.rank_order = "desc"
-            elif any(kw in query.lower() for kw in MIN_RANKING_KEYWORDS):
-                intent.rank_order = "asc"
-            return intent
-
-        # 2. 기관명 포함 여부 확인 (등록된 기관명과 매칭 시도)
+        # 0. 기관명 포함 여부 확인 (명시 기관이 있으면 우선 기관 질문으로 분류)
         org_name = self._extract_org_from_query(query)
         if org_name:
             intent.query_type = "org"
             intent.org_name = org_name
-            intent.confidence = 0.8
+            intent.confidence = 0.82
             return intent
 
-        # 3. 필터 질문 (금액 범위)
+        # 1. 랭킹 질문 확인 ("가장 많은", "TOP5", "순위" 등)
+        ranking_pattern = bool(re.search(r"(top\s*\d+|\d+\s*(?:위|곳|개))", normalized_query))
+        strong_ranking_markers = ["top", "순위", "랭킹", "상위", "하위"]
+        rank_context_markers = ["기관", "사업", "곳", "개", "순", "목록", "추천"]
+        extreme_markers = ["가장", "최고", "최저", "많은", "적은", "높은", "낮은", "최대", "최소"]
+        fact_blockers = [
+            "사양", "cpu", "메모리", "용량", "치수", "규격", "가로", "세로",
+            "기한", "마감", "언제", "얼마", "몇", "요구사항", "가이드",
+        ]
+        ranking_keyword_hit = (
+            any(marker in normalized_query for marker in strong_ranking_markers)
+            or (
+                any(marker in normalized_query for marker in extreme_markers)
+                and any(ctx in normalized_query for ctx in rank_context_markers)
+            )
+            or any(kw in normalized_query for kw in RANKING_KEYWORDS)
+        )
+        is_ranking_query = ranking_pattern or ranking_keyword_hit
+        if is_ranking_query and not any(blocker in normalized_query for blocker in fact_blockers):
+            intent.query_type = "ranking"
+            intent.confidence = 0.95
+            if any(kw in normalized_query for kw in MAX_RANKING_KEYWORDS):
+                intent.rank_order = "desc"
+            elif any(kw in normalized_query for kw in MIN_RANKING_KEYWORDS):
+                intent.rank_order = "asc"
+            return intent
+
+        # 2. 필터 질문 (금액 범위)
         range_patterns = [
             r'(\d+\.?\d*)\s*(억|만)\s*(?:에서|부터|~)\s*(\d+\.?\d*)\s*(억|만)',
             r'(\d+\.?\d*)\s*~\s*(\d+\.?\d*)\s*(억|만)',
@@ -127,24 +144,26 @@ class QueryIntentParser:
             intent.confidence = 0.7
             return intent
 
-        # 4. 카테고리 질문
+        # 3. 카테고리 질문 (탐색형 표현이 있을 때만)
+        broad_discovery_markers = ["관련 사업", "분야", "기관 찾아", "찾아줘", "추천", "목록", "어떤 것이", "보여줘"]
+        is_discovery_query = any(marker in normalized_query for marker in broad_discovery_markers)
         category_keywords = {
-            "IT": ["it", "정보시스템", "시스템", "it 관련"],
+            "IT": ["it", "정보시스템", "디지털", "ai", "데이터", "클라우드", "플랫폼"],
             "교육": ["교육", "대학", "학사"],
         }
-        for cat, keywords in category_keywords.items():
-            if any(kw in query.lower() for kw in keywords):
-                intent.query_type = "category"
-                intent.confidence = 0.82
-                intent.categories.append(cat)
-                return intent
+        if is_discovery_query:
+            for cat, keywords in category_keywords.items():
+                if any(kw in normalized_query for kw in keywords):
+                    intent.query_type = "category"
+                    intent.confidence = 0.82
+                    intent.categories.append(cat)
+                    return intent
 
-        # 5. 주어 생략형 후속 질문은 검색형으로 빠르게 처리 (LLM 파싱 우회)
+        # 4. 주어 생략형 후속 질문은 검색형으로 빠르게 처리 (LLM 파싱 우회)
         follow_up_markers = [
             "마감", "마감일", "사업명", "사업비", "예산", "금액", "기한",
             "기간", "일정", "언제", "얼마", "누가", "요건", "요구사항",
         ]
-        normalized_query = query.lower().strip()
         if any(marker in normalized_query for marker in follow_up_markers):
             intent.query_type = "search"
             intent.confidence = 0.82
@@ -169,11 +188,21 @@ class QueryIntentParser:
         org_patterns = [
             r'([가-힣]+대학교)',
             r'([가-힣]+대학)',
-            r'([가-힣]+시)',
             r'([가-힣]+광역시)',
-            r'([가-힣]+도)',
+            r'([가-힣]+특별시)',
+            r'([가-힣]+특별자치시)',
+            r'([가-힣]+특별자치도)',
             r'([가-힣]+공사)',
             r'([가-힣]+연구원)',
+            r'([가-힣]+재단)',
+            r'([가-힣]+공단)',
+            r'([가-힣]+위원회)',
+            r'([가-힣]+협회)',
+            r'([가-힣]+진흥원)',
+            r'([가-힣]+기술원)',
+            r'([가-힣]+서비스원)',
+            r'([가-힣]+조직위원회)',
+            r'([가-힣]+사무국)',
             r'([가-힣]+센터)',
         ]
 
@@ -193,7 +222,9 @@ class QuestionPlanner:
         q = (query or "").lower()
         normalized = re.sub(r"\s+", " ", q)
 
-        is_comparison = any(k in normalized for k in ["비교", "차이", "각각", "공통", "모두 고려", "동시에", "두 문서"])
+        is_comparison = any(k in normalized for k in ["비교", "차이", "공통", "모두 고려", "동시에", "두 문서"])
+        if not is_comparison and "각각" in normalized:
+            is_comparison = any(marker in normalized for marker in ["두 문서", "각 문서", "기관별", "a 문서", "b 문서"])
         if is_comparison:
             return QuestionPlan(
                 query_kind="comparison",
