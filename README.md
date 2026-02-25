@@ -23,7 +23,7 @@
 | 1. 문서 파싱/자산 추출 | PDF 텍스트 추출 + 이미지 asset 추출 + HWP 자동 PDF 변환(`soffice`) | 원문 구조/이미지 근거를 동시에 보존해야 후속 검색·답변 품질이 안정적 | `src/parsers/rich_pdf_extract.py` |
 | 2. 이미지/표 캡션 보강(선택) | 이미지별 LLM 캡션/표 텍스트 추출 후 markdown의 `PLACEHOLDER` 대체 | 표/이미지 기반 질의의 검색 가능 토큰을 늘려 recall 개선 | `src/parsers/rich_caption_assets.py` |
 | 3. 구조 기반 청킹 | 목차/섹션/리스트 경계를 우선 반영해 chunk 생성, metadata(`section_title`, `page_refs`, `assets`) 포함 | 단순 길이 분할보다 질의-근거 정합성이 좋아져 retrieval precision 개선 | `src/parsers/rich_chunk.py` |
-| 4. Chroma 인덱싱 | OpenAI 임베딩(`text-embedding-3-small`)으로 JSONL 청크를 Chroma에 upsert, 임베딩 lock 파일로 모델 일치 강제 | 인덱싱/검색 임베딩 불일치 차원 오류를 예방하고 재현성 확보 | `src/retrievers/chroma_store.py`, `src/retrievers/vectorstore.py`, `src/retrievers/build_chroma_index.py` |
+| 4. Chroma 인덱싱 | 임베딩(`jhgan/ko-sroberta-multitask`)으로 JSONL 청크를 Chroma에 upsert, 임베딩 lock 파일로 모델 일치 강제 | 인덱싱/검색 임베딩 불일치 차원 오류를 예방하고 재현성 확보 | `src/retrievers/chroma_store.py`, `src/retrievers/vectorstore.py`, `src/retrievers/build_chroma_index.py` |
 | 5. 리트리버(핵심) | 기관 힌트 추출→기관 필터 검색 우선→fallback, Chroma score + lexical score + keyword/signal bonus + noise penalty, 필요 시 sparse MMR | 범용 질의·기관 질의를 동시에 커버하면서 source recall과 정밀도의 균형을 맞춤 | `src/rag_answer.py` (`ChromaRetriever.retrieve`) |
 | 6. 오케스트레이션 | query type 파싱(`money_rank`, `asset` 등), 기본/자산/금액순위 경로 분기, 후보/컨텍스트 neighbor 확장 후 답변 생성 | 질의 유형별 실패 패턴이 달라 단일 경로보다 분기 처리 시 정답률이 높음 | `src/graph/nodes.py`, `src/graph/workflow.py` |
 | 7. 프롬프트/답변 생성 | 규칙 기반 factoid 추출 우선, 실패 시 JSON 강제 LLM 생성(`status/answer/citations`), placeholder 응답 제거 | 값 추출형 질의에서 불필요한 장문 생성/환각을 줄이고 citation 일관성 확보 | `src/rag_answer.py` (`_rule_based_answer`, `generate_answer`, `generate_money_rank_answer`) |
@@ -42,7 +42,7 @@
 | 캡션(선택) | caption 모델 | `gpt-5-mini` | `src/parsers/rich_caption_assets.py` (`_request_caption`) | 표/이미지 설명 품질 우선 |
 | 청킹 | `chunk_size` | `1000` | `src/parsers/rich_chunk.py` (`chunk_rich` 기본값), `scripts/rebuild_db.py` (`--chunk-size`) | 문맥 보존과 검색 단위 균형 |
 | 청킹 | `overlap` | `100` | `src/parsers/rich_chunk.py` (`chunk_rich` 기본값), `scripts/rebuild_db.py` (`--overlap`) | 경계 정보 손실 완화 |
-| 인덱싱 | embedding 모델 | `text-embedding-3-small` | `src/retrievers/chroma_store.py` (`build_chroma_index` 기본값), `scripts/rebuild_db.py` (`--model`) | Chroma 인덱스/검색 일관성 |
+| 인덱싱 | embedding 모델 | `jhgan/ko-sroberta-multitask` | `src/retrievers/chroma_store.py` (`build_chroma_index` 기본값), `scripts/rebuild_db.py` (`--model`) | Chroma 인덱스/검색 일관성 |
 | 인덱싱 | `batch_size` | `128` | `src/retrievers/chroma_store.py`, `scripts/rebuild_db.py` (`--batch-size`) | 임베딩 호출 효율 |
 | 인덱싱 | 컬렉션명 | 운영: `rfp_b_oai_clean_v1` | 서비스/평가: `src/graph/workflow.py`, `scripts/eval_retrieval.py`; 인덱서 기본: `rfp_b_oai`(`scripts/rebuild_db.py`) | 운영값과 인덱서 기본값이 달라 명시 필요 |
 | 서비스(기본) | `retriever`, `rerank` | `chroma`, `none` | `app/main.py` (`RAGChatbot(...)`), `src/graph/workflow.py` | 불필요한 추가 변동 최소화 |
@@ -116,7 +116,7 @@ python -m src.parsers.rich_caption_assets --only-failed --workers 8
 python -c "from pathlib import Path; from src.parsers.rich_chunk import chunk_rich; chunk_rich(input_dir=Path('notebooks/data_rich'), output_dir=Path('notebooks/data_chunks_rich'), chunk_size=1000, overlap=100)"
 
 # 4) Chroma 인덱스 생성 (운영 컬렉션명에 맞춤)
-python scripts/rebuild_db.py --chroma --chunk-output-dir notebooks/data_chunks_rich --chroma-dir data_index/chroma_B --collection rfp_b_oai_clean_v1 --model text-embedding-3-small
+python scripts/rebuild_db.py --chroma --chunk-output-dir notebooks/data_chunks_rich --chroma-dir data_index/chroma_B --collection rfp_b_oai_clean_v1 --model jhgan/ko-sroberta-multitask
 ```
 
 참고:

@@ -41,7 +41,7 @@ class RAGChatbot:
         context_k: int = 20,
         chroma_persist_dir: Path = Path("data_index") / "chroma_B",
         chroma_collection: str = "rfp_b_oai_clean_v1",
-        chroma_model: str = "text-embedding-3-small",
+        chroma_model: str = "jhgan/ko-sroberta-multitask",
         chroma_org_filter: bool = True,
         chroma_org_filter_mode: str = "hard",
         chroma_score_weight: float = 0.7,
