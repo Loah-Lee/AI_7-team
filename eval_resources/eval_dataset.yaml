@@ -43,7 +43,7 @@
   expected_answer: CPU는 2 x 2.90GHz Intel Xeon Gold5415+이며 8Core 이상이어야 합니다.
   ground_truth:
     sources:
-    - 사단법인 보험개발원_실손보험 청구 전산화 시스템 구축 사업.hwp
+    - 사단법인 보험개발원_실손보험 청구 전산화 시스템 구축 사업.pdf
   query_type: single_doc
   metadata_filter:
     institution: 사단법인 보험개발원
@@ -63,7 +63,7 @@
   expected_answer: 계약체결일로부터 180일 이내 (6개월)입니다.
   ground_truth:
     sources:
-    - 국민연금공단_사업장 사회보험료 지원 고시 개정에 따른 정보시스템 보.hwp
+    - 국민연금공단_사업장 사회보험료 지원 고시 개정에 따른 정보시스템 보.pdf
   query_type: single_doc
   metadata_filter:
     institution: 국민연금공단
@@ -73,7 +73,7 @@
   expected_answer: 11,000명에게 제공됩니다.
   ground_truth:
     sources:
-    - 국민연금공단_2024년 이러닝시스템 운영 용역.hwp
+    - 국민연금공단_2024년 이러닝시스템 운영 용역.pdf
   query_type: single_doc
   metadata_filter:
     institution: 국민연금공단
@@ -83,7 +83,7 @@
   expected_answer: 완료보고서, 납품 및 검사조서를 제출하여 감독관에게 검사 승인을 받아야 한다.
   ground_truth:
     sources:
-    - 을지대학교_을지대학교 비교과시스템 개발.hwp
+    - 을지대학교_을지대학교 비교과시스템 개발.pdf
   query_type: single_doc
   metadata_filter:
     institution: 을지대학교
@@ -93,7 +93,7 @@
   expected_answer: 기술능력 평가분야 배점한도의 85% 이상인 제안사를 협상적격자로 선정합니다.
   ground_truth:
     sources:
-    - 국가과학기술지식정보서비스_통합정보시스템 고도화 용역.hwp
+    - 국가과학기술지식정보서비스_통합정보시스템 고도화 용역.pdf
   query_type: single_doc
   metadata_filter:
     institution: 국가과학기술지식정보서비스
@@ -103,7 +103,7 @@
   expected_answer: 웹페이지의 용량은 3MB 이내로 개발해야 하며 단, 홍보 등 특성에 따라 3MB를 초과할 수 있습니다.
   ground_truth:
     sources:
-    - BioIN_의료기기산업 종합정보시스템(정보관리기관) 기능개선 사업(2차).hwp
+    - BioIN_의료기기산업 종합정보시스템(정보관리기관) 기능개선 사업(2차).pdf
   query_type: single_doc
   metadata_filter:
     institution: BioIN
@@ -113,7 +113,7 @@
   expected_answer: 시스템은 장애가 발생하면 12시간 이내에 데이터를 복구해야 합니다.
   ground_truth:
     sources:
-    - 한국농수산식품유통공사_농산물가격안정기금 정부예산회계연계시스템 .hwp
+    - 한국농수산식품유통공사_농산물가격안정기금 정부예산회계연계시스템 .pdf
   query_type: single_doc
   metadata_filter:
     institution: 한국농수산식품유통공사
@@ -127,7 +127,7 @@
        이를 위해 현장 조사 업무에 대한 일원화된 자료 연계를 통해 원시자료, DB, 분석 전반에 대한 체계적 품질관리와 사용자·관리자 기능을 강화한다.
   ground_truth:
     sources:
-      - 한국수자원조사기술원_수문자료정보관리시스템(HDIMS) 재구축 용역(3단계).hwp
+      - 한국수자원조사기술원_수문자료정보관리시스템(HDIMS) 재구축 용역(3단계.pdf
   query_type: single_doc
   metadata_filter:
     institution: 한국수자원조사기술원
@@ -139,7 +139,7 @@
     Cost-Benefit Analysis of Investment Project(European Commission).
   ground_truth:
     sources:
-      - 한국수출입은행_(긴급) 모잠비크 마푸토 지능형교통시스템(ITS) 구축사업.hwp
+      - 한국수출입은행_(긴급) 모잠비크 마푸토 지능형교통시스템(ITS) 구축사업.pdf
   query_type: single_doc
   metadata_filter:
     institution: 한국수출입은행
@@ -149,7 +149,7 @@
   expected_answer: 참여인원에 대해 월 1회 정보보안교육을 수행하고, 교육결과는 발주기관의 확인을 받아야 합니다.
   ground_truth:
     sources:
-    - 남서울대학교_[혁신-국고] 남서울대학교 스마트 정보시스템 활성화(학사.hwp
+    - 남서울대학교_[혁신-국고] 남서울대학교 스마트 정보시스템 활성화(학사.pdf
   query_type: single_doc
   metadata_filter:
     institution: 남서울대학교
@@ -176,7 +176,7 @@
     - 보안 및 접근통제 체계를 강화하고 안정적인 운영 환경을 구축해야 한다.
   ground_truth:
     sources:
-      - 세종테크노파크_세종테크노파크 인사정보 전산시스템 구축 용역 입찰공.hwp
+      - 세종테크노파크_세종테크노파크 인사정보 전산시스템 구축 용역 입찰공.pdf
   query_type: single_doc
   metadata_filter:
     institution: 세종테크노파크
@@ -191,7 +191,7 @@
     (단위: mm)
   ground_truth:
     sources:
-    - KOICA 전자조달_[긴급] [지문] [국제] 우즈베키스탄 열린 의정활동 상하원 .hwp
+    - KOICA 전자조달_[긴급] [지문] [국제] 우즈베키스탄 열린 의정활동 상하원 .pdf
   query_type: single_doc
   metadata_filter:
     institution: KOICA
@@ -219,7 +219,7 @@
     - 모든 경력증빙 자료는 날짜 또는 기간이 명시된 원본 또는 원문대조필 문서여야 한다.
   ground_truth:
     sources:
-      - 사단법인아시아물위원회사무국_우즈벡-키르기즈스탄 기후변화대응 스.hwp
+      - 사단법인아시아물위원회사무국_우즈벡-키르기즈스탄 기후변화대응 스.pdf
   query_type: single_doc
   metadata_filter:
     institution: 사단법인아시아물위원회사무국
@@ -245,8 +245,8 @@
       전산시스템의 기능 보완을 통해 업무 효율성과 운영 안정성을 향상시키는 것을 목표로 한다.
   ground_truth:
     sources:
-    - 축산물품질평가원_축산물이력관리시스템 개선(정보화 사업).hwp
-    - 축산물품질평가원_꿀 품질평가 전산시스템 기능개선 사업.hwp
+    - 축산물품질평가원_축산물이력관리시스템 개선(정보화 사업).pdf
+    - 축산물품질평가원_꿀 품질평가 전산시스템 기능개선 사업.pdf
   query_type: multi_doc
   metadata_filter:
     institution: 축산물품질평가원
@@ -271,8 +271,8 @@
     「2024년 대학 산학협력활동 실태조사 시스템(UICC) 기능개선 사업」이다.
   ground_truth:
     sources:
-    - 한국연구재단_2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선.hwp
-    - 한국연구재단_2024년 기초학문자료센터 시스템 운영 및 연구성과물 DB구.hwp
+    - 한국연구재단_2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선.pdf
+    - 한국연구재단_2024년 기초학문자료센터 시스템 운영 및 연구성과물 DB구.pdf
   query_type: multi_doc
   metadata_filter:
     institution: 한국연구재단
