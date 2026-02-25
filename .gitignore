@@ -229,3 +229,9 @@ checkpoint/
 
 # OS specific
 .DS_Store
+
+# Data files (keep folder only)
+data_index/files/*
+!data_index/files/.gitkeep
+data/files/*
+!data/files/.gitkeep
