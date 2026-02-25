@@ -14,7 +14,6 @@ import json
 import os
 import sys
 import time
-import unicodedata
 from pathlib import Path
 
 import yaml
@@ -69,37 +68,6 @@ except ImportError:
 
 
 _CHATBOT_SINGLETON = None
-
-
-def _normalize_source_key(source: str) -> str:
-    """소스 파일명을 평가 비교용 키로 정규화한다 (확장자 무시)."""
-    text = unicodedata.normalize("NFC", str(source or "")).strip()
-    text = " ".join(text.split())
-    filename = Path(text).name
-    stem, _ = os.path.splitext(filename)
-    return stem
-
-
-def _coerce_source_list(raw_sources: object) -> list[str]:
-    """ground_truth.sources를 list[str]로 정규화한다."""
-    if raw_sources is None:
-        return []
-    if isinstance(raw_sources, str):
-        values = [raw_sources]
-    elif isinstance(raw_sources, list):
-        values = [str(v) for v in raw_sources if v]
-    else:
-        return []
-
-    normalized: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        key = _normalize_source_key(value)
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        normalized.append(key)
-    return normalized
 
 
 def load_eval_dataset(path: Path) -> list[dict]:
@@ -213,8 +181,7 @@ def evaluate_e2e(
         question = item["question"]
         expected_answer = item.get("expected_answer", "")
         gt = item.get("ground_truth", {})
-        gt_sources_raw: object = gt.get("sources")
-        gt_sources: list[str] = _coerce_source_list(gt_sources_raw)
+        gt_sources: list[str] = gt.get("sources", [])
         metadata_filter = item.get("metadata_filter")
 
         print(f"\n[{i}/{total}] {question[:60]}...")
@@ -238,7 +205,7 @@ def evaluate_e2e(
         # 2) Retrieval 지표 (보조 — Source 단위)
         retrieved_for_metrics = [
             {
-                "source": _normalize_source_key(doc.get("source", "unknown")),
+                "source": doc.get("source", "unknown"),
                 "page": doc.get("page"),
                 "score": doc.get("score", 0.0),
             }
@@ -248,15 +215,8 @@ def evaluate_e2e(
             doc.get("source", "unknown") for doc in retrieved_docs
         ))
 
-        recall = 1.0 if any(
-            calculate_recall_at_k(retrieved_for_metrics, source, k=top_k) > 0
-            for source in gt_sources
-        ) else 0.0
-        hit_candidates = [
-            calculate_hit_position(retrieved_for_metrics, source)
-            for source in gt_sources
-        ]
-        hit_pos = min((pos for pos in hit_candidates if pos is not None), default=None)
+        recall = calculate_recall_at_k(retrieved_for_metrics, gt_sources, k=top_k)
+        hit_pos = calculate_hit_position(retrieved_for_metrics, gt_sources)
         recalls.append(recall)
         hit_positions.append(hit_pos)
 
