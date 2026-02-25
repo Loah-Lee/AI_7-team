@@ -28,6 +28,10 @@ python scripts/eval_retrieval.py \
 - `src/retrievers/vectorstore.py`
   - query 난이도 스코어 계산
   - `chroma` / `hybrid` / `dynamic` 검색 모드
+- `src/retrievers/retrieval_service.py`
+  - org 힌트 결합 검색
+  - dynamic fallback(`hybrid -> chroma`) 오케스트레이션
+  - `retrieved_docs` / evidence 컨텍스트 구성
 
 ## 5) 데이터 경로(현재 dev 기준)
 - Chroma DB: `data_index/chroma_B`

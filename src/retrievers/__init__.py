@@ -7,6 +7,7 @@
 
 from src.retrievers.embeddings import EmbeddingGenerator
 from src.retrievers.metadata_filter import AmountFilter, MetadataFilter
+from src.retrievers.retrieval_service import RetrievalService
 from src.retrievers.vectorstore import VectorStore
 from src.graph.state import OrgInfo
 
@@ -14,6 +15,7 @@ __all__ = [
     "EmbeddingGenerator",
     "MetadataFilter",
     "AmountFilter",
+    "RetrievalService",
     "VectorStore",
     "OrgInfo",
 ]

@@ -68,11 +68,13 @@ class RAGChatbotV17:
         
         # 나중에 각 모듈에서 import
         from src.graph.nodes import RFPAnswerGenerator, QueryIntentParser
+        from src.retrievers.retrieval_service import RetrievalService
         from src.retrievers.vectorstore import VectorStore
         from src.graph.state import ConversationContext
         
         self.answer_generator = RFPAnswerGenerator(self.client)
         self.vector_store = VectorStore(db_path=db_path)
+        self.retrieval_service = RetrievalService(self.vector_store)
         self.query_parser = QueryIntentParser(self.client)
         self.conversation = ConversationContext(max_history=5)
 
@@ -168,23 +170,6 @@ class RAGChatbotV17:
         _ = force_reload
         print("ℹ️ 자동 문서 적재는 비활성화되었습니다. preprocessor_v3.1 산출 DB를 사용하세요.")
 
-    @staticmethod
-    def _to_retrieved_docs(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        docs: list[dict[str, Any]] = []
-        for item in results:
-            metadata = item.get("metadata", {}) if isinstance(item.get("metadata"), dict) else {}
-            source = item.get("source") or metadata.get("source") or metadata.get("source_file") or "unknown"
-            docs.append(
-                {
-                    "source": str(source),
-                    "page": item.get("page"),
-                    "score": float(item.get("score", 0.0)),
-                    "content": str(item.get("text", "")),
-                    "metadata": metadata,
-                }
-            )
-        return docs
-
     def answer(
         self,
         query: str,
@@ -195,50 +180,19 @@ class RAGChatbotV17:
         dynamic_hard_threshold: int = 2,
     ) -> dict[str, Any]:
         """질문에 답변합니다."""
-        org_name = self._extract_org_name_from_query(query)
-        search_query = query
-        if org_name and org_name in self.vector_store.org_registry:
-            search_query = f"{org_name} {query}"
-
-        retrieve_k = max(1, int(top_k))
-        results = self.vector_store.search(
-            search_query,
-            top_k=retrieve_k,
-            mode=retriever_mode,
+        retrieval = self.retrieval_service.retrieve(
+            query,
+            retriever_mode=retriever_mode,
+            top_k=top_k,
             hybrid_alpha=hybrid_alpha,
             dynamic_hard_threshold=dynamic_hard_threshold,
         )
-        retrieval_mode = self.vector_store.last_retrieval_mode
+        results = retrieval["results"]
+        retrieved_docs = retrieval["retrieved_docs"]
+        retrieval_mode = retrieval["retrieval_mode"]
+        context = retrieval["evidence"]
 
-        # easy query에서 hybrid가 빈약할 때 chroma로 재시도
-        if retriever_mode == "dynamic" and retrieval_mode == "hybrid":
-            unique_sources = self.vector_store.count_unique_sources(results)
-            weak_hybrid = (
-                not results
-                or (results and float(results[0].get("score", 0.0)) < 0.2)
-                or (len(results) >= 2 and unique_sources < 2)
-            )
-            if weak_hybrid:
-                fallback = self.vector_store.search(
-                    search_query,
-                    top_k=retrieve_k,
-                    mode="chroma",
-                    hybrid_alpha=hybrid_alpha,
-                    dynamic_hard_threshold=dynamic_hard_threshold,
-                )
-                if fallback:
-                    fallback_unique_sources = self.vector_store.count_unique_sources(fallback)
-                    keep_fallback = (
-                        not results
-                        or float(fallback[0].get("score", 0.0)) > float(results[0].get("score", 0.0))
-                        or fallback_unique_sources > unique_sources
-                    )
-                    if keep_fallback:
-                        results = fallback
-                        retrieval_mode = "dynamic_chroma_fallback"
-
-        retrieved_docs = self._to_retrieved_docs(results)
-        if not results:
+        if not retrieval["found"]:
             return {
                 "answer": "관련 정보를 찾을 수 없습니다.",
                 "found": False,
@@ -247,16 +201,6 @@ class RAGChatbotV17:
                 "retrieved_docs": [],
                 "evidence": "",
             }
-
-        context_parts = []
-        for r in results[:20]:
-            metadata = r.get("metadata", {}) if isinstance(r.get("metadata"), dict) else {}
-            source = r.get("source") or metadata.get("source", "Unknown")
-            org = metadata.get("org", "")
-            text = r.get("text", "")
-            context_parts.append(f"[{org} - {source}]\n{text[:8000]}")
-
-        context = "\n\n---\n\n".join(context_parts)
 
         if self.client:
             answer = self.answer_generator.generate(query, context)
@@ -279,18 +223,6 @@ class RAGChatbotV17:
             "retrieved_docs": retrieved_docs,
             "evidence": context,
         }
-
-    def _extract_org_name_from_query(self, query: str) -> str | None:
-        """질문에서 기관명을 추출합니다."""
-        # 별칭 정규화 후 매칭
-        normalized_query = self.vector_store.normalize_org_name(query)
-
-        # 등록된 기관명 목록과 매칭
-        for org_name in self.vector_store.org_registry.keys():
-            # 완전 일치 또는 포함 확인 (별칭 처리 포함)
-            if org_name in normalized_query or normalized_query in org_name:
-                return org_name
-        return None
 
     def _create_multi_org_summary(self, results: list, query: str) -> str:
         """여러 기관의 요약 답변을 생성합니다 - 입찰 요약 형식."""
