@@ -12,7 +12,8 @@ from pathlib import Path
 
 # OpenAI
 OPENAI_API_KEY: str | None = os.environ.get("OPENAI_API_KEY")
-EMBEDDING_MODEL: str = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
+# EMBEDDING_MODEL: str = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
+EMBEDDING_MODEL: str = 'jhgan/ko-sroberta-multitask'
 DEFAULT_MODEL: str = os.environ.get("DEFAULT_MODEL", "gpt-4o-mini")
 REASONING_MODEL: str = os.environ.get("REASONING_MODEL", "gpt-5-mini")
 
@@ -78,12 +79,18 @@ MIN_RANKING_KEYWORDS: list[str] = ["적은", "낮은", "작은"]
 # ============================================================================
 # 경로 설정
 # ============================================================================
+PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
+
+# 주요 경로
+CHROMA_PATH = str(PROJECT_ROOT / 'chroma_db')
+OUTPUT_PATH = PROJECT_ROOT / 'output'
+DATA_PATH = PROJECT_ROOT / 'data'
+CHUNK_DIR = str(PROJECT_ROOT / 'output' / 'chunks')
 
 def get_data_dir() -> Path:
     """데이터 디렉토리 경로를 반환합니다."""
-    script_dir = Path(__file__).parent.parent.parent.resolve()
-    return (script_dir / "data").resolve()
+    return DATA_PATH.resolve()
 
 def get_default_db_path() -> str:
     """기본 DB 경로를 반환합니다."""
-    return str(get_data_dir() / "chroma_db_v17")
+    return CHROMA_PATH.resolve()
