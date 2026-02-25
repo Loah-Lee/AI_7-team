@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import csv
+import re
+import unicodedata
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -44,13 +47,17 @@ class CSVMarkdownConverter:
         project_name = row.get('사업명', '')
         amount = row.get('사업 금액', '')
         org_name = remove_josa(row.get('발주 기관', ''))
-        open_date = self._format_date(row.get('공개 일자', ''))
-        start_date = self._format_date(row.get('입찰 참여 시작일', ''))
-        end_date = self._format_date(row.get('입찰 참여 마감일', ''))
+        open_date_raw = row.get('공개 일자', '')
+        start_date_raw = row.get('입찰 참여 시작일', '')
+        end_date_raw = row.get('입찰 참여 마감일', '')
+        open_date = self._format_date(open_date_raw)
+        start_date = self._format_date(start_date_raw)
+        end_date = self._format_date(end_date_raw)
         summary = self._format_summary(row.get('사업 요약', ''))
         file_format = row.get('파일형식', '')
         filename = row.get('파일명', '')
         original_text = row.get('텍스트', '')
+        vat_note = self._extract_vat_note(original_text=original_text, summary=summary, amount=amount)
 
         amount_str = self._format_amount_value(amount)
         original_text = self._truncate_text(original_text)
@@ -77,7 +84,17 @@ class CSVMarkdownConverter:
             amount=amount,
             summary=summary,
             filename=filename,
-            file_format=file_format
+            file_format=file_format,
+            metadata={
+                "notice_num": notice_num,
+                "notice_round": notice_round,
+                "amount_raw": amount,
+                "open_date_raw": open_date_raw,
+                "start_date_raw": start_date_raw,
+                "end_date_raw": end_date_raw,
+                "vat_note": vat_note,
+                "vat_included": bool(vat_note and "포함" in vat_note),
+            },
         )
 
     def convert_file(self, csv_path: str | Path) -> list[MarkdownData]:
@@ -109,7 +126,35 @@ class CSVMarkdownConverter:
         """날짜 문자열을 포맷팅합니다."""
         if not date_str:
             return "정보 없음"
-        return date_str.split()[0]
+        raw = str(date_str).strip()
+        if not raw:
+            return "정보 없음"
+
+        normalized = raw.replace("T", " ").replace("Z", "")
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        parse_candidates = [
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d %H:%M",
+            "%Y.%m.%d %H:%M:%S",
+            "%Y.%m.%d %H:%M",
+            "%Y/%m/%d %H:%M:%S",
+            "%Y/%m/%d %H:%M",
+            "%Y-%m-%d",
+            "%Y.%m.%d",
+            "%Y/%m/%d",
+        ]
+        for fmt in parse_candidates:
+            try:
+                parsed = datetime.strptime(normalized, fmt)
+            except ValueError:
+                continue
+            if "%H" in fmt:
+                if parsed.hour == 0 and parsed.minute == 0:
+                    return parsed.strftime("%Y-%m-%d")
+                return parsed.strftime("%Y-%m-%d %H:%M")
+            return parsed.strftime("%Y-%m-%d")
+
+        return normalized
 
     @staticmethod
     def _format_summary(summary: str) -> str:
@@ -139,3 +184,30 @@ class CSVMarkdownConverter:
         if text and len(text) > MAX_TEXT_LENGTH:
             return text[:MAX_TEXT_LENGTH] + "\n\n...(생략)"
         return text
+
+    @staticmethod
+    def _extract_vat_note(original_text: str, summary: str, amount: str) -> str:
+        """텍스트에서 부가가치세 포함/별도 정보를 추출합니다."""
+        combined = " ".join([str(amount or ""), str(summary or ""), str(original_text or "")]).strip()
+        if not combined:
+            return ""
+
+        normalized = unicodedata.normalize("NFKC", combined.lower())
+        vat_keywords = r"(부가가치세|부가세|vat)"
+
+        include_patterns = [
+            rf"{vat_keywords}.{{0,12}}(포함|포함금액|포함조건)",
+            rf"(포함|포함금액|포함조건).{{0,12}}{vat_keywords}",
+        ]
+        exclude_patterns = [
+            rf"{vat_keywords}.{{0,12}}(별도|제외|미포함)",
+            rf"(별도|제외|미포함).{{0,12}}{vat_keywords}",
+        ]
+
+        if any(re.search(pattern, normalized) for pattern in include_patterns):
+            return "부가가치세 포함"
+        if any(re.search(pattern, normalized) for pattern in exclude_patterns):
+            return "부가가치세 별도"
+        if "면세" in normalized and re.search(vat_keywords, normalized):
+            return "부가가치세 면세"
+        return ""

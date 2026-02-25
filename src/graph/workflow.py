@@ -299,6 +299,7 @@ class RAGChatbotV17:
                     self._extract_markdown_meta_value(markdown_text, "공개 일자"),
                 )
             )
+            open_date_value = self._normalize_csv_datetime_value(open_date_value)
             start_date_value = self._clean_csv_value(
                 self._first_non_empty(
                     meta.get("start_date"),
@@ -308,6 +309,7 @@ class RAGChatbotV17:
                     self._extract_markdown_meta_value(markdown_text, "입찰 시작일"),
                 )
             )
+            start_date_value = self._normalize_csv_datetime_value(start_date_value)
             end_date_value = self._clean_csv_value(
                 self._first_non_empty(
                     meta.get("end_date"),
@@ -317,6 +319,28 @@ class RAGChatbotV17:
                     self._extract_markdown_meta_value(markdown_text, "입찰 마감일"),
                 )
             )
+            end_date_value = self._normalize_csv_datetime_value(end_date_value)
+            vat_note_value = self._clean_csv_value(
+                self._first_non_empty(
+                    meta.get("vat_note"),
+                    meta.get("vat"),
+                    meta.get("부가가치세"),
+                    self._extract_vat_note_from_text(
+                        "\n".join(
+                            [
+                                str(meta.get("text", "") or ""),
+                                amount_value,
+                                summary_value,
+                                markdown_text,
+                            ]
+                        )
+                    ),
+                )
+            )
+            vat_included_raw = str(meta.get("vat_included", "") or "").strip().lower()
+            vat_included = vat_included_raw in {"1", "true", "yes", "y"}
+            if not vat_included and vat_note_value and ("포함" in vat_note_value and "미포함" not in vat_note_value):
+                vat_included = True
             notice_num_raw = self._clean_csv_value(
                 self._first_non_empty(
                     meta.get("notice_num"),
@@ -343,6 +367,8 @@ class RAGChatbotV17:
                 "notice_num": notice_num,
                 "notice_num_raw": notice_num_raw,
                 "amount_numeric": amount_numeric,
+                "vat_note": vat_note_value,
+                "vat_included": vat_included,
             }
             if filename:
                 self.csv_metadata_by_filename[filename.lower()] = normalized
@@ -377,6 +403,61 @@ class RAGChatbotV17:
         if lowered in {"nan", "none", "null", "-", "정보 없음", "정보없음"}:
             return ""
         return text
+
+    @staticmethod
+    def _normalize_csv_datetime_value(value: Any) -> str:
+        """CSV 날짜/시간 문자열을 일관된 표현으로 정규화합니다."""
+        text = str(value or "").strip()
+        if not text:
+            return ""
+
+        normalized = text.replace("T", " ").replace("Z", "").strip()
+        normalized = re.sub(r"\s+", " ", normalized)
+        patterns = [
+            ("%Y-%m-%d %H:%M:%S", True),
+            ("%Y-%m-%d %H:%M", True),
+            ("%Y.%m.%d %H:%M:%S", True),
+            ("%Y.%m.%d %H:%M", True),
+            ("%Y/%m/%d %H:%M:%S", True),
+            ("%Y/%m/%d %H:%M", True),
+            ("%Y-%m-%d", False),
+            ("%Y.%m.%d", False),
+            ("%Y/%m/%d", False),
+        ]
+        for fmt, has_time in patterns:
+            try:
+                parsed = datetime.strptime(normalized, fmt)
+            except ValueError:
+                continue
+            if has_time:
+                if parsed.hour == 0 and parsed.minute == 0:
+                    return parsed.strftime("%Y-%m-%d")
+                return parsed.strftime("%Y-%m-%d %H:%M")
+            return parsed.strftime("%Y-%m-%d")
+        return normalized
+
+    @staticmethod
+    def _extract_vat_note_from_text(text: str) -> str:
+        """문맥 텍스트에서 부가가치세 포함/별도 정보를 추출합니다."""
+        normalized = unicodedata.normalize("NFKC", str(text or "").lower())
+        if not normalized:
+            return ""
+        vat_pattern = r"(부가가치세|부가세|vat)"
+        include_patterns = [
+            rf"{vat_pattern}.{{0,12}}(포함|포함금액|포함조건)",
+            rf"(포함|포함금액|포함조건).{{0,12}}{vat_pattern}",
+        ]
+        exclude_patterns = [
+            rf"{vat_pattern}.{{0,12}}(별도|제외|미포함)",
+            rf"(별도|제외|미포함).{{0,12}}{vat_pattern}",
+        ]
+        if any(re.search(pattern, normalized) for pattern in include_patterns):
+            return "부가가치세 포함"
+        if any(re.search(pattern, normalized) for pattern in exclude_patterns):
+            return "부가가치세 별도"
+        if "면세" in normalized and re.search(vat_pattern, normalized):
+            return "부가가치세 면세"
+        return ""
 
     @staticmethod
     def _extract_markdown_meta_value(markdown: str, label: str) -> str:
@@ -690,6 +771,58 @@ class RAGChatbotV17:
             return "amount"
         return None
 
+    @staticmethod
+    def _query_requests_vat(query: str) -> bool:
+        """질문이 부가가치세 포함/별도 정보를 요구하는지 판별합니다."""
+        normalized = unicodedata.normalize("NFKC", (query or "").lower())
+        return any(token in normalized for token in ["부가가치세", "부가세", "vat", "세금 포함", "세 포함"])
+
+    @staticmethod
+    def _query_requests_time_detail(query: str) -> bool:
+        """질문이 시간 단위(시/분)까지 요구하는지 판별합니다."""
+        normalized = unicodedata.normalize("NFKC", (query or "").lower())
+        return any(token in normalized for token in ["시간", "시각", "몇시", "몇 시", "오전", "오후", "시분"])
+
+    def _resolve_csv_vat_note(self, row: dict[str, Any]) -> str:
+        """CSV 행에서 VAT 관련 안내 문구를 추출합니다."""
+        note = self._clean_csv_value(
+            self._first_non_empty(
+                row.get("vat_note"),
+                row.get("vat"),
+                row.get("부가가치세"),
+            )
+        )
+        if note:
+            return note
+        merged_text = "\n".join(
+            [
+                str(row.get("amount", "") or ""),
+                str(row.get("summary", "") or ""),
+                str(row.get("text", "") or ""),
+                str(row.get("original_text", "") or ""),
+            ]
+        )
+        return self._extract_vat_note_from_text(merged_text)
+
+    def _format_csv_datetime_for_answer(self, value: Any, query: str = "") -> str:
+        """답변용 날짜/시간 문자열을 정리합니다."""
+        normalized = self._normalize_csv_datetime_value(value)
+        if not normalized:
+            return ""
+        if not self._query_requests_time_detail(query):
+            return normalized
+
+        try:
+            parsed = datetime.strptime(normalized, "%Y-%m-%d %H:%M")
+        except ValueError:
+            return normalized
+
+        period = "오전" if parsed.hour < 12 else "오후"
+        hour_12 = parsed.hour % 12 or 12
+        if parsed.minute == 0:
+            return f"{parsed.strftime('%Y-%m-%d')} {period} {hour_12}시"
+        return f"{parsed.strftime('%Y-%m-%d')} {period} {hour_12}시 {parsed.minute}분"
+
     def _extract_notice_num_from_query(self, query: str) -> str:
         """질문에서 공고번호 후보를 추출합니다."""
         normalized = unicodedata.normalize("NFKC", (query or ""))
@@ -887,16 +1020,25 @@ class RAGChatbotV17:
         org_name = str(row.get("org_name", "")).strip()
         source = str(row.get("filename", "")).strip() or "csv"
         amount_numeric = parse_amount(str(row.get("amount", "")))
+        vat_note = self._resolve_csv_vat_note(row)
         summary_text = str(row.get("summary", "")).strip()
         if summary_text and len(summary_text) > 260:
             summary_text = summary_text[:260].rstrip() + "..."
 
+        amount_value = (
+            format_amount(amount_numeric)
+            if amount_numeric > 0
+            else str(row.get("amount", "")).strip()
+        )
+        if amount_value and self._query_requests_vat(query) and vat_note:
+            amount_value = f"{amount_value} ({vat_note})"
+
         value_map: dict[str, tuple[str, str]] = {
-            "amount": ("사업비", format_amount(amount_numeric) if amount_numeric > 0 else str(row.get("amount", "")).strip()),
+            "amount": ("사업비", amount_value),
             "notice_num": ("공고번호", str(row.get("notice_num", "")).strip()),
-            "open_date": ("공개 일자", str(row.get("open_date", "")).strip()),
-            "start_date": ("입찰 참여 시작일", str(row.get("start_date", "")).strip()),
-            "end_date": ("입찰 참여 마감일", str(row.get("end_date", "")).strip()),
+            "open_date": ("공개 일자", self._format_csv_datetime_for_answer(row.get("open_date", ""), query)),
+            "start_date": ("입찰 참여 시작일", self._format_csv_datetime_for_answer(row.get("start_date", ""), query)),
+            "end_date": ("입찰 참여 마감일", self._format_csv_datetime_for_answer(row.get("end_date", ""), query)),
             "org_name": ("발주 기관", org_name),
             "project_name": ("사업명", str(row.get("project_name", "")).strip()),
             "summary": ("사업 요약", summary_text),
@@ -984,13 +1126,16 @@ class RAGChatbotV17:
                 org_label = str(row.get("org_name", "")).strip() or org_name or "해당 사업"
                 source = str(row.get("filename", "")).strip() or "csv"
                 amount_numeric = parse_amount(str(row.get("amount", "")))
+                vat_note = self._resolve_csv_vat_note(row)
                 amount_value = (
                     format_amount(amount_numeric)
                     if amount_numeric > 0
                     else str(row.get("amount", "")).strip() or "정보 없음"
                 )
-                start_value = str(row.get("start_date", "")).strip() or "-"
-                end_value = str(row.get("end_date", "")).strip() or "-"
+                if vat_note:
+                    amount_value = f"{amount_value} ({vat_note})"
+                start_value = self._format_csv_datetime_for_answer(row.get("start_date", ""), query)
+                end_value = self._format_csv_datetime_for_answer(row.get("end_date", ""), query)
                 summary_value = str(row.get("summary", "")).strip() or "요약 정보 없음"
                 if len(summary_value) > 320:
                     summary_value = summary_value[:320].rstrip() + "..."
@@ -998,7 +1143,7 @@ class RAGChatbotV17:
                 answer = (
                     f"{org_label} 문서 기준 요약입니다.\n\n"
                     f"- 예산: `{amount_value}`\n"
-                    f"- 입찰 일정: `{start_value}` ~ `{end_value}`\n"
+                    f"- 입찰 일정: `{start_value or '-'}` ~ `{end_value or '-'}`\n"
                     f"- 주요 사업 범위: {summary_value}\n\n"
                     f"[출처]\n- {source} (CSV)"
                 )
@@ -1233,8 +1378,8 @@ class RAGChatbotV17:
         asks_start = any(token in normalized for token in ["시작", "개시", "참여 시작"])
         asks_end = any(token in normalized for token in ["마감", "종료", "기한"])
         if asks_start and asks_end:
-            start_value = str(row.get("start_date", "")).strip()
-            end_value = str(row.get("end_date", "")).strip()
+            start_value = self._format_csv_datetime_for_answer(row.get("start_date", ""), query)
+            end_value = self._format_csv_datetime_for_answer(row.get("end_date", ""), query)
             if start_value or end_value:
                 org_label = str(row.get("org_name", "")).strip() or org_name
                 source = str(row.get("filename", "")).strip() or "csv"
@@ -2850,7 +2995,7 @@ class RAGChatbotV17:
                 f"[출처]\n- {source_line}"
             )
 
-        evidence_limit = 6 if is_security_requirement_query else 3
+        evidence_limit = 4 if is_security_requirement_query else 3
         evidence = self._extract_evidence_lines(query, results, max_lines=evidence_limit)
         if is_responsibility_query and single_org:
             if not evidence:
@@ -3227,6 +3372,11 @@ class RAGChatbotV17:
             softened = re.sub(r"^[,.:;]\s*", "", softened)
             return softened
 
+        def _trim_item(value: str, max_len: int) -> str:
+            if len(value) <= max_len:
+                return value
+            return value[: max_len - 1].rstrip() + "…"
+
         def _clean_item(value: str) -> str:
             item = _normalize_line(value)
             item = re.sub(r"^[-*•]\s*", "", item)
@@ -3247,9 +3397,12 @@ class RAGChatbotV17:
                 deduped.append(cleaned)
             return deduped
 
-        core_items = _dedupe(sections["핵심 답변"])
-        evidence_items = _dedupe(sections["근거 요약"])
-        source_items = _dedupe(sections["출처"])
+        core_items = [_trim_item(item, 220) for item in _dedupe(sections["핵심 답변"])][:2]
+        evidence_items = [_trim_item(item, 200) for item in _dedupe(sections["근거 요약"])][:2]
+        source_items_all = _dedupe(sections["출처"])
+        source_items_filtered = [item for item in source_items_all if _is_source_line(item)]
+        source_items = source_items_filtered if source_items_filtered else source_items_all
+        source_items = [_trim_item(item, 240) for item in source_items][:2]
 
         if not core_items:
             core_items = ["요청하신 항목에 대해 문서에서 확정 가능한 근거를 찾지 못했습니다."]
@@ -3400,6 +3553,28 @@ class RAGChatbotV17:
                     return uniq_anchor
 
         focus_markers: list[str] = []
+        if any(token in q_norm for token in ["저작권", "지식재산", "지적재산", "소유권", "귀속", "라이선스", "이미지", "글꼴", "폰트", "부담", "책임"]):
+            focus_markers.extend(
+                [
+                    "저작권",
+                    "지식재산",
+                    "지적재산",
+                    "소유권",
+                    "귀속",
+                    "라이선스",
+                    "사용권",
+                    "이미지",
+                    "글꼴",
+                    "폰트",
+                    "부담",
+                    "책임",
+                    "주사업자",
+                    "제안사",
+                    "수급자",
+                    "계약상대자",
+                    "발주기관",
+                ]
+            )
         if any(token in q_norm for token in ["보안", "ser", "접근", "암호화", "인증", "취약", "비밀번호"]):
             focus_markers.extend(["보안", "접근통제", "권한", "암호화", "인증", "패스워드", "취약", "로그", "백업"])
             req_mode = True
@@ -4444,7 +4619,8 @@ class RAGChatbotV17:
                                 core_match = c_match
                                 break
                     if core_match and "core" not in value.lower():
-                        value = f"{value}, {re.sub(r'\\s+', ' ', core_match.group(1)).strip()}"
+                        core_text = re.sub(r"\s+", " ", core_match.group(1)).strip()
+                        value = f"{value}, {core_text}"
                 elif core_match:
                     value = re.sub(r"\s+", " ", core_match.group(1)).strip()
                 elif fallback_match:
@@ -5250,7 +5426,12 @@ class RAGChatbotV17:
         precision_critical = any(
             token in normalized for token in ["협상", "평가", "배점", "적격", "정보보안교육", "교육결과"]
         )
+        owner_critical = any(
+            token in normalized for token in ["저작권", "지식재산", "지적재산", "소유권", "귀속", "라이선스", "부담", "책임", "누가", "누구"]
+        )
         if precision_critical:
+            return False
+        if owner_critical and not self._has_owner_anchor_evidence(merged, top_n=max(12, top_k)):
             return False
         if self._is_precision_fact_query(query) and not self._has_precision_anchor_evidence(
             query,
@@ -5416,6 +5597,7 @@ class RAGChatbotV17:
             for token in [
                 "문자셋", "인코딩", "utf", "charset", "가용성", "무중단", "비교", "각각", "공통",
                 "협상", "평가", "배점", "적격", "정보보안교육", "교육결과",
+                "저작권", "지식재산", "지적재산", "소유권", "귀속", "라이선스", "부담", "책임",
             ]
         )
         multiplier = max(0.5, RETRIEVAL_HIGH_RECALL_K_MULTIPLIER)
@@ -5891,6 +6073,29 @@ class RAGChatbotV17:
             if any(token in normalized for token in ["가이드", "guideline", "guide"]):
                 if any(token in lowered for token in ["guideline", "guide to", "guidelines for", "adb", "european commission"]):
                     return True
+        return False
+
+    @staticmethod
+    def _has_owner_anchor_evidence(results: list[dict[str, Any]], top_n: int = 12) -> bool:
+        """책임/부담 질의에서 주체+의무 표현이 있는 근거가 확보됐는지 판별합니다."""
+        if not results:
+            return False
+        owner_pair_patterns = [
+            re.compile(
+                r"(저작권|지식재산|지적재산|소유권|귀속|라이선스|사용권).{0,48}(부담|책임|주체|귀속|의무|제안사|사업자|주사업자|계약상대자|발주기관)",
+                re.IGNORECASE,
+            ),
+            re.compile(
+                r"(부담|책임|주체|귀속|의무|제안사|사업자|주사업자|계약상대자|발주기관).{0,48}(저작권|지식재산|지적재산|소유권|귀속|라이선스|사용권)",
+                re.IGNORECASE,
+            ),
+        ]
+        for item in results[: max(1, top_n)]:
+            text = str(item.get("text", "") or "")
+            if not text:
+                continue
+            if any(pattern.search(text) for pattern in owner_pair_patterns):
+                return True
         return False
 
     @staticmethod
