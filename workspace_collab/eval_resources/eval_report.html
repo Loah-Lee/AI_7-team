@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BiddingMate RAG 평가 리포트</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0a0a; --surface: #141414; --surface2: #1e1e1e;
+    --border: #2a2a2a; --text: #e5e5e5; --text2: #a1a1a1;
+    --accent: #3b82f6; --green: #22c55e; --yellow: #eab308;
+    --red: #ef4444; --purple: #a855f7; --cyan: #06b6d4;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+  .container { max-width: 1400px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+  .header { text-align: center; margin-bottom: 3rem; }
+  .header h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; }
+  .header .subtitle { color: var(--text2); font-size: 0.9rem; }
+  .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; margin: 0.5rem 0.25rem; }
+  .badge-blue { background: rgba(59,130,246,0.15); color: var(--accent); }
+  .badge-green { background: rgba(34,197,94,0.15); color: var(--green); }
+  .badge-purple { background: rgba(168,85,247,0.15); color: var(--purple); }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 2.5rem; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; text-align: center; position: relative; cursor: default; }
+  .card:hover { border-color: #3a3a3a; }
+  .tooltip-box {
+    display: none; position: absolute; top: calc(100% + 10px); left: 50%; transform: translateX(-50%);
+    background: #111827; border: 1px solid #374151; border-radius: 10px; padding: 1rem;
+    min-width: 300px; max-width: 380px; z-index: 999;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.7); font-size: 0.78rem; line-height: 1.6; text-align: left; white-space: normal;
+  }
+  .card:hover .tooltip-box { display: block; }
+  .tooltip-box .tt-title { font-size: 0.88rem; font-weight: 700; color: #f3f4f6; margin-bottom: 0.4rem; }
+  .tooltip-box .tt-desc { color: #93c5fd; font-style: italic; margin-bottom: 0.6rem; border-left: 2px solid #3b82f6; padding-left: 0.5rem; }
+  .tooltip-box .tt-kv { color: #9ca3af; margin-bottom: 0.25rem; font-size: 0.76rem; }
+  .tooltip-box .tt-kv strong { color: #d1d5db; }
+  .tooltip-box .tt-formula { font-family: monospace; background: #1f2937; border-radius: 4px; padding: 0.2rem 0.4rem; color: #6ee7b7; font-size: 0.74rem; display: inline-block; margin-top: 0.3rem; }
+  .tt-table { width: 100%; border-collapse: collapse; margin-top: 0.6rem; font-size: 0.74rem; }
+  .tt-table th { color: #6b7280; font-weight: 600; padding: 0.2rem 0.5rem; border-bottom: 1px solid #374151; text-align: left; }
+  .tt-table td { padding: 0.25rem 0.5rem; color: #9ca3af; border-bottom: 1px solid #1f2937; }
+  .tt-table td:first-child { font-weight: 700; color: #e5e7eb; min-width: 2rem; text-align: center; }
+  .card .label { font-size: 0.75rem; color: var(--text2); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
+  .card .value { font-size: 2rem; font-weight: 700; }
+  .card .max { font-size: 0.85rem; color: var(--text2); }
+
+  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 2.5rem; }
+  .chart-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; }
+  .chart-box h3 { font-size: 0.9rem; color: var(--text2); margin-bottom: 1rem; }
+
+  .insights { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 2.5rem; }
+  .insights h2 { font-size: 1.1rem; margin-bottom: 1rem; }
+  .insight-item { display: flex; gap: 0.75rem; margin-bottom: 0.75rem; padding: 0.75rem; background: var(--surface2); border-radius: 8px; }
+  .insight-icon { font-size: 1.2rem; flex-shrink: 0; }
+  .insight-text { font-size: 0.85rem; }
+  .insight-text strong { color: var(--text); }
+  .insight-text span { color: var(--text2); }
+
+  .table-section { margin-bottom: 2.5rem; }
+  .table-section h2 { font-size: 1.1rem; margin-bottom: 1rem; }
+
+  /* Query Cards */
+  .query-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 1rem; overflow: hidden; }
+  .query-header { display: flex; align-items: center; gap: 1rem; padding: 1rem 1.25rem; cursor: pointer; user-select: none; }
+  .query-header:hover { background: var(--surface2); }
+  .query-id { font-weight: 700; font-size: 0.85rem; min-width: 3rem; color: var(--accent); }
+  .query-q { flex: 1; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .query-scores { display: flex; gap: 0.5rem; flex-shrink: 0; }
+  .query-chevron { color: var(--text2); transition: transform 0.2s; font-size: 0.8rem; }
+  .query-card.open .query-chevron { transform: rotate(90deg); }
+
+  .query-body { display: none; padding: 0 1.25rem 1.25rem; border-top: 1px solid var(--border); }
+  .query-card.open .query-body { display: block; padding-top: 1.25rem; }
+
+  .answer-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
+  .answer-box { background: var(--surface2); border-radius: 8px; padding: 1rem; }
+  .answer-box .box-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text2); margin-bottom: 0.5rem; font-weight: 600; }
+  .answer-box .box-content { font-size: 0.82rem; line-height: 1.7; white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow-y: auto; }
+  .answer-box.expected .box-label { color: var(--green); }
+  .answer-box.generated .box-label { color: var(--accent); }
+
+  .judge-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 0.75rem; }
+  .judge-item { background: var(--surface2); border-radius: 8px; padding: 0.75rem; }
+  .judge-item .j-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+  .judge-item .j-label { font-size: 0.75rem; font-weight: 600; color: var(--text2); text-transform: uppercase; }
+  .judge-item .j-reason { font-size: 0.78rem; color: var(--text2); line-height: 1.5; }
+
+  .meta-row { display: flex; gap: 1.5rem; margin-bottom: 1rem; font-size: 0.8rem; color: var(--text2); }
+  .meta-row strong { color: var(--text); }
+
+  .score-pill { display: inline-block; min-width: 1.8rem; padding: 0.15rem 0.45rem; border-radius: 6px; font-weight: 700; text-align: center; font-size: 0.8rem; }
+  .s5 { background: rgba(34,197,94,0.2); color: var(--green); }
+  .s4 { background: rgba(34,197,94,0.1); color: #86efac; }
+  .s3 { background: rgba(234,179,8,0.15); color: var(--yellow); }
+  .s2 { background: rgba(249,115,22,0.15); color: #fb923c; }
+  .s1 { background: rgba(239,68,68,0.15); color: var(--red); }
+  .s0 { background: rgba(239,68,68,0.2); color: var(--red); }
+
+  .type-tag { font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: 4px; font-weight: 600; }
+  .type-single { background: rgba(59,130,246,0.15); color: var(--accent); }
+  .type-multi { background: rgba(168,85,247,0.15); color: var(--purple); }
+  .type-comparison { background: rgba(6,182,212,0.15); color: var(--cyan); }
+
+  .hit-badge { font-size: 0.75rem; font-weight: 600; }
+  .hit-yes { color: var(--green); }
+  .hit-no { color: var(--red); }
+  .j-label-ko { font-size: 0.65rem; color: var(--text2); font-weight: 400; margin-left: 0.2rem; }
+  .latency-row { font-size: 0.78rem; color: var(--text2); font-family: monospace; }
+
+  .latency-section { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 2.5rem; }
+  .latency-section h2 { font-size: 1.1rem; margin-bottom: 1rem; }
+  .latency-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+  .latency-table th { text-align: left; color: var(--text2); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .latency-table td { padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--border); color: var(--text); }
+  .latency-table tr:last-child td { border-bottom: none; }
+  .latency-table tr.total-row td { font-weight: 700; color: var(--accent); background: rgba(59,130,246,0.05); }
+  .latency-table .stage-col { color: var(--text2); font-size: 0.78rem; }
+  .latency-bar { display: inline-block; height: 6px; border-radius: 3px; margin-left: 0.4rem; vertical-align: middle; opacity: 0.6; }
+
+  .footer { text-align: center; color: var(--text2); font-size: 0.75rem; padding: 2rem 0 1rem; border-top: 1px solid var(--border); }
+
+  .expand-all { background: var(--surface2); border: 1px solid var(--border); color: var(--text2); padding: 0.4rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; margin-bottom: 1rem; }
+  .expand-all:hover { color: var(--text); border-color: var(--text2); }
+
+  @media (max-width: 768px) {
+    .charts { grid-template-columns: 1fr; }
+    .cards { grid-template-columns: repeat(2, 1fr); }
+    .answer-grid { grid-template-columns: 1fr; }
+    .judge-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <h1>BiddingMate RAG 평가 리포트</h1>
+    <p class="subtitle">LLM-as-Judge 기반 End-to-End 평가 결과</p>
+    <div>
+      <span class="badge badge-blue">label: current</span>
+      <span class="badge badge-green">20개 질문</span>
+      <span class="badge badge-purple">top_k: 5</span>
+    </div>
+  </div>
+
+  <div class="cards" id="cards"></div>
+
+  <div class="charts">
+    <div class="chart-box"><h3>LLM Judge 평균 점수</h3><canvas id="radarChart"></canvas></div>
+    <div class="chart-box"><h3>질의 유형별 평균 점수</h3><canvas id="barChart"></canvas></div>
+    <div class="chart-box"><h3>질문별 점수 분포</h3><canvas id="heatChart"></canvas></div>
+    <div class="chart-box"><h3>Correctness 점수 분포</h3><canvas id="distChart"></canvas></div>
+  </div>
+
+  <div class="insights" id="insights"></div>
+
+  <div class="latency-section">
+    <h2>평균 레이턴시 (단계별)</h2>
+    <table class="latency-table" id="latencyTable"></table>
+  </div>
+
+  <div class="table-section">
+    <h2>질문별 상세 결과</h2>
+    <button class="expand-all" onclick="toggleAll()">전체 펼치기/접기</button>
+    <div id="queryCards"></div>
+  </div>
+
+  <div class="footer">
+    BiddingMate RAG Evaluation &mdash; Generated 2026-02-10 &mdash; LLM-as-Judge (gpt-5-mini) &mdash; 소요 시간: 1619.6초
+  </div>
+
+</div>
+
+<script>
+const SUMMARY = {"num_queries": 20, "num_evaluated": 20, "top_k": 5, "avg_correctness": 3.75, "avg_answer_coverage": 3.45, "avg_faithfulness": 4.7, "avg_context_relevance": 4.75, "recall_at_k_source": 0.75, "mrr_source": 0.725};
+const PQ = [{"id": "eval_001", "question": "고려대학교 차세대 포털·학사 정보시스템 구축사업에서 개발에 사용된 이미지·글꼴 등 인프라의 저작권 비용은 누가 부담해야 합니까?", "query_type": "single_doc", "expected_answer": "저작권에 문제가 없어야 하며, 비용이 발생할 경우 주사업자가 부담해야 합니다.", "generated_answer": "직접 답변\n- 개발에 사용된 이미지·글꼴 등 인프라에 대한 저작권 비용이 발생할 경우 그 비용은 주사업자가 부담해야 합니다.  \n  - 출처: 고려대학교_차세대 포털·학사 정보시스템 구축사업.pdf, 페이지 39\n\n관련 의무(추가 참고)\n- 제안사(수행사)는 사업 수행 시 사용하는 도구·프로그램·폰트·자료 등이 제3자의 특허권·지적재산권을 침해하지 않도록 철저히 관리해야 합니다.  \n  - 출처: 같은 문서, 페이지 213\n- 개발에 사용한 콘텐츠·디자인·이미지 등에 대해 저작권 문제가 발생하지 않도록 구현해야 하며, 지적재산권 침해가 발생할 경우 제안사는 모든 문제와 소송으로부터 발주자를 면책하고 제안사 부담으로 보상해야 합니다.  \n  - 출처: 같은 문서, 페이지 213\n\n누락된 정보(확인 권고)\n- 문맥에는 구체적인 금액·한도, “주사업자”의 법적 정의(예: 제안사와 동일한지 여부) 등은 명시되어 있지 않습니다. 이러한 세부사항은 계약서·기술제안서·공고문 전체를 확인하시기 바랍니다.", "correctness": {"score": 5, "reason": "생성 답변은 '저작권에 문제가 없어야 하며 비용이 발생할 경우 주사업자가 부담'한다는 핵심을 문서(페이지 39) 근거와 함께 정확히 제시하고 제안사의 관리·면책 의무(페이지 213)도 올바르게 기술하고 있으므로 정확하다."}, "answer_coverage": {"score": 5, "reason": "기대 답변의 핵심인 저작권 문제 금지 및 비용 부담 주체(주사업자)를 빠짐없이 포함하고 추가로 제안사의 관리·면책 의무까지 언급하여 핵심 포인트를 모두 커버한다."}, "faithfulness": {"score": 5, "reason": "답변의 모든 주요 진술(비용 부담 주사업자, 도구·폰트·자료의 관리, 침해 시 제안사의 면책·보상)은 제공된 컨텍스트(페이지 39, 213)에서 직접 확인 가능하므로 충실하다."}, "context_relevance": {"score": 5, "reason": "검색된 문서들은 질문 주제인 개발 인프라의 저작권 및 비용 부담에 직접 관련된 조항들을 포함하고 있어 질문에 필요한 정보를 충분히 제공한다."}, "hit_position": 1, "recall_at_k": 1.0, "num_retrieved": 5, "ground_truth_sources": ["고려대학교_차세대 포털·학사 정보시스템 구축사업.pdf"], "retrieved_sources": ["고려대학교_차세대 포털·학사 정보시스템 구축사업.pdf"], "latencies": {"analyze_query": 15.316032886505127, "retrieve": 4.740634918212891, "extract_evidence": 19.98392915725708, "generate": 14.436662912368774}}, {"id": "eval_002", "question": "남서울대학교 스마트 정보시스템 활성화(학사) 사업 수행 시 참여인원에 대한 정보보안교육은 얼마나 자주 실시해야 합니까?", "query_type": "single_doc", "expected_answer": "참여인원에 대해 월 1회 정보보안교육을 수행하고, 교육결과는 발주기관의 확인을 받아야 합니다.", "generated_answer": "### 교육 횟수(요구사항)\n- 사용자(관리자) 교육·운영자 교육 및 기타 교육은 \"최소 2회\" 실시해야 함.  \n  출처: 남서울대학교_[혁신-국고] 남서울대학교 스마트 정보시스템 활성화(학사.hwp), 페이지 18\n\n### 관련 보안조치(참고)\n- 참여 인원에 대해서는 신원조회 및 철저한 보안교육 등 제반 보안대책을 마련해야 함.  \n  출처: 남서울대학교_[혁신-국고] 남서울대학교 스마트 정보시스템 활성화(학사.hwp), 페이지 10\n- 시스템 구축 착수 전에 투입 인력은 보안 서약서 작성·제출 및 내부 보안규정에 따른 보안 서류를 제출해야 함(교육·선발 전 보안 관련 조치 요구).  \n  출처: 남서울대학교_[혁신-국고] 남서울대학교 스마트 정보시스템 활성화(학사.hwp), 페이지 10\n\n참고: 문맥에는 \"최소 2회\"라는 횟수만 명시되어 있으며, 교육 간격(주기)이나 추가 반복 요구사항 등은 명시되어 있지 않습니다. 해당 세부사항이 필요하면 원문 RFP의 추가 조항을 확인하거나 발주처에 문의하시기 바랍니다.", "correctness": {"score": 2, "reason": "답변은 '최소 2회'로 제시했으나 기대 답변인 '월 1회' 및 교육결과의 발주기관 확인 요구를 반영하지 않아 핵심 요구사항이 부정확함."}, "answer_coverage": {"score": 2, "reason": "월 1회 시행 및 교육결과의 발주기관 확인이라는 기대 답변의 핵심 항목들이 누락되어 주요 정보가 대부분 빠져 있음."}, "faithfulness": {"score": 5, "reason": "제시된 '최소 2회' 교육과 신원조회·보안서약 등 설명은 제공된 문서(페이지 10, 18)에 근거하여 환각 없이 작성되었음."}, "context_relevance": {"score": 5, "reason": "검색된 문서는 참여인원 보안교육·신원조회·보안서약 등 질문에 직접 관련된 내용을 포함하고 있어 매우 관련성이 높음."}, "hit_position": 1, "recall_at_k": 1.0, "num_retrieved": 5, "ground_truth_sources": ["남서울대학교_[혁신-국고] 남서울대학교 스마트 정보시스템 활성화(학사.hwp"], "retrieved_sources": ["남서울대학교_[혁신-국고] 남서울대학교 스마트 정보시스템 활성화(학사.hwp"], "latencies": {"analyze_query": 13.521367073059082, "retrieve": 0.5523719787597656, "extract_evidence": 20.275782108306885, "generate": 12.689090251922607}}, {"id": "eval_003", "question": "국가과학기술지식정보서비스 통합정보시스템 고도화 용역에서 기술능력 평가점수로 협상적격자를 선정할 때 기준은 무엇인가요?", "query_type": "single_doc", "expected_answer": "기술능력 평가분야 배점한도의 85% 이상인 제안사를 협상적격자로 선정합니다.", "generated_answer": "요약(결론)\n- 제공된 문서 내에서는 “기술능력 평가점수로 협상적격자를 선정할 때의 구체적인 적용기준(예: 순위별 선발 기준, 점수 컷오프 등)”이 확인되지 않습니다. (근거: 문서에 해당 항목이 언급되어 있으나 구체적 기준은 제공된 페이지에서 확인되지 않음) — 출처: 국가과학기술지식정보서비스_통합정보시스템 고도화 용역.hwp, 페이지 40\n\n문서에서 확인되는 관련 사항\n- 종합평가점수 구성\n  - 종합평가점수(100점) = 기술능력 평가(90점) + 입찰가격 평가(10점). — 출처: 같은 문서, 페이지 40\n- 기술능력 평가 특징\n  - 기술능력 평가는 정량평가로 90점 만점이며, 「소프트웨어 기술성 평가기준(과학기술정보통신부 고시)」을 준용함. — 출처: 같은 문서, 페이지 40\n  - 본 사업은 소프트웨어 기술성 평가기준 지침 제4조 제5항에 따른 차등점수제를 적용하지 않음(차등점수제 미적용). — 출처: 같은 문서, 페이지 40\n- 기술평가 항목(예시)\n  - 데이터요구사항(데이터 전환 계획 및 검증 등)\n  - 시스템운영(운영요구 충족도·대응책)\n  - 제약사항(문제파악·충족도·대응방안)\n  - 성능 및 품질(성능요구·품질요구)\n  - 인터페이스 요구사항(시스템·사용자 인터페이스) — 출처: 같은 문서, 페이지 53\n\n누락된 정보(필요한 추가 확인 사항)\n- 협상적격자 선정 시 기술능력 평가점수를 어떤 방식으로 적용하는지에 대한 구체적 기준(예: 기술점수 상위 N개 업체를 선발하는지, 최소 점수 기준이 있는지, 동점 처리 방식 등)은 제공된 문서 범위에서 확인되지 않습니다. — 출처: 같은 문서, 페이지 40\n\n다음 권장 조치\n- 본 기준(협상적격자 선정 세부 기준)은 입찰공고의 협상절차 또는 해당 문서의 다른 장(협상적격자 선정 및 협상순서 관련 항목)을 확인하거나, 발주처에 직접 질의하여 확인하시기 바랍니다. (문서 내 해당 항목은 언급되어 있으나 세부 적용기준은 제공된 페이지에서 확인되지 않음) — 출처: 같은 문서, 페이지 40\n\n(참고: 위 내용은 제공된 문서 범위의 정보만을 근거로 정리함)", "correctness": {"score": 2, "reason": "문서의 종합평가 구성(기술능력 90점·입찰가격 10점) 등은 정확히 제시했으나, 질문의 핵심인 '기술능력 평가분야 배점한도의 85% 이상' 기준을 제시하지 않아 기대 답변과 일치하지 않습니다."}, "answer_coverage": {"score": 1, "reason": "기대 답변의 핵심 기준인 85% 컷오프를 누락해 핵심 정보가 포함되어 있지 않습니다."}, "faithfulness": {"score": 5, "reason": "답변에서 제시한 내용과 협상적격자 선정 기준의 부재 주장은 제공된 문서(페이지 40·53)의 근거에 직접 기반하고 있습니다."}, "context_relevance": {"score": 5, "reason": "제공된 문서는 종합평가 구성, 기술능력 평가 특성 및 협상적격자 관련 항목을 포함해 질문에 직접적으로 관련된 정보를 담고 있습니다."}, "hit_position": 1, "recall_at_k": 1.0, "num_retrieved": 5, "ground_truth_sources": ["국가과학기술지식정보서비스_통합정보시스템 고도화 용역.hwp"], "retrieved_sources": ["국가과학기술지식정보서비스_통합정보시스템 고도화 용역.hwp"], "latencies": {"analyze_query": 17.006467819213867, "retrieve": 0.6652328968048096, "extract_evidence": 31.906164169311523, "generate": 22.072087049484253}}, {"id": "eval_004", "question": "재단법인 스포츠윤리센터의 '스포츠윤리센터 LMS(학습지원시스템) 기능개선' 사업에서 비밀정보의 소유권은 누구에게 있습니까?", "query_type": "single_doc", "expected_answer": "전항의 비밀정보의 소유권은 발주자가 계속 보유한다.", "generated_answer": "결론\n- 비밀정보의 소유권은 발주자(재단법인 스포츠윤리센터)에 있는 것으로 해석됩니다.\n  - 근거: 제2조 정의에서 “비밀정보”를 “발주자가 비밀 및 대외비로 분류된 자료와 본 계약에 표기된 중요한 자료·장비”로 규정함(출처: 재단법인스포츠윤리센터_스포츠윤리센터 LMS(학습지원시스템) 기능개선.hwp, p.82).\n  - 근거: 제1조에서 발주자가 사업 관련 자료·장비를 계약상대자에게 제공하고, 발주자가 제공한 자료·장비에 대해 계약상대자에게 비밀유지 의무를 부과한다고 명시함(같은 문서, p.82).\n  - 근거: 제3조에서 발주자의 비밀정보 범위를 구체적으로 열거(같은 문서, p.82).\n\n추가 유의사항\n- 계약서에 “소유권(ownership)”이라는 용어가 명시적으로 규정되어 있지는 않으므로(문맥상 발주자 귀속으로 해석되는 근거는 있음), 정확한 법적 귀속 또는 이용범위는 계약서의 다른 조항 또는 별도 합의에 따라 달라질 수 있습니다(문서상 명시적 소유권조항 미기재 부분은 별도 확인 필요).\n- 참고: 개발 산출물 등 지식재산권에 대해서는 제약사항(COR-001)에서 “개발 산출물·원고·자료·디자인·폰트·영상·이미지 등 모든 계약목적물의 지식재산권은 발주기관과 사업자가 공동으로 소유함을 원칙”이라고 규정하고 있으므로(출처: 같은 문서, p.44), 비밀정보가 개발 산출물의 형태로 통합될 경우 지식재산권 귀속과 비밀유지 의무는 별도로 검토해야 합니다.", "correctness": {"score": 5, "reason": "생성 답변은 문서의 정의(제2조)와 제1조·제3조를 근거로 비밀정보의 귀속을 발주자로 결론지었고, 문서상 명시적 소유권 규정이 없음을 보완적으로 언급해 정확하다."}, "answer_coverage": {"score": 5, "reason": "기대 답변의 핵심인 ‘비밀정보 소유권은 발주자가 보유한다’라는 결론과 이를 뒷받침하는 관련 조항들 및 지식재산권 관련 예외 고지를 모두 포함하고 있다."}, "faithfulness": {"score": 5, "reason": "결론과 추가 유의사항 모두 제공된 계약서 조문(제1조·제2조·제3조 및 COR-001)을 근거로 제시되어 있어 컨텍스트에 충실하다."}, "context_relevance": {"score": 5, "reason": "제시된 문서의 조항들이 질문 대상인 비밀정보의 정의·범위·관리·저작권 예외를 직접 다루하고 있어 질문에 매우 관련성이 높다."}, "hit_position": 1, "recall_at_k": 1.0, "num_retrieved": 5, "ground_truth_sources": ["재단법인스포츠윤리센터_스포츠윤리센터 LMS(학습지원시스템) 기능개선.hwp"], "retrieved_sources": ["재단법인스포츠윤리센터_스포츠윤리센터 LMS(학습지원시스템) 기능개선.hwp"], "latencies": {"analyze_query": 10.654071807861328, "retrieve": 0.7498271465301514, "extract_evidence": 27.489349842071533, "generate": 17.31745481491089}}, {"id": "eval_005", "question": "대한적십자사 의료원_적십자병원 병원정보 재해복구시스템 구축 용역 문서에서 QUR-02(가용성 보장) 요구사항에 따르면 도입 하드웨어 및 소프트웨어의 운영 요구사항은 무엇인가?", "query_type": "single_doc", "expected_answer": "정상상태에서 매일 24시간 무중단으로 운영되어야 하며, 통상적인 업무시간 동안 가용성을 보장해야 한다.", "generated_answer": "### QUR-02(가용성 보장) — 운영 요구사항\n\n- 도입 하드웨어 및 소프트웨어는 정상 상태에서 매일·24시간 무중단 운영되어야 함.  \n- 도입 하드웨어 및 소프트웨어는 통상적인 업무시간 동안 가용성을 보장하여야 함.\n\n출처: 대한적십자사 의료원_적십자병원 병원정보 재해복구시스템 구축 용역.hwp, 페이지 [25]\n\n참고(문맥에 없음): 문서에서 제시된 내용은 상기 두 가지 원칙에 한정되어 있으므로, 허용 가능한 다운타임, 가용성 수치(예: %), 유지보수 창(정기점검 시간), 이중화·장애복구 방법, 모니터링·응답요구시간 등 구체적 운영·SLA 항목은 해당 페이지에 명시되어 있지 않습니다. 필요한 경우 추가 문서나 조문을 확인해 구체 수치를 반영해야 합니다.", "correctness": {"score": 5, "reason": "생성 답변이 기대 답변의 두 핵심 요구사항(매일·24시간 무중단 운영 및 통상 업무시간 가용성)을 정확히 포함하고 있음."}, "answer_coverage": {"score": 5, "reason": "두 핵심 포인트를 빠짐없이 포함하여 기대 답변의 모든 핵심 정보를 커버하고 있음."}, "faithfulness": {"score": 5, "reason": "답변 내용이 제공된 검색 컨텍스트에 직접 근거하고 있으며 추가 주석도 '문맥에 없음'으로 명시되어 환각이 없음."}, "context_relevance": {"score": 5, "reason": "검색된 컨텍스트는 질문에 완전히 관련되어 있으며 답변에 필요한 정보를 충분히 포함하고 있음."}, "hit_position": 1, "recall_at_k": 1.0, "num_retrieved": 5, "ground_truth_sources": ["대한적십자사 의료원_적십자병원 병원정보 재해복구시스템 구축 용역 .hwp"], "retrieved_sources": ["대한적십자사 의료원_적십자병원 병원정보 재해복구시스템 구축 용역 .hwp"], "latencies": {"analyze_query": 14.450231790542603, "retrieve": 0.591245174407959, "extract_evidence": 13.323307991027832, "generate": 7.441333770751953}}, {"id": "eval_006", "question": "한국수출입은행의 모잠비크 마푸토 지능형교통시스템(ITS) 구축사업 RFP 텍스트에 따르면 경제적 타당성 분석 시 참고해야 할 가이드는 무엇인가?", "query_type": "single_doc", "expected_answer": "Guidelines for the Economic Analysis of Projects(ADB) 및 Guide to Cost-Benefit Analysis of Investment Project(European Commission).", "generated_answer": "다음 가이드를 경제적 타당성 분석 시 참고하라고 RFP에 명시되어 있습니다.\n\n- Guidelines for the Economic Analysis of Projects (Asian Development Bank, ADB)  \n  - 출처: 한국수출입은행_(긴급) 모잠비크 마푸토 지능형교통시스템(ITS) 구축사업.hwp, p.50\n\n- Guide to Cost‑Benefit Analysis of Investment Projects (European Commission)  \n  - 출처: 한국수출입은행_(긴급) 모잠비크 마푸토 지능형교통시스템(ITS) 구축사업.hwp, p.50\n\n- EDCF F/S 작성지침(’24.3월) — EDCF 홈페이지(www.edcfkorea.go.kr) 「정보공개」→「서류/서식」→ 18번 게시물(EDCF Feasibility Study Guideline)  \n  - 출처: 한국수출입은행_(긴급) 모잠비크 마푸토 지능형교통시스템(ITS) 구축사업.hwp, p.35\n\n(출처 표기는 RFP 문서명 및 페이지 기준)", "correctness": {"score": 5, "reason": "The answer correctly names the ADB and European Commission guides listed in the RFP and also accurately cites the EDCF Feasibility Study Guideline present in the document."}, "answer_coverage": {"score": 5, "reason": "It includes both expected core guides (ADB and EC) and additionally the EDCF F/S guideline from the RFP, covering all relevant references."}, "faithfulness": {"score": 5, "reason": "Each referenced guide is explicitly mentioned in the supplied RFP context (pages 50 and 35), so the answer is directly supported by the document."}, "context_relevance": {"score": 5, "reason": "The cited documents are taken from the RFP and are directly relevant to conducting economic feasibility analysis as specified in the context."}, "hit_position": 1, "recall_at_k": 1.0, "num_retrieved": 5, "ground_truth_sources": ["한국수출입은행_(긴급) 모잠비크 마푸토 지능형교통시스템(ITS) 구축사업.hwp"], "retrieved_sources": ["한국수출입은행_(긴급) 모잠비크 마푸토 지능형교통시스템(ITS) 구축사업.hwp"], "latencies": {"analyze_query": 24.49873399734497, "retrieve": 0.8986310958862305, "extract_evidence": 12.813261032104492, "generate": 14.359473943710327}}, {"id": "eval_007", "question": "을지대학교 비교과시스템 개발 사업에서 계약상대자는 사업 완료 후 검사 승인을 받기 위해 어떤 서류를 을지대학교에 제출해야 합니까?", "query_type": "single_doc", "expected_answer": "완료보고서, 납품 및 검사조서를 제출하여 감독관에게 검사 승인을 받아야 한다.", "generated_answer": "제출서류 및 유의사항\n\n- 제출해야 할 서류\n  - 완료보고서 (사업 완료 후 제출)  \n    - (출처: 을지대학교_을지대학교 비교과시스템 개발.hwp, 페이지 70)\n  - 납품 및 검사조서 (납품·검사 관련 서류)  \n    - (출처: 을지대학교_을지대학교 비교과시스템 개발.hwp, 페이지 70)\n  - 검사요청(본교의 요구사항에 맞춰 검사 요청)  \n    - (출처: 을지대학교_을지대학교 비교과시스템 개발.hwp, 페이지 70)\n\n- 검사항목·후속조치 및 유의사항\n  - 본교 감독관 입회하에 종합시험을 실시하며 규격서 요구사항 및 제안서 내용이 문제없이 수행되어야 함.  \n    - (출처: 을지대학교_을지대학교 비교과시스템 개발.hwp, 페이지 70)\n  - 검사에서 미비한 서류가 있을 경우, 해당 서류가 보완되기 전까지 대금 지급을 유보함.  \n    - (출처: 을지대학교_을지대학교 비교과시스템 개발.hwp, 페이지 70)\n  - 검사 결과 감독관의 지적사항 및 시정요구가 있을 경우 사업자는 성실히 이행해야 함.  \n    - (출처: 을지대학교_을지대학교 비교과시스템 개발.hwp, 페이지 70)\n\n위 항목 외에 추가로 요구되는 서류나 세부양식이 있는지는 제안요청서 원문 또는 발주처의 별도 안내를 확인해야 합니다. (출처: 을지대학교_을지대학교 비교과시스템 개발.hwp, 페이지 70)", "correctness": {"score": 5, "reason": "답변은 완료보고서와 납품 및 검사조서 제출 및 감독관의 검사 승인 필요성을 정확하게 제시하고 있다."}, "answer_coverage": {"score": 5, "reason": "기대 답변의 핵심인 완료보고서·납품 및 검사조서 제출과 검사 승인 절차를 모두 포함하고 있다."}, "faithfulness": {"score": 5, "reason": "검사요청, 감독관 입회하의 종합시험, 서류 미비 시 대금지급 유보 등 모든 내용이 제공된 문헌 근거에서 확인 가능하다."}, "context_relevance": {"score": 5, "reason": "검색된 문서는 제출서류와 검사절차에 관한 내용으로 질문에 완벽히 관련되어 있다."}, "hit_position": 1, "recall_at_k": 1.0, "num_retrieved": 5, "ground_truth_sources": ["을지대학교_을지대학교 비교과시스템 개발.hwp"], "retrieved_sources": ["을지대학교_을지대학교 비교과시스템 개발.hwp"], "latencies": {"analyze_query": 17.840534925460815, "retrieve": 1.191706895828247, "extract_evidence": 17.945369005203247, "generate": 12.899991989135742}}, {"id": "eval_008", "question": "국민연금공단_2024년 이러닝시스템 운영 용역 세부산출내역서에 따르면 '직무교육'의 단위와 수량은 무엇인가?", "query_type": "single_doc", "expected_answer": "단위는 '명'이며 수량은 11,000명이다.", "generated_answer": "### 직무교육 단위 및 수량\n\n- 단위: 명  \n- 수량: 11,000명 (예상인원)\n\n출처: 국민연금공단_2024년 이러닝시스템 운영 용역.hwp, 페이지 8", "correctness": {"score": 5, "reason": "단위 '명'과 수량 '11,000명'을 정확히 제시하여 기대 답변과 일치함."}, "answer_coverage": {"score": 5, "reason": "단위와 수량 등 기대된 핵심 정보를 빠짐없이 포함함."}, "faithfulness": {"score": 5, "reason": "모든 내용이 제공된 문서(페이지 8)의 근거에 직접 기반하고 있어 환각이 없음."}, "context_relevance": {"score": 5, "reason": "제공된 컨텍스트가 질문과 완벽히 일치하며 필요한 정보를 포함함."}, "hit_position": 1, "recall_at_k": 1.0, "num_retrieved": 5, "ground_truth_sources": ["국민연금공단_2024년 이러닝시스템 운영 용역.hwp"], "retrieved_sources": ["국민연금공단_2024년 이러닝시스템 운영 용역.hwp", "한국사회보장정보원_라오스 보건의료정보화 협력을 위한 사전타당성 조.hwp", "국립중앙의료원_(긴급)「2024년도 차세대 응급의료 상황관리시스템 구축.hwp"], "latencies": {"analyze_query": 12.221343994140625, "retrieve": 0.64432692527771, "extract_evidence": 10.805269241333008, "generate": 7.852319955825806}}, {"id": "eval_009", "question": "BioIN_의료기기산업 종합정보시스템(정보관리기관) 기능개선 사업(2차)에서 웹페이지의 용량은 얼마 이내로 개발해야 하나요?", "query_type": "single_doc", "expected_answer": "웹페이지의 용량은 3MB 이내로 개발해야 하며 단, 홍보 등 특성에 따라 3MB를 초과할 수 있습니다.", "generated_answer": "웹페이지 용량 기준\n- 기본: 웹페이지의 용량은 3MB 이내로 개발해야 합니다.\n- 예외: 홍보 등 특성에 따라 3MB를 초과할 수 있습니다.\n\n출처: BioIN_의료기기산업 종합정보시스템(정보관리기관) 기능개선 사업(2차).hwp, 페이지 20.", "correctness": {"score": 5, "reason": "답변은 웹페이지 용량이 3MB 이내여야 하고 홍보 등 특성으로 초과할 수 있다는 기대 답변의 핵심 내용을 정확히 기술하고 있습니다."}, "answer_coverage": {"score": 5, "reason": "기대 답변의 핵심인 3MB 제한과 예외 규정(홍보 등)을 모두 누락 없이 포함하고 있습니다."}, "faithfulness": {"score": 5, "reason": "제시된 문서(해당 HWP, 페이지 20)의 문구와 일치하여 답변의 모든 내용이 검색된 컨텍스트에서 확인 가능합니다."}, "context_relevance": {"score": 5, "reason": "검색된 문서는 질문의 규정 사항을 직접 다루고 있어 질문에 필요한 정보를 충분히 제공하고 있습니다."}, "hit_position": 1, "recall_at_k": 1.0, "num_retrieved": 5, "ground_truth_sources": ["BioIN_의료기기산업 종합정보시스템(정보관리기관) 기능개선 사업(2차).hwp"], "retrieved_sources": ["BioIN_의료기기산업 종합정보시스템(정보관리기관) 기능개선 사업(2차).hwp"], "latencies": {"analyze_query": 13.1665198802948, "retrieve": 0.45207786560058594, "extract_evidence": 8.123046159744263, "generate": 5.434896945953369}}, {"id": "eval_010", "question": "한국농수산식품유통공사 농산물가격안정기금 정부예산회계연계시스템 RFP에서 시스템 장애 발생 시 데이터 복구 기한은 무엇인가요?", "query_type": "single_doc", "expected_answer": "시스템은 장애가 발생하면 12시간 이내에 데이터를 복구해야 합니다.", "generated_answer": "요약하면 RFP에 명시된 구체적(숫자) 데이터 복구 기한은 없습니다. 대신 복구·보수 의무와 시점에 대해 다음과 같이 규정하고 있습니다(문서: 한국농수산식품유통공사_농산물가격안정기금 정부예산회계연계시스템, 페이지 40).\n\n- 문구 및 의미\n  - \"발주기관이 지정하는 바에 따라 최단 시일 내에 복구처리 및 배상을 하여야 함\" — 발주기관이 정하는 기간에 따름(구체적 시간 미기재). (출처: 위 문서, p.40)\n  - \"요청을 받은 즉시 그 하자를 보수해야 하며…\" — 발주기관의 하자보수 요청을 받으면 즉시 조치해야 함(구체적 시간치수 미기재). (출처: 위 문서, p.40)\n  - 또한 시스템 안정성·장애시간 최소화를 위해 \"세부 하자보수 계획\"을 제시하도록 요구하고 있음. (출처: 위 문서, p.40)\n\n- 결론 및 권고\n  - RFP 본문(제공된 부분)에는 데이터 복구를 위한 명확한 기한(예: 몇 시간·몇 일)이 명시되어 있지 않습니다.\n  - 정확한 기한을 확인하려면 전체 RFP 문서의 관련 조항(서비스 수준·하자보수 항목) 또는 발주기관에 문의하여 발주기관이 지정한 복구 기한을 확인해야 합니다(또는 제안서에 세부 하자보수 계획과 복구 목표시간(SLA)을 명시할 것을 권장). (출처: 위 문서, p.40)", "correctness": {"score": 2, "reason": "생성된 답변은 제공된 발췌문을 정확히 인용했지만 기대 답변인 '12시간 이내' 복구 요구를 누락·부정하여 핵심 요구사항과 상충합니다."}, "answer_coverage": {"score": 2, "reason": "문서의 일반적 복구·보수 의무는 언급했으나 기대 답변의 핵심 수치(12시간)가 빠져 주요 정보를 놓쳤습니다."}, "faithfulness": {"score": 5, "reason": "응답 내용은 제공된 컨텍스트의 문구를 직접 인용·해석한 것으로 문맥에 충실합니다."}, "context_relevance": {"score": 5, "reason": "검색된 문서는 시스템 안정성·하자보수·복구 의무를 다루고 있어 질문에 직접 관련된 자료입니다."}, "hit_position": 1, "recall_at_k": 1.0, "num_retrieved": 5, "ground_truth_sources": ["한국농수산식품유통공사_농산물가격안정기금 정부예산회계연계시스템 .hwp"], "retrieved_sources": ["한국농수산식품유통공사_농산물가격안정기금 정부예산회계연계시스템 .hwp"], "latencies": {"analyze_query": 10.823397874832153, "retrieve": 0.49328112602233887, "extract_evidence": 22.452449083328247, "generate": 12.925788164138794}}, {"id": "eval_011", "question": "사단법인아시아물위원회사무국의 우즈벡-키르기즈스탄 기후변화대응 사업 제안서에서 핵심투입인력은 누구로 지정되어야 합니까?", "query_type": "single_doc", "expected_answer": "핵심투입인력은 사업관리자(PM) 1명으로 지정하며 제안사 소속이어야 하고, 공동도급의 경우 대표사 소속으로 지정해야 합니다.", "generated_answer": "### 핵심투입인력(누구를 지정해야 하나)\n- 제안서에 반드시 지정해야 하는 핵심투입인력은 사업관리자(Project Manager, PM)입니다. PM은 제안사(대표사) 소속이어야 하며(공동이행 시 대표사 소속 인정), 제안서 제출 시 PM의 이력서 제출이 필수입니다.  \n  - 출처: 사단법인아시아물위원회사무국_우즈벡-키르기즈스탄 기후변화대응 스.hwp, 페이지 1, 8\n\n### PM의 역할(주요업무)\n- PMC 용역 총괄 관리  \n- 관련 기관 간 주요 내용 협의 및 결과보고  \n- 시설구축 설계·시공감리 및 준공검사 총괄  \n- 성과점검 및 주요결과 공유 등  \n  - 출처: 같은 문서, 페이지 8\n\n### PM의 필수 자격요건\n- 입찰공고일 이전(입찰공고일 포함)에 제안사(대표사) 소속일 것  \n- 수자원 분야 박사 또는 기술사 이상  \n- 영어 능통자  \n  - 출처: 같은 문서, 페이지 8\n\n### PM의 우대사항 및 경력요건\n- 국제기관과 협업 유경험자  \n- 국제개발협력사업 유경험자  \n- 건설기술인 토목 직무분야 합산 20년 이상 경력자(우대)  \n  - 출처: 같은 문서, 페이지 8\n\n### 기타 인력 관련 사항\n- PMC는 PM 및 분야별 전문가를 파견하여 GGGI 협조하에 사업관리 용역을 수행해야 함.  \n- 전문가 파견 총 인력은 61 M/M(월수 및 인력 합계)임.  \n  - 출처: 같은 문서, 페이지 5, 8\n\n요약: 제안서의 핵심투입인력은 PM을 명확히 지정해야 하며, 위의 자격·역할·우대경력을 충족하도록 기재해야 합니다(관련 서식 제출 필수).", "correctness": {"score": 4, "reason": "생성 답변은 핵심투입인력이 PM임과 제안사(공동 시 대표사) 소속이어야 한다는 점을 정확히 제시했으나 '1명'임을 명시하지 않았습니다."}, "answer_coverage": {"score": 4, "reason": "PM 지정, 소속, 자격요건 등 대부분의 핵심 항목을 포함했으나 기대답변의 'PM 1명'이라는 명시가 누락되었습니다."}, "faithfulness": {"score": 5, "reason": "답변의 역할·자격·소속 등의 내용이 제공된 문서의 근거(페이지 1, 5, 8)에 직접 대응되어 전부 근거가 있습니다."}, "context_relevance": {"score": 5, "reason": "검색된 문서들은 PM 지정 및 요건에 관한 내용으로 질문에 매우 직접적이고 충분히 관련되어 있습니다."}, "hit_position": 1, "recall_at_k": 1.0, "num_retrieved": 5, "ground_truth_sources": ["사단법인아시아물위원회사무국_우즈벡-키르기즈스탄 기후변화대응 스.hwp"], "retrieved_sources": ["사단법인아시아물위원회사무국_우즈벡-키르기즈스탄 기후변화대응 스.hwp"], "latencies": {"analyze_query": 14.659065008163452, "retrieve": 0.3699479103088379, "extract_evidence": 24.669718980789185, "generate": 13.931198120117188}}, {"id": "eval_012", "question": "(재)예술경영지원센터 통합 정보시스템 구축 사전 컨설팅 문서에 따르면 신규시스템에 우선 적용해야 할 문자셋은 무엇인가요?", "query_type": "single_doc", "expected_answer": "신규시스템에는 UTF-8을 우선 적용해야 한다.", "generated_answer": "신규시스템에 우선 적용해야 할 문자셋은 UTF-8입니다.\n\n근거:\n- (재)예술경영지원센터_통합 정보시스템 구축 사전 컨설팅.hwp, 페이지 33 (\"UTF-8(단, 신규시스템은 UTF-8 우선 적용)\")", "correctness": {"score": 5, "reason": "답변이 기대 답변과 일치하며 신규시스템에 UTF-8을 우선 적용해야 한다고 정확히 명시하고 있습니다."}, "answer_coverage": {"score": 5, "reason": "신규 시스템에 UTF-8 우선 적용이라는 핵심 정보를 빠짐없이 포함하고 있습니다."}, "faithfulness": {"score": 5, "reason": "답변 내용이 제공된 컨텍스트('UTF-8(단, 신규시스템은 UTF-8 우선 적용)')에 직접 근거합니다."}, "context_relevance": {"score": 5, "reason": "검색된 문서가 질문에 정확히 관련되어 있으며 필요한 정보를 포함하고 있습니다."}, "hit_position": 1, "recall_at_k": 1.0, "num_retrieved": 5, "ground_truth_sources": ["(재)예술경영지원센터_통합 정보시스템 구축 사전 컨설팅.hwp"], "retrieved_sources": ["(재)예술경영지원센터_통합 정보시스템 구축 사전 컨설팅.hwp"], "latencies": {"analyze_query": 17.0816969871521, "retrieve": 0.44042396545410156, "extract_evidence": 9.098096132278442, "generate": 5.610603094100952}}, {"id": "eval_013", "question": "한국대학스포츠협의회(KUSF)의 ‘체육특기자 경기력 평가지표 개발’(특히 시뮬레이션 단계)에서 개인별 경기력 데이터를 처리·관리하는 시스템을 구축할 때, 평택시 ‘케빈랩 주식회사_강소형 스마트시티 AI 기반 영상감시 시스템’ RFP의 기술적 보안요건(SER-002) 중 어떤 보안 조치를 반드시 적용해야 하나요?", "query_type": "multi_doc", "expected_answer": "KUSF의 개인 경기력 평가지표 시스템(개발·시뮬레이션 단계 포함)에 대해 SER-002의 기술적 보안요건을 적용하면 다음 조치를 포함해야 한다: 사용자 권한에 따른 접근제어 구현; 네트워크 관리자 등 계정의 복잡한(기본이 아닌) 패스워드 사용; 사업계획·분석단계부터 소스 프로그램의 안전성 반영(안전한 개발); 서버·시스템에 대한 보안 취약성 사전점검 및 보완; 개발자용 PC 패스워드 사용 및 주기적 변경; 정기적 바이러스·해킹 도구 검사; 백업정책 수립·실행(복구 가능성 확보); 개인정보·주요정보의 저장·전송·전달 시 법적 요구사항 반영한 암호화 적용(대상·강도·정책 수립 포함); 최소권한 원칙에 따른 사용자 등록·해지·권한 부여·변경·말소 절차 수립·이행; 안전한 인증 절차 및 필요시 강화된 인증 적용; 계정 등록·이용·삭제 및 권한 변경 이력 기록·주기적 검토; 보호구역 외 시스템 관리·개인정보 처리는 원칙 금지하되 원격접근이 불가피한 경우 책임자 승인, 접근 단말 지정·범위·기간 설정, 강화된 인증, 구간 암호화, 접속 단말 보안 등 보호대책 수립·적용.", "generated_answer": "### 적용해야 할 필수 보안조치 (문맥 근거)\n다음 조치는 KUSF RFP 문서에 명시된 의무사항으로, 체육특기자 경기력 평가지표 개발(시뮬레이션 단계 포함)에서 개인별 경기력 데이터를 처리·관리하는 시스템에 반드시 적용되어야 합니다.\n- 모든 투입 인원은 관련 양식에 따른 보안 각서를 제출해야 함.  \n  - (출처: (사)한국대학스포츠협의회_KUSF 체육특기자 경기기록 관리시스템 개발.hwp, p.44)\n- 기술자료 반출·반납 등은 한국대학스포츠협의회 기술자료 관리지침을 준수해야 함; 협회로부터 제공받은 자료는 용역 이외 목적의 복사·대여 금지 및 사업 종료 시 전부 반납 의무.  \n  - (출처: 위 문서, p.44)\n- 용역 수행과정에서 얻은 정보·자료를 협회와 사전 협의 없이 외부에 제공·공개하면 모든 책임을 부담함(비공개 의무).  \n  - (출처: 위 문서, p.44)\n- 관련 자료는 반납 시까지 보존 책임이 있으며 사용 중 훼손·망실 등 하자 발생 시 모든 책임을 짐.  \n  - (출처: 위 문서, p.44)\n- 사업 수행 중 획득한 지식은 사업 기간 중뿐 아니라 사업 완료 후에도 보안을 준수해야 함(사후 보안 의무).  \n  - (출처: 위 문서, p.44)\n- 불용장비 매각 시 하드디스크 내 데이터 보호 조치(파쇄 또는 로우레벨 포맷 처리) 시행 의무.  \n  - (출처: 위 문서, p.44)\n\n### SER-002의 추가 기술적 보안요건(확인 권고 — 문맥에 없음)\n사용자 질문에서 언급한 평택시 RFP의 SER-002 조항 원문은 제공된 문맥에 포함되어 있지 않습니다. 따라서 SER-002의 구체 항목을 직접 대조할 수는 없으므로, 다음 기술적 통제들(일반적으로 SER-002에 포함될 가능성이 높은 항목)을 SER-002 원문과 대조하여 추가 적용 여부를 확인하실 것을 권고합니다(아래 항목들은 본 문맥에 명시되어 있지 않음 — SER-002 문서에서 확인 필요).  \n- 데이터 암호화(저장시 암호화 및 전송중 암호화)  \n- 접근통제(역할기반 접근제어, 최소권한) 및 인증(다중요소 등)  \n- 감사로그 및 접근·변경 이력 관리(감사 보존기간 포함)  \n- 네트워크 보안(방화벽, 침입탐지/차단 등) 및 안전한 API 통신  \n- 개인정보 비식별화/가명처리(시뮬레이션용 데이터 사용 시)  \n- 백업·복구 및 보존정책, 데이터 파기 절차(로우레벨 포맷 외 추가 요구사항)  \n- 보안개발수명주기(SDLC) 적용 및 취약점 점검·패치 절차  \n- 물리적 보안 및 호스트 보안(서버·장비 관리)  \n- 사고 대응·보고 절차 및 책임자 지정\n\n요약 및 권고\n- KUSF 문서(출처: 위 문서, p.44)에 명시된 보안 의무(보안각서, 기술자료 관리지침 준수, 비공개·보존의무, HDD 폐기조치 등)는 개인별 경기력 데이터를 처리·관리하는 시스템에 반드시 적용해야 합니다.  \n- 평택시 RFP SER-002의 구체 항목은 제공된 문맥에 없어 직접 대조할 수 없으므로, 위 KUSF 의무를 최소 요건으로 적용하되 SER-002 원문을 확인하여 추가 기술적 통제(암호화, 접근통제, 로그, 비식별화 등)를 반영하십시오.\n\n출처: (사)한국대학스포츠협의회_KUSF 체육특기자 경기기록 관리시스템 개발.hwp, 페이지 44.", "correctness": {"score": 5, "reason": "KUSF 문서의 보안 의무(보안각서·기술자료 관리·비공개·보존·HDD 폐기 등)를 정확히 인용하고 SER-002 원문 부재를 명시한 뒤 일반적 기술조치를 합리적으로 권고함."}, "answer_coverage": {"score": 4, "reason": "기대 답변의 대부분 핵심 항목(접근통제·암호화·로그·백업·SDLC·취약점 점검 등)을 포함했으나 관리자/개발자 패스워드 주기 변경·정기적 바이러스·해킹 도구 검사 등 일부 세부조치가 누락됨."}, "faithfulness": {"score": 4, "reason": "KUSF 문서 기반 조치는 문맥에서 직접 확인 가능하며 SER-002 부재를 명시했으나 이후 제시한 권고 항목들은 제공된 컨텍스트에서 직접 증명되지는 않아 일부 추론이 포함됨."}, "context_relevance": {"score": 5, "reason": "제공된 KUSF 문서 발췌는 개인별 경기력 데이터 처리·관리 시스템의 보안 의무와 직접적으로 관련되어 있어 검색 컨텍스트가 매우 적절함."}, "hit_position": null, "recall_at_k": 0.0, "num_retrieved": 5, "ground_truth_sources": ["(사）한국대학스포츠협의회_KUSF 체육특기자 경기기록 관리시스템 개발.hwp", "케빈랩 주식회사_평택시 강소형 스마트시티 AI 기반의 영상감시 시스템 .hwp"], "retrieved_sources": ["(사）한국대학스포츠협의회_KUSF 체육특기자 경기기록 관리시스템 개발.hwp"], "latencies": {"analyze_query": 18.603721857070923, "retrieve": 0.3114619255065918, "extract_evidence": 20.862947940826416, "generate": 24.397547006607056}}, {"id": "eval_014", "question": "재단법인 광주광역시 광주문화재단의 '2024년 광주문화예술통합플랫폼' 유지보수·보안 요구사항과 한국산업단지공단의 '산단 안전정보시스템 1차 구축 용역'의 HW/SW 조달·기술지원 요구사항을 모두 고려할 때, 계약상대자가 제출·이행해야 할 유지관리·보안 의무와 제조사 관련 제출서류 및 클라우드 검토 절차는 무엇인가요?", "query_type": "multi_doc", "expected_answer": "광주문화예술통합플랫폼(광주문화재단) 측에서는 계약상대자가 정기점검 계획서·정기·수시 점검 보고서를 문서화하고 유지보수내역서를 산출하며, 정보보안시스템을 이용한 취약점 진단·점검 및 사이버 침해사고 예·경보 대응 시 적극 협조해야 합니다. 또한 전산장비(OS 등) 업그레이드·패치로 인한 응용프로그램 변경에 대한 유지관리 전략과 성능·데이터 정합성·사용자 지원을 포함한 유지관리 방안을 제시·이행해야 합니다. 한국산단공의 산단 안전정보시스템에서는 OEM/ODM 제품을 제외하고 모든 HW·SW에 대해 제조사의 '물품공급 및 기술지원확약서'를 제출해야 하며, 장비 도입 및 설치 장소·구성 방안은 국가정보자원관리원의 G-클라우드 서비스 이용 사전검토와 발주처 협의를 거쳐 결정해야 합니다(아키텍처 정의서·시스템 구성도·설치계획서·설치결과서 등 산출물 기대).", "generated_answer": "", "correctness": {"score": 0, "reason": "생성된 답변이 제공되지 않아 정확성 평가가 불가능합니다."}, "answer_coverage": {"score": 0, "reason": "응답이 없으므로 기대 답변의 핵심 포인트 포함 여부를 판단할 수 없습니다."}, "faithfulness": {"score": 0, "reason": "제시된 생성된 답변이 없어 검색된 컨텍스트와의 충실성(근거 일치)을 확인할 수 없습니다."}, "context_relevance": {"score": 0, "reason": "평가할 생성 답변이 제공되지 않아 검색된 컨텍스트의 관련성을 평가할 수 없습니다."}, "hit_position": null, "recall_at_k": 0.0, "num_retrieved": 5, "ground_truth_sources": ["재단법인 광주광역시 광주문화재단_2024년 광주문화예술통합플랫폼 시스.hwp", "한국산업단지공단_산단 안전정보시스템 1차 구축 용역.hwp"], "retrieved_sources": ["재단법인 광주광역시 광주문화재단_2024년 광주문화예술통합플랫폼 시스.hwp", "국민연금공단_2024년 이러닝시스템 운영 용역.hwp", "광주과학기술원_학사시스템 기능개선 사업.hwp"], "latencies": {"analyze_query": 15.24555492401123, "retrieve": 0.5092098712921143, "extract_evidence": 38.229660987854004, "generate": 50.88358998298645}}, {"id": "eval_015", "question": "한국해양조사협회의 '2024년 항해용 간행물 품질관리 업무보조 시스템 구축' 용역을 수행한 업체가 경기도 평택시의 '2024년도 평택시 버스정보시스템(BIS) 구축사업' 입찰에 해당 실적을 제출하려면 어떤 제출서류와 준수사항(비밀정보 취급·사본허가·하도급·공동도급·위약·실적증명원 등)을 충족해야 하나요?", "query_type": "multi_doc", "expected_answer": "요약: 두 문서를 근거로, 해당 실적을 제출하려면 아래를 충족해야 합니다. 1) 비밀관리·사본허가: 한국해양조사협회 계약상 비밀정보는 발주기관이 승인한 자만 취급 가능하며(허가받지 않은 복제·누설 금지), 제공받은 비밀정보나 그에 기초한 자료는 신중히 보관하고(복사본 포함) 발주기관 요구 시 즉시 반환해야 하므로(계약종료 후 포함) 실적 제출 시 발주기관의 자료 제공·복사 허가를 받아야 합니다. 2) 책임·위약: 동해·독도 표기 오류 등으로 사회적 문제가 발생하면 협회는 보안위규에 따른 위약금·손해배상을 부과할 수 있으니(제7·제8조) 관련 분쟁·위약 사실은 입찰 시 유의해야 합니다. 3) 평택시 실적기재 및 증빙: 최근 3년간 유사사업 수행실적 표에 사업명, 사업개요, 사업기간(완료·진행중 구분), 계약금액(천원), 발주처, 사업책임기술자 등을 기재하고 각 건별 실적증명원(사업명·기간·계약금액·책임기술자·총투입인원·자격명칭·사업내용 등)을 첨부해야 합니다. 4) 하도급·공동도급 처리: 하도급 실적은 발주기관의 승인 받은 경우만 기재 가능하며, 공동도급은 계약금액란에 제안사 지분만 기재해야 합니다. 5) 기타: 현재 수행 중인 업무도 연도순으로 포함하고, 모든 증빙은 부록으로 첨부해야 합니다.", "generated_answer": "요청하신 사항(한국해양조사협회의 '2024년 항해용 간행물 품질관리 업무보조 시스템 구축' 실적을 평택시 BIS 입찰에 제출할 경우)을 제출서류(증빙)와 준수사항별로 정리합니다. 아래 내용은 제공된 문맥에 근거한 항목만을 기술하며, 문맥에 명시되지 않은 항목은 별도로 안내합니다.\n\n### 핵심 사업(입찰) 정보(참고)\n- 사업명: 2024년도 평택시 버스정보시스템(BIS) 구축사업 용역  \n  출처: 경기도 평택시_2024년도 평택시 버스정보시스템(BIS) 구축사업.hwp, 페이지: 1\n- 사업기간: 착수일로부터 ∼ 2024. 10. 31.  \n  출처: 동일 문서, 페이지: 1\n- 소요예산: ￦999,494,600원(부가세 포함)  \n  출처: 동일 문서, 페이지: 1\n\n### 1) 제출서류(필수/권장) — 문맥에 명시된 항목\n- 제안서 및 증빙자료(실적증명원 포함)  \n  - 제안서 및 증빙자료 제출이 요구됨(제출기한·방법은 입찰공고 참조). 제출된 증빙자료는 제안서와 동일한 효력을 가짐.  \n  출처: 한국수자원조사기술원_수문자료정보관리시스템(HDIMS) 재구축 용역(3단계).hwp, 페이지: 50\n- 실적(수행) 입증자료(입증자료 요청 시 제출)  \n  - 발주기관이 요구하면 입증자료를 제출해야 하며, 이를 제출하지 못하면 평가대상에서 제외될 수 있음.  \n  출처: 동일 문서, 페이지: 50\n- H/W·S/W 카탈로그 및 증명서(해당 시)  \n  - 제안서에 명시된 H/W·S/W 규격은 최소사양이며, 제안사는 카탈로그 및 증명서를 제출해야 함. 제안하는 모든 S/W는 정식 License 및 해당 수량을 납품 시 제출하여야 함.  \n  출처: 울산광역시_2024년 버스정보시스템 확대 구축 및 기능개선 용역.hwp, 페이지: 13\n- 제안서 제출 시의 기타 증빙서류(입찰공고문에 따름)  \n  - 제출내역·제출방법·제출기한 등은 입찰공고문 참조(문맥 상 자세한 제출방법은 입찰공고문에 따름).  \n  출처: 한국수자원조사기술원_수문자료정보관리시스템(HDIMS)…, 페이지: 50\n\n### 2) 계약상·운영상 준수사항(문맥에 명시된 의무)\n- 교육훈련계획·기술지원 및 기술인력 현황 제출  \n  - ‘을’(수행자)은 교육훈련계획 및 기술지원 사항과 기술인력 현황을 시운전 시작 30일 전까지 제출해야 함.  \n  출처: 경기도 평택시_2024년도 평택시 BIS 구축사업.hwp, 페이지: 14\n- 운영·유지보수 계획 및 준공 시 유지보수 자료 제출(유사 요구)  \n  - BIS 운영·유지보수 체계·전략 수립 및 준공 시 유지보수 방안을 보고서 형태로 제출해야 함(유사 요구사항 예시).  \n  출처: 울산광역시_2024년 버스정보시스템 확대…hwp, 페이지: 13\n- 시스템 운영·데이터 신뢰성·DB 검수 의무  \n  - DB 구축 시 자체 검수절차 시행 및 시스템 신뢰성 향상 방안 제시 의무 등이 명시되어 있음.  \n  출처: 경기도 평택시_2024년도 평택시 BIS 구축사업.hwp, 페이지: 1, 14\n- 완성물(성과품) 제출 범위(소프트웨어 관련)  \n  - 소스코드·시스템 구성도·테스트 결과서·관리자·사용자 매뉴얼 등 성과물 제출(동종 사업의 산출물 목록 예시).  \n  출처: 한국수자원조사기술원_수문자료정보관리시스템(HDIMS)…, 페이지: 50\n- 중앙정부 표준·감독원 지시 수용 의무  \n  - 사업기간 중 중앙정부 표준화방안 제정 시 수용해야 하며, 국토교통부 고시 규정 준수 및 감독원 지시에 따라야 함.  \n  출처: 경기도 평택시_2024년도 평택시 BIS 구축사업.hwp, 페이지: 14\n\n### 3) 자격·증빙 관련(입찰참가자격·증명서류)\n- 참여기업 자격증 및 증명서(평택시 유사 규정/타 지자체 예시)  \n  - 정보통신공사업 면허(업종코드 0036), 소프트웨어사업자 등록(업종코드 1468) 등 입찰참가자격을 요구하는 사례가 있음.  \n  - 소프트웨어 직접생산확인증명서(정보시스템개발서비스) 및 장비 관련 직접생산확인증명서(버스·차량정보안내장치 등) 보유 요구 사례가 있음.  \n  출처: 울산광역시_2024년 버스정보시스템 확대…hwp, 페이지: 4\n- H/W·S/W 정품 라이선스 제출 의무  \n  - 제안하는 모든 S/W는 정식 License 및 해당 수량을 납품 시 제출해야 함.  \n  출처: 울산광역시_2024년 버스정보시스템 확대…hwp, 페이지: 13\n\n### 4) 문서관리·제출물 관련 주의사항\n- 제출서류는 반환되지 않음  \n  - 안서류 및 제반 구비서류는 반환하지 않음(입찰 시 제출문서에 대한 고지).  \n  출처: 한국수자원조사기술원_수문자료정보관리시스템(HDIMS)…, 페이지: 50\n- 제출 증빙자료는 제안서와 동일한 효력  \n  - 제출한 증빙은 제안서의 일부로 간주되며, 계약상 효력을 가질 수 있음.  \n  출처: 동일 문서, 페이지: 50\n\n### 5) 사용자 요청에 언급된 특정 항목(비밀정보 취급·사본허가·하도급·공동도급·위약 등)\n- 문맥에서 명시된 내용  \n  - 위 제공 문서들에서는 다음 항목들이 직접적으로 명시되어 있음: 입증자료 제출 의무, 제출서류 미제출 시 평가제외, 정식 S/W 라이선스 제출, 제안서·증빙자료의 효력, 교육계획·매뉴얼 제출 등.  \n  출처: HDIMS p50, 평택시 p14, 울산 p13\n- 문맥에서 확인되지 않는 항목(명시 없음) — 추가 확인 필요  \n  - 비밀정보 취급절차(기밀유지협약·비밀정보 취급자 지정), 사본허가(자료 복제·재사용 허가), 하도급·공동도급에 관한 구체적 제한·신고 절차, 계약상의 위약금·지체상금·손해배상 기준 등은 제공된 문맥에 명시되어 있지 않습니다.  \n  - 따라서 해당 세부 규정(기밀취급·사본허가·하도급·공동도급·위약 조항)은 반드시 입찰공고문, 입찰서류 안내(특수조건), 계약서 초안 및 관련 법령(지방자치단체 계약 관련 규정)에서 직접 확인해야 합니다.  \n  출처: (문맥상 해당 항목의 부재 — 제공문서들에 명시 없음)\n\n요약(실무적 권고)\n- 제출 가능한 실적증빙: 제안서 내 실적기재 + 실적증명원·관련 계약서·완료보고서·납품증빙 등(입찰공고에서 요구하는 형식으로 제출). 발주기관이 요구하면 즉시 입증자료를 제출해야 하며, 제출자료는 반환되지 않음. (출처: HDIMS p50)\n- 필수 확인·제출 항목: 제안서·증빙자료, H/W·S/W 카탈로그·정식 라이선스, 교육훈련계획·기술인력현황(시운전 30일 전), 한국어 매뉴얼, DB 검수 절차 등(출처: 평택시 p14, 울산 p13)\n- 미기재 항목(기밀·사본허가·하도급·공동도급·위약 등)은 입찰공고·계약서(특수조건)에서 확인 필요. (출처: 문맥상 부재)\n\n추가로 원하시면:\n- 귀사가 보유한 해당 실적(계약서 사본·완료증명·산출물 목록 등) 목록을 보내주시면, 평택시 입찰에 맞춰 어떤 서류를 우선 준비·제출해야 하는지(체크리스트 형태)로 정리해 드리겠습니다.", "correctness": {"score": 3, "reason": "평택시 입찰서류·제출의무 등 문맥상 확인되는 항목은 정확히 정리했으나, 한국해양조사협회의 비밀정보 취급·복제 허가 및 위약 조항 등 기대 답변의 특정 핵심 내용은 문맥에서 직접 확인되지 않는다고만 밝혀 핵심 일부가 누락됨."}, "answer_coverage": {"score": 3, "reason": "제안서·증빙자료·교육계획·운영·유지보수 요구 등 주요 항목을 포함했으나, 실적증명원에 들어갈 세부 기재항목, 하도급·공동도급의 구체적 처리·사본허가·위약 규정 등 기대 답변의 세부 포인트는 누락되거나 문맥상 부재로 명확히 제시되지 않음."}, "faithfulness": {"score": 5, "reason": "제공된 문맥에 근거한 항목만을 기술하고 문맥에 없는 조항은 별도 확인을 권고해 응답 내용이 문맥과 일치하며 환각이 없음."}, "context_relevance": {"score": 5, "reason": "검색된 문서들은 평택시 BIS 사업의 입찰요건·제출서류·운영·성과물 요구사항 등을 포함해 질문에 직접 관련된 정보를 충분히 제공함."}, "hit_position": null, "recall_at_k": 0.0, "num_retrieved": 5, "ground_truth_sources": ["한국해양조사협회_2024년 항해용 간행물 품질관리 업무보조 시스템 구축.hwp", "경기도 평택시_2024년도 평택시 버스정보시스템(BIS) 구축사업.hwp"], "retrieved_sources": ["경기도 평택시_2024년도 평택시 버스정보시스템(BIS) 구축사업.hwp", "한국수자원조사기술원_수문자료정보관리시스템(HDIMS) 재구축 용역(3단계.hwp", "울산광역시_2024년 버스정보시스템 확대 구축 및 기능개선 용역.hwp"], "latencies": {"analyze_query": 39.00229620933533, "retrieve": 0.526684045791626, "extract_evidence": 55.398136138916016, "generate": 57.82360887527466}}, {"id": "eval_016", "question": "인천공항운영서비스(주) 차세대 ERP시스템 구축과 전북대학교 JST 공유대학(원) xAPI기반 LRS시스템 구축에서 계약업체에 요구되는 데이터 이관·업무 연속성 및 보안관리 의무는 무엇인가요?", "query_type": "multi_doc", "expected_answer": "인천공항운영서비스(주) 차세대 ERP사업에서는 기존 ERP의 데이터 이관을 통해 업무 연속성을 보장해야 한다. 전북대학교 사업에서는 계약 착수 시 참여인원 및 업체대표 명의의 보안서약서 제출, 용역 전 보안교육 실시, 수행 중 주기적 보안교육 및 대학 요구 교육 참석, 임의 인력교체 금지(불가피 시 즉시 보고), 업체 대표가 보안관리책임자 지정 및 보안업무 총괄 등의 의무가 있으며, 사업종료 시 대학으로부터 받은 장비·서류·중간·최종산출물 전량 반납·삭제(복사본 보관 금지), 전자매체는 교육부 지침(제40조 제4항)에 따른 삭제 후 반출, 대표자·참여자용 보안확약서 제출 및 대학 담당자의 보안조치 확인서 작성 등 보안관리조치를 이행해야 한다.", "generated_answer": "### 요약\n요청하신 두 사업 중 인천공항운영서비스(주) 차세대 ERP시스템 구축(RFP)에 대해서만 데이터 이관·업무 연속성 및 보안관리 의무가 명시되어 있습니다. 전북대학교 JST 공유대학(원) xAPI 기반 LRS시스템 구축 문서에서는 관련 근거가 제공되지 않았습니다. (출처 명시 참조)\n\n### 인천공항운영서비스(주) 차세대 ERP시스템 구축 — 데이터 이관·업무 연속성 의무\n- 기존 ERP 시스템의 데이터 이관을 통해 업무 연속성 보장해야 함. (출처: 인천공항운영서비스㈜ 차세대 ERP시스템 구축, 페이지 4)\n- 외부 시스템과의 연계 방안 제시 의무:\n  - 개방형 표준 연계모듈 및 연계방안 제시 (API 등). (요구사항 고유번호 IR-007, 출처: 페이지 35)\n  - 표준 API 제공 및 타 시스템에서 용이하게 연계 가능하도록 할 것. (IR-007, 페이지 35)\n  - 데이터 연계 시 시스템 성능(부하 등)에 영향이 없도록 개발해야 함. (IR-007, 페이지 35)\n- 프로토콜 변환 지원 의무:\n  - DB2DB, File2File, HTTP 등 프로토콜 변환을 수행해야 함. (요구사항 고유번호 IR-008, 출처: 페이지 35)\n\n### 인천공항운영서비스(주) — 보안관리 의무\n- 정보보안 계획 수립 및 실행:\n  - 사업수행기간 중 보안 관련 법규 준수 및 대외 보안유지에 적극 협조해야 함. (요구사항 고유번호 PMR-014, 출처: 페이지 53)\n  - 중요 데이터 등 정보 누출에 대비한 구체적인 정보보호계획 및 방안을 제시할 것. (PMR-014, 페이지 53)\n- 침해사고 예방·복구 대책:\n  - 해킹, 바이러스 등 침해사고 예방대책 및 서비스 중단 시 긴급 복구 방안 포함하여 보안대책 제시. (요구사항 고유번호 PMR-015, 출처: 페이지 53)\n  - 사업기간 중 불법 SW 사용으로 인한 문제에 대한 책임을 부담함. (PMR-015, 페이지 53)\n- 자료 관리·유출 방지 절차:\n  - 사업관련 자료 보안방안의 개념 정의 요구. (페이지 53)\n  - 발주처가 계약서 등에 명시한 '누출금지 대상정보'를 제공할 경우 '자료관리 대장' 작성하고 인계자·인수자가 직접 서명 후 제공. 사업완료 시 관련자료 전량 회수. (페이지 53)\n  - 용역사업 관련자료 및 사업과정에서 생산된 모든 산출물은 사내 파일서버에 저장하거나 보안담당자가 지정한 PC에 저장·관리. (페이지 53)\n  - 발주처 제공 사무실에서 용역 수행 시 제공한 비공개 자료는 매일 퇴근 시 반납. (페이지 53)\n  - 자료를 인터넷 웹하드, 웹메일 등 외부에 저장·전송 금지. (페이지 53)\n  - 불가피하게 외부에서 전자우편 등으로 자료 송·수신 시 보안대책 마련 필요. (페이지 53)\n\n### 전북대학교 JST 공유대학(원) xAPI 기반 LRS시스템 구축\n- 본 검색된 문맥에서는 해당 사업의 데이터 이관·업무 연속성 및 보안관리 의무에 관한 근거가 제공되지 않았음. (출처: 전북대학교 JST 공유대학(원) xAPI기반 LRS시스템 구축, 관련 문서/근거 미제공)\n\n### 누락·추가 확인 필요 항목\n- 예산, 사업기간, 투입인원 등 수치(금액·기간·인원)에 대한 정보는 제공 문맥에 포함되어 있지 않습니다. 원문 RFP에서 해당 항목을 확인해야 함. (근거: 제공된 문맥에 수치 정보 없음)\n- 전북대학교 JST 사업의 보안·데이터 이관 관련 구체 요구사항은 원문 문서 확인 필요.\n\n출처:\n- 인천공항운영서비스㈜ 차세대 ERP시스템 구축 — 페이지 4, 35, 53 (요구사항 고유번호 IR-007, IR-008, PMR-014, PMR-015)\n- 전북대학교 JST 공유대학(원) xAPI기반 LRS시스템 구축 — 관련 문서/근거 미제공", "correctness": {"score": 3, "reason": "인천공항 관련 의무는 정확하게 기술했으나 전북대학교 사업의 구체적 보안 의무(보안서약서 제출·교육·인력교체 금지·장비·자료 반납·삭제 등)를 기대답변처럼 포함하지 않아 핵심 정보의 절반 정도만 맞음."}, "answer_coverage": {"score": 3, "reason": "인천공항 ERP의 데이터 이관·보안 의무는 잘 포함했지만 전북대학교 JST 사업의 상세한 보안관리 항목들이 누락되어 기대답변의 모든 핵심 포인트를 빠짐없이 다루지 못함."}, "faithfulness": {"score": 5, "reason": "제시된 인천공항 관련 항목들은 제공된 검색 문맥(페이지 4, 35, 53)에서 직접 확인 가능하고 전북대 관련 문서는 근거 없음으로 일치하여 내용이 검색된 context에 충실함."}, "context_relevance": {"score": 5, "reason": "응답이 인천공항 RFP의 관련 페이지들을 근거로 작성되었고 전북대학교 문서의 근거 부재를 명시하여 검색된 context가 질문에 적절히 관련됨."}, "hit_position": null, "recall_at_k": 0.0, "num_retrieved": 5, "ground_truth_sources": ["인천공항운영서비스(주)_인천공항운영서비스㈜ 차세대 ERP시스템 구축 .hwp", "전북대학교_JST 공유대학(원) xAPI기반 LRS시스템 구축.hwp"], "retrieved_sources": ["인천공항운영서비스(주)_인천공항운영서비스㈜ 차세대 ERP시스템 구축 .hwp"], "latencies": {"analyze_query": 13.696128129959106, "retrieve": 1.383903980255127, "extract_evidence": 39.56484293937683, "generate": 22.483595848083496}}, {"id": "eval_017", "question": "한국철도공사 용역 '운행정보기록 자동분석시스템'과 한국연구재단 사업 '2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선'에서 위반 발생 시 책임과 제재·이행절차는 어떻게 다른가요?", "query_type": "comparison", "expected_answer": "한국철도공사(운행정보기록 자동분석시스템)는 주로 현장 안전·운행 지장·인적·물적 피해를 초래한 계약상대자의 귀책을 규정하며, 관련법령·철도안전관리체계에 따를 것을 명시하고 공사가 개선요청·이행권고를 할 수 있고, 지연손실·피해보상 책임은 계약상대자에게 있으며 필요시 피해구상도 가능하다. 일부 안전조항은 적용대상(차량·시설·전기 등)을 한정하고 페널티 부과는 계도기간 이후('24.12.01부터) 시행됨을 밝힌다. 반면 한국연구재단(UICC 기능개선)은 정보보안 위반을 수준별(경미·보통 등)로 분류하고 위반 유형별 사례를 제시한 뒤, 특별보안교육·서면·경고·경징계 등 내부 징계와 사유서 징구, 조사·재발방지·이행점검 절차를 규정하며 위약금 부과를 등급(A~D)으로 차등화하는 등 세부한 처분·절차 규정을 포함한다. 요약하면 철도공사는 안전책임·손해배상·시행시한과 법적 근거를 강조하는 반면, 연구재단은 정보보안 위반의 등급화된 징계·교육·점검 절차와 위약금 등급 분류를 구체적으로 규정한다.", "generated_answer": "### 한국철도공사 용역(사업자 보안위규 기준) — 적용 내용 (검색된 근거)\n- 적용 근거: 사업자 보안위규 처리기준 — 심각·중대 위규 사례 및 처리기준이 명시되어 있음.  \n  출처: 한국철도공사 (용역)_모바일오피스 시스템 고도화 용역(총체 및 1차).hwp, 페이지 129\n- 심각 위규(예시) 및 처리조치:\n  - 예: 비밀·대외비급 정보 유출 및 유출 시도, 정보시스템에 대한 불법적 행위(해킹 등).\n  - 조치: 사업참여 제한(부정당업자 등록), 위규자 및 직속 감독자 등 중징계, 재발 방지를 위한 조치계획 제출, 위규자 대상 특별 보안교육 실시.\n  - 출처: 위와 동일, 페이지 129\n- 중대 위규(예시) 및 처리조치:\n  - 예: 비공개 정보 관리 소홀, 사무실·보호구역 보안관리 허술, 전산정보 보호대책 부실.\n  - 조치: 위규자 및 직속감독자 등 중징계, 재발 방지를 위한 조치계획 제출.\n  - 출처: 위와 동일, 페이지 129\n- 추가 확인 사항: 용역업체에 의한 보안사고 발생 시 ‘사업자 보안위규 처리기준’에 따라 행정조치가 적용된다는 언급이 있음.  \n  출처: 서울시립대학교_[사전공개] 학업성취도 다차원 종단분석 통합시스템 1차.pdf, 페이지 79\n\n### 한국연구재단 사업(UICC 기능개선) — 검색 결과(근거 부족)\n- 제공된 문서에서는 책임·제재·이행절차 관련 근거가 존재하지 않음(검색된 근거 없음).  \n  출처: 한국연구재단_2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선.hwp, 페이지 2\n\n### 두 사업의 차이점 요약\n- 한국철도공사 용역:\n  - 보안위반 등급(심각/중대)을 구분하여 구체적 제재 및 이행 요구(부정당업자 등록, 중징계, 조치계획 제출, 특별보안교육 등)를 명시함.  \n  - 용역업체 보안사고 발생 시 행정조치 적용 근거가 명확히 존재함.  \n  - 출처: 한국철도공사 문서 p.129, 서울시립대 문서 p.79\n- 한국연구재단 UICC:\n  - 제공된 문맥에서는 책임·제재·이행절차에 관한 명시적 근거가 없음(따라서 비교 불가).  \n  - 출처: 한국연구재단 문서 p.2(관련 근거 없음)\n\n### 누락 정보 및 권고\n- 누락된 항목:\n  - UICC 사업 관련 제재·절차 세부 내용(위반 등급, 구체적 제재, 조치계획 요구 여부 등)은 제공된 문서에 없음.\n- 권고:\n  - UICC 사업의 책임·제재·이행절차를 비교하려면 해당 사업의 RFP(입찰공고), 계약서 또는 사업 수행지침 내 보안/위반 처리 조항을 확인해야 함.\n\n(참고: 위 내용은 제공된 문맥만을 근거로 정리함 — 다른 문서나 조항이 있을 수 있으므로 원문 RFP/계약서 확인을 권장합니다.)", "correctness": {"score": 3, "reason": "생성답변은 한국철도공사의 보안위규에 따른 제재 내용을 문서 근거로 정확히 제시했으나, 기대 답변에 포함된 안전책임·손해배상·적용대상 제한·시행시한(예: '24.12.01') 등 핵심 항목은 누락되어 기대 답변과 완전 일치하지 않음."}, "answer_coverage": {"score": 2, "reason": "한국철도공사 쪽의 보안위반 처리 기준은 제시했으나 기대 답변의 안전·손해배상·시행시한 세부사항과 한국연구재단(UICC)의 등급화된 징계·위약금 등 구체적 절차가 포함되지 않아 커버리지가 제한적임."}, "faithfulness": {"score": 5, "reason": "답변 내용은 제공된 한국철도공사 문서(p.129)와 서울시립대 문서(p.79)를 근거로 제재 항목을 인용하고 한국연구재단 문서에는 관련 근거가 없음을 명시하여 검색된 컨텍스트에 충실함."}, "context_relevance": {"score": 5, "reason": "검색된 문서들은 한국철도공사의 보안위반 처리기준과 실제 행정조치 적용 사례를 포함해 질문에 직접 관련된 근거를 제공하고, 한국연구재단 문서의 근거 부재도 비교에 유의미한 정보임."}, "hit_position": null, "recall_at_k": 0.0, "num_retrieved": 5, "ground_truth_sources": ["한국철도공사 (용역)_[재공고][긴급][협상형]운행정보기록 자동분석시스.hwp"], "retrieved_sources": ["한국연구재단_2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선.hwp", "서울시립대학교_[사전공개] 학업성취도 다차원 종단분석 통합시스템 1차.pdf", "을지대학교_을지대학교 비교과시스템 개발.hwp", "한국철도공사 (용역)_모바일오피스 시스템 고도화 용역(총체 및 1차).hwp", "한국발명진흥회 입찰공고_2024년 건설기술에 관한 특허·실용신안 활용실.hwp"], "latencies": {"analyze_query": 20.016076803207397, "retrieve": 0.8654961585998535, "extract_evidence": 32.30567502975464, "generate": 30.73312497138977}}, {"id": "eval_018", "question": "기초과학연구원 '2025년도 중이온가속기용 극저온시스템 운전 용역'과 한국농어촌공사 '네팔 수자원관리 정보화사업‑Pilot 시스템 구축용역'에서 요구하는 주된 업무와 관리 초점은 어떻게 다른가?", "query_type": "comparison", "expected_answer": "기초과학연구원(중이온가속기 극저온시스템)은 주로 현장 운전·모니터링·제어와 주요 수치의 기록·분석, 24시간 교대운전(가동기간) 및 주간 중심의 유지보수·운전 경험 통합(휴지기간)에 초점을 둔다. 운전 장소는 극저온설비동과 헬륨압축기동(방사선구역 일부 제외)에 한정된다. 반면 한국농어촌공사(네팔 수자원관리 정보화사업)는 보안요구·제약사항·성능·인터페이스·시험(단위·통합·시스템·인수) 및 품질요구를 충족시키기 위한 구체적 설계·구현·테스트 방안과 일정·위험·보안·산출물 형상·문서관리 등 프로젝트 관리 방법론 수립에 중점을 둔다.", "generated_answer": "### 기초과학연구원: 2025년도 중이온가속기용 극저온시스템 운전 용역\n- 주된 업무\n  - 가동기간(운전중): 24시간 운전으로 극저온시스템 모니터링, 주요 수치 기록·분석, 시스템 제어 등 실제 운전업무 수행.  \n    - 출처: 기초과학연구원_2025년도 중이온가속기용 극저온시스템 운전 용역.pdf, p.6\n  - 휴지기간(주간 운전): 유지보수 목적의 제어·모니터링·기록·분석, 운전 매뉴얼 작성·개정, 운전 교육, 성과보고회 개최 등 유지·문서화·교육·보고 중심 업무.  \n    - 출처: 동일, p.6\n- 관리 초점\n  - 적정 지식·능력을 보유한 충분한 운전 인력의 투입 및 해당 인력에 대한 관리·감독(인력 제공과 인력관리·감독 강조).  \n    - 출처: 동일, p.6\n\n### 한국농어촌공사: 네팔 수자원관리 정보화사업 — Pilot 시스템 구축용역\n- 주된 업무\n  - GIS 기반 정보표출(계측기 위치, 기상·수로·하천 정보, 시설 상세정보 등) 중심의 시범 시스템 구현.  \n    - 출처: 한국농어촌공사_네팔 수자원관리 정보화사업-Pilot 시스템 구축용역.hwp, p.7\n  - 데이터·현장 연계 기능 개발 및 설치: 기상·수위·유량 데이터 수집·변환·표출, 미계측시설 사용자 입력 수집·표출, 파일 저장 기능, 모바일 입력 모듈(수위 입력·지점별 현황 조회), 현장 계측기 및 운영서버 도입·설치 등.  \n    - 출처: 동일, p.7\n- 관리 초점\n  - H/W 구매·현장 설치와 국외 활동(현장비용) 비중이 큼 — 비용·장비 조달·현장구축 관리가 중요(사업기간·예산: 착수일부터 6개월, 총액 181,913,000원(VAT 포함); 비용구성: S/W 36,165,800원, H/W 96,645,544원, 국외경비 32,565,000원, 부가세 537,634원).  \n    - 출처: 동일, p.7\n\n### 핵심 차이 요약\n- 업무 성격\n  - 극저온시스템: 24시간 연속 운영과 실시간 제어·모니터링·분석 및 운전 매뉴얼·교육·성과보고 등 운영·인력 중심. (기초과학연구원, p.6)\n  - 네팔 Pilot: GIS와 데이터 연계·표출, 모바일 입력 및 현장 계측기/서버 도입 등 시스템 구축·개발·현장설치 중심. (한국농어촌공사, p.7)\n- 관리 우선순위\n  - 극저온시스템: 전문 인력의 적정 투입과 관리·감독이 핵심. (기초과학연구원, p.6)\n  - 네팔 Pilot: 장비(H/W) 조달·국외 현장비 관리 및 짧은 사업기간(6개월) 내 구축 수행이 핵심(예산 비중: H/W·국외경비 크게 차지). (한국농어촌공사, p.7)", "correctness": {"score": 4, "reason": "대체로 기대 답변의 핵심 정보를 정확하게 반영하나 극저온 설비의 운전 장소 제한(극저온설비동·헬륨압축기동)과 네팔 사업의 보안·테스트·품질·설계·프로젝트 관리 방법론 관련 항목을 누락해 완전하지 않음."}, "answer_coverage": {"score": 3, "reason": "극저온시스템의 운영·인력 중심 내용과 네팔 Pilot의 GIS·데이터·장비·예산 정보를 포함했으나 네팔 사업의 보안·성능·인터페이스·단위·통합·시스템·인수 시험 및 품질·문서·형상관리 등 주요 관리·설계 요건이 빠져 일부 핵심 포인트가 누락됨."}, "faithfulness": {"score": 5, "reason": "답변 내용은 제공된 검색 컨텍스트(극저온시스템의 가동·휴지기간 업무, 인력 관리 요구, GIS 기능·데이터 수집·현장설치·예산 내역 등)에 직접 근거하고 있어 환각이 없음."}, "context_relevance": {"score": 5, "reason": "검색된 문서들은 두 용역의 업무 범위와 관리 초점(운전·유지보수·인력 관리 vs 시스템 구축·데이터 연계·장비·예산)을 직접적으로 다루고 있어 질문에 매우 관련성이 높음."}, "hit_position": 2, "recall_at_k": 1.0, "num_retrieved": 5, "ground_truth_sources": ["기초과학연구원_2025년도 중이온가속기용 극저온시스템 운전 용역.pdf"], "retrieved_sources": ["한국농어촌공사_네팔 수자원관리 정보화사업-Pilot 시스템 구축용역.hwp", "기초과학연구원_2025년도 중이온가속기용 극저온시스템 운전 용역.pdf", "경희대학교_[입찰공고] 산학협력단 정보시스템 운영 용역업체 선정.hwp", "광주과학기술원_실시간통합연구비관리시스템(RCMS)  연계 모듈 변경 사업.hwp"], "latencies": {"analyze_query": 18.56415319442749, "retrieve": 0.6398541927337646, "extract_evidence": 34.51799201965332, "generate": 22.692641973495483}}, {"id": "eval_019", "question": "한국가스공사 '차세대 통합정보시스템(ERP) 구축'의 생산공급 시스템 재구축(SFR-049)과 인천광역시 '인천일자리플랫폼 정보시스템 구축 ISP 수립용역'의 보안요구사항(SER-001)을 비교하면, 각각이 요구하는 데이터 수정·이력관리 기능과 보안책임·통제 조치의 핵심 차이점은 무엇인가요?", "query_type": "comparison", "expected_answer": "한국가스공사(차세대 통합정보시스템 ERP, SFR-049)는 주로 시스템 기능 측면에서 요구한다. 실적 데이터의 수정(일일마감 후 포함), 사용자 권한에 따른 수정 가능 시간 관리, 수정사항의 연계 시스템(SAP 등)에 대한 자동 업데이트 및 정상 여부 확인, 모든 변경의 누가·언제·무엇을 변경했는지에 대한 이력 기록과 원본 보관 및 롤백 기능, UI·DB 레벨의 이력관리, 사용자용 이력 조회와 프로세스 알림(메일/메신저) 등을 요구한다. 반면 인천광역시(인천일자리플랫폼 ISP, SER-001)는 조직·계약·관리적 보안 통제에 중점을 둔다. 보안책임자 지정, 참여자 보안서약(자필 서명), 참여자 교체 시 인계·승인 절차, 물리·관리·기술적 보안대책의 제시, 산출물 비복제·비유출·사전승인 사용, 위반 시 행정조치·보안위약금·부정당업체 등록 등 제재·감사 요구를 명시한다. 또한 데이터 개방성은 별도 분석·방안 제시 대상이나, SER-001의 규정은 공개 시 엄격한 통제와 승인을 전제로 한다. 요약하면, SFR-049는 기술적·운영적 데이터 변경·이력 관리와 자동 연계·복구 기능을 요구하고, SER-001은 인적·관리적 보안책임·계약적 통제 및 법적 제재를 강조한다(따라서 데이터 개방 계획은 SER-001의 보안제약을 고려해 설계되어야 함).", "generated_answer": "요청하신 비교는 제공된 문맥만으로는 직접적·완전한 비교가 불가능합니다. 아래는 제공된 자료를 근거로 가능한 범위에서 정리한 내용입니다.\n\n### 전제 및 한계\n- SFR-049(생산공급 시스템 재구축 – 계획/실적 입력 및 정산)은 문서에 존재하나, 데이터 수정·이력관리 관련 구체 항목이 검색결과에 누락되어 있음(구체적 요구사항 불명).  \n  - 출처: 한국가스공사_[재공고]차세대 통합정보시스템(ERP) 구축.hwp, 페이지 51\n- 인천광역시 '인천일자리플랫폼'의 보안요구사항 SER-001에 대한 내용은 제공된 검색결과 목록에 포함되어 있지 않음(근거 없음).  \n  - 출처: 관련 근거 없음\n\n따라서 “SFR-049 vs 인천 SER-001”의 직접 비교는 불가능하며, 대신 제공된 KOGAS 문서 내에서 확인 가능한 데이터 수정·이력관리 관련 기대사항 및 보안책임·통제 조치 항목을 정리하고, 비교 불가 사유를 명확히 제시합니다.\n\n### (KOGAS 문서) 데이터 수정·이력관리 및 권한·접근 통제 관련 확인 가능한 항목\n- 사용자 권한 변경 이력 관리 요구(권한 변경 이력 추적 필요).  \n  - 출처: 한국가스공사_[재공고]차세대 통합정보시스템(ERP) 구축.hwp, 페이지 51 (SFR-047)\n- 접근제어 관리, 로그인 관리(포탈 SSO 방식 적용), 권한코드 관리, 사용자 관리(인사 마스터 인터페이스로 주기적 자동업데이트 가능) 요구.  \n  - 출처: 동일, 페이지 51 (SFR-047)\n- 내부통제 프로세스를 기반으로 전자결재 연계한 권한 요청/승인 절차에 따른 권한 변경 기능 요구(승인·통제 프로세스 연계).  \n  - 출처: 동일, 페이지 51 (SFR-048)\n- 산출물로서 데이터베이스설계서(ERD 포함), 사용자권한정의서 등 문서화 요구(운영·통제 근거자료 확보 목적).  \n  - 출처: 동일, 페이지 50\n- 설계원칙: 시스템 인터페이스 등 데이터 처리 로직을 비즈니스 로직과 분리하여 데이터 처리 기능을 독립적으로 관리하도록 설계할 것(무결성·통제성 확보 목적).  \n  - 출처: 동일, 페이지 50\n\n### (KOGAS 문서) 보안책임·통제 조치(사업자 책임 관련) — 유사 보안 항목 예시\n- 사업완료 시 업체 전산장비(PC, 휴대형 저장매체 등)에 대해 발주기관 담당자 통제하에 저장자료 완전 삭제 후 반출; 사업자는 관련 자료를 보유해서는 안 되며 위반 시 법적 책임.  \n  - 출처: 한국가스공사_[재공고]차세대 통합정보시스템(ERP) 구축.hwp, 페이지 119 (SER-007)\n- 소프트웨어 개발 보안: 착수단계 시 시큐어 코딩 교육 실시, 보안약점 제거 및 '소프트웨어 보안약점 진단 가이드'에 따른 진단 결과 제출, 전문인력(진단원 수준 이상)에 의한 취약점 진단 요구.  \n  - 출처: 동일, 페이지 119 (SER-008)\n\n### 핵심 차이점(요약) — 비교 불가 사유 포함\n- 비교 불가 사유: 인천광역시 문서의 SER-001 내용이 제공되지 않아 직접적·정확한 차이점 도출 불가.  \n  - 출처: 관련 근거 없음\n- 제공된 KOGAS 문서(관련 항목들)에서 확인되는 특징:  \n  - 권한 변경의 이력관리 및 전자결재 연계 승인·통제 기능을 명시적으로 요구(감사·추적성 강조).  \n    - 출처: SFR-047, SFR-048, 페이지 51\n  - 사용자 관리의 자동화(인사 마스터 연계) 및 SSO 등 로그인 방식 지정으로 접근 통제 체계화 요구.  \n    - 출처: SFR-047, 페이지 51\n  - 설계·문서화(ERD, 사용자권한정의서)로 데이터 구조·권한 근거 확보 요구.  \n    - 출처: 페이지 50\n  - 사업종료 시 자료 완전삭제·반출 통제 및 개발보안 교육/진단·전문인력 투입 등 사업자 책임을 엄격히 규정.  \n    - 출처: SER-007, SER-008, 페이지 119\n- 예상 가능한 비교 포인트(인천 SER-001의 실제 내용이 제공될 경우 확인할 항목):  \n  - 데이터 수정 이력(누가, 언제, 무엇을 수정했는지) 기록 범위와 보존기간  \n  - 권한 변경의 승인/전자결재 연계 요구 여부 및 자동화 수준  \n  - 사업자 보안 책임(자료삭제·반출 규정, 보안진단·교육 의무 등) 범위와 위반 시 제재  \n  - 설계문서·증적(ERD, 권한정의서 등) 제출 요구 여부\n\n### 권장 조치\n- 인천광역시 문서의 SER-001 전문(또는 관련 발췌)을 제공해 주시면, SFR-049(및 KOGAS 관련 보안항목)과의 구체적·항목별 비교(데이터 수정·이력관리 요구사항, 보안책임·통제 조치 비교)를 정확히 수행해 드리겠습니다.\n- 또한 SFR-049의 상세 항목(데이터 수정·이력관리 관련 조항)이 포함된 원문을 제공해 주시면 직접 비교 가능.\n\n(참고 출처)\n- 한국가스공사_[재공고]차세대 통합정보시스템(ERP) 구축.hwp: 페이지 50, 51, 119  \n- 인천광역시 '인천일자리플랫폼' SER-001 관련 내용: 제공된 근거 없음", "correctness": {"score": 4, "reason": "KOGAS 문서에서 확인 가능한 권한·이력·보안조치 항목들을 정확히 인용하고 SER-001 부재를 명시했으나 SFR-049의 구체적 수정·롤백·연계 세부사항을 단정적으로 제시하지 못함."}, "answer_coverage": {"score": 3, "reason": "기대 답변의 핵심 비교 결론(기술적·운영적 이력관리 vs 조직·계약적 보안통제)은 언급했지만 SFR-049의 상세 수정요구(예: 일일마감 이후 수정, SAP 자동연계, UI/DB 레벨 이력 등)와 인천 SER-001의 구체적 제재·절차 항목이 포함되지 않음."}, "faithfulness": {"score": 5, "reason": "응답의 모든 주장들이 제공된 KOGAS 문서 근거에 기반하고 SER-001의 부재를 명확히 밝혀 환각이 없음."}, "context_relevance": {"score": 5, "reason": "제공된 컨텍스트(한국가스공사 문서)를 중심으로 관련 요구항목만을 활용했으며, 인천 SER-001 관련 근거가 없음을 컨텍스트에서 확인했음."}, "hit_position": 1, "recall_at_k": 1.0, "num_retrieved": 5, "ground_truth_sources": ["한국가스공사_[재공고]차세대 통합정보시스템(ERP) 구축.hwp"], "retrieved_sources": ["한국가스공사_[재공고]차세대 통합정보시스템(ERP) 구축.hwp"], "latencies": {"analyze_query": 25.877447843551636, "retrieve": 0.8861870765686035, "extract_evidence": 57.352673053741455, "generate": 42.03480911254883}}, {"id": "eval_020", "question": "2025 구미아시아육상경기선수권대회 조직위원회(입찰서약서)와 파주도시관광공사('종량제봉투 판매관리 전산시스템 개선사업') 요구사항을 각각 따르는 업체는 어떤 윤리·제재 의무와 어떤 재고·거래 기록·전송 기능을 충족해야 합니까?", "query_type": "comparison", "expected_answer": "구미 아시아육상경기 조직위원회(입찰서약서): 입찰과정에서 담합·공정경쟁 저해 행위 금지 및 관계공무원에 대한 뇌물·금품 제공 금지. 위반 시 담합 주도자는 조직위 발주 입찰 참가자격 제한 2년, 입찰자간 사전 가격협정·담합은 1년, 담합 적발 시 공정위 고발 및 과징금 부과에 대한 이의 제기 금지. 뇌물 제공으로 계약 유리·부실시공 초래 시 2년, 관계 직원에게 유리하도록 뇌물 제공 시 1년, 금품·향응 제공 사실은 6개월 참가제한.  파주도시관광공사(전산시스템 요구사항): 종량제물품의 기초재고 등록(관리자 전용) 및 창고별 재고 관리, 공급신청(일반/불량/부족분) 등록·조회·확정(입고처리·취소) 및 박스·묶음·낱장 단위 처리, 인수(제작)등록(공급신청 연계 또는 직접 등록) 및 인수현황 출력, 폐업입고·시반납·환불입고·폐기처리의 등록·조회·확정을 통한 재고 반영 및 현황 출력, 공급신청서 출력·팩스전송(직인 출력) 등 문서출력·전송 기능. 또한 전자계산서 국세청 전송·현황조회, 합계표 및 통계조회, 기간별 판매소별 발행내역 조회, 문자/팩스 전송내역 등 전송·통계·로그 기능을 통해 거래기록과 추적성을 확보해야 함.", "generated_answer": "### 1) 2025 구미아시아육상경기선수권대회 조직위원회 — 윤리·제재 의무 및 재고·거래 기록·전송 관련 요구사항\n\n윤리·제재 의무\n- 부정행위(관계 직원에게 금품·향응 제공 등)가 드러날 경우 입찰참가 자격제한 처분을 받은 날로부터 \"6개월\" 동안 본 대회 입찰에 참가하지 않음(서약) — 출처: 2025 구미아시아육상경기선수권대회 조직위원회_2025 구미아시아육상경.hwp, 페이지 60.  \n- 금품·향응 제공 사실이 드러나면\n  - 계약체결 이전: 낙찰자 결정 취소\n  - 공사 착공 전: 계약취소\n  - 공사 착공 이후: 발주처의 전체 또는 일부 계약 해지를 감수하고 민·형사상 이의를 제기하지 않음 — 출처: 동일, 페이지 60.  \n- 회사는 윤리강령 제정 및 내부비리 제보자에 대한 불이익처분 금지 사규 제정을 \"노력\"할 것(서약의 일부) — 출처: 동일, 페이지 60.  \n- 본 서약은 낙찰 시 계약의 특수조건으로 이행되며, 발주처의 입찰참가자격제한·계약해지 등에 대해 손해배상청구 또는 민·형사상 이의를 제기하지 않겠음을 서약함 — 출처: 동일, 페이지 60.  \n- 입찰 제출 시 최근 3년간 회사가 관계법령에 의해 입찰참가 제한 처분을 받은 사실을 기재해야 함(입찰 제출 의무사항) — 출처: 2025 구미아시아육상경기선수권대회 조직위원회_2025 구미아시아육상경.hwp, 페이지 63.\n\n재고·거래 기록·전송(시스템·증빙) 요구사항\n- 입찰의 민간거래 실적 제출 시 증빙으로 \"세금계산서, 계약서 등 증빙자료\"를 첨부해야 함(용역이행실적은 공고상 범위 부합 여부로 인정; 공동계약인 경우 비율·이행실적 기재 필요) — 출처: 2025 구미아시아육상경기선수권대회 조직위원회_2025 구미아시아육상경.hwp, 페이지 63.  \n- 종합정보시스템 요구사항(전송·연동 관련)\n  - 경기 결과와 계측기, 전광판, 방송 장비, 인터넷 정보시스템 간의 연동을 구현해야 함 — 출처: 2025 구미아시아육상경기선수권대회 조직위원회_2025 구미아시아육상경.hwp, 페이지 2.  \n  - 인터페이스 관리 시스템은 계측장비, 대회홈페이지, 전광판, 방송장비 등과의 연동·정보 송수신 기능을 제공해야 함 — 출처: 동일, 페이지 2.  \n- 대회 기본자료 및 보고서 관리 기능(시스템이 제공해야 할 데이터·보고)\n  - 선수 등록, 경기 일정 등록, 심판/임원 등록 관리, 신기록 및 종목 관리 등 기본자료 관리 — 출처: 동일, 페이지 2.  \n  - 보고서 출력: 참가자 명단, 심판·임원 정보, Start List, 경기 결과, 메달 현황, 신기록 현황 등 — 출처: 동일, 페이지 2.\n\n비고(누락·제한 사항)\n- 문맥에 \"재고(inventory)\" 관리에 대한 요구사항은 없음. 대회 시스템 요구사항은 경기 데이터·결과의 연동·송수신 및 참가자·심판 등 기본 데이터·보고서 관리에 초점이 있음(출처: 페이지 2).  \n- 윤리강령 제정과 내부비리 제보자 보호 규정은 “노력할 것”으로 명시되어 있으며(페이지 60), 구체적 형식·내용·이행증빙 방식은 문서에서 상세히 제시되어 있지 않음.\n\n출처\n- 2025 구미아시아육상경기선수권대회 조직위원회_2025 구미아시아육상경.hwp, 페이지 2, 페이지 60, 페이지 63.\n\n---\n\n### 2) 파주도시관광공사 — '종량제봉투 판매관리 전산시스템 개선사업' 요구사항\n- 제공된 검색 문맥에는 본 사업의 요구사항(윤리·제재 의무 또는 재고·거래 기록·전송 기능)에 관한 관련 근거가 없습니다. 따라서 해당 사업에서 요구하는 구체적 의무·기능을 문서 기반으로 제시할 수 없습니다(출처: 검색 결과 메타정보 — 관련 근거 없음).  \n- 다음 조치(권장): 파주도시관광공사 RFP 원문 또는 요구사항 문서를 제공해 주시면, 그 문서에 근거해 동일한 형식(윤리·제재 의무와 재고·거래 기록·전송 기능)을 정리해 드리겠습니다.\n\n출처\n- 파주도시관광공사 '종량제봉투 판매관리 전산시스템 개선사업' 요구사항 — 검색된 문서에 해당 내용 없음.", "correctness": {"score": 3, "reason": "구미 조직위 관련 핵심 윤리·제재 조항(6개월 참가제한, 계약취소 등)은 정확히 기술했으나 기대 답변에 있는 담합·뇌물별 구체적 기간(담합 주도자 2년 등)과 파주 전산시스템의 상세 재고·거래 기능은 누락되어 기대 답변과 완전 일치하지 않음."}, "answer_coverage": {"score": 2, "reason": "구미 문서의 일부 항목은 다뤘지만 담합·제재 기간별 세부항목과 파주 요구사항(재고·전송·통계 기능들)을 포함하지 않아 기대 답변의 핵심 포인트 상당수가 누락됨."}, "faithfulness": {"score": 5, "reason": "제시된 내용은 검색된 구미 문서의 문구에 근거하고 있으며 파주 사업 관련 기록이 없음을 명시해 환각 없이 충실함."}, "context_relevance": {"score": 5, "reason": "구미 조직위 문서는 질문에 직접 관련된 윤리·제재 및 시스템 연동 요구사항을 포함하고 있고, 파주 문서는 검색결과에 없음을 정확히 반영함."}, "hit_position": 1, "recall_at_k": 1.0, "num_retrieved": 5, "ground_truth_sources": ["2025 구미 아시아육상경기선수권대회 조직위원회_2025 구미아시아육상경.hwp"], "retrieved_sources": ["2025 구미 아시아육상경기선수권대회 조직위원회_2025 구미아시아육상경.hwp", "재단법인 광주광역시 광주문화재단_2024년 광주문화예술통합플랫폼 시스.hwp", "(사）한국대학스포츠협의회_KUSF 체육특기자 경기기록 관리시스템 개발.hwp"], "latencies": {"analyze_query": 25.074432134628296, "retrieve": 0.5219831466674805, "extract_evidence": 36.403104066848755, "generate": 35.94569993019104}}];
+
+// --- Summary Cards ---
+const S = SUMMARY;
+const cardsEl = document.getElementById('cards');
+const TTScoreTable = (rows) => `<table class="tt-table"><tr><th>점수</th><th>기준</th></tr>${rows.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('')}</table>`;
+const LLM_ROWS = [
+  [5,'기대 답변의 핵심 정보를 모두 정확히 포함'],
+  [4,'대부분 정확하나 사소한 부정확 있음'],
+  [3,'핵심의 절반 정도가 정확'],
+  [2,'일부만 맞고 오류 포함'],
+  [1,'거의 관련 없는 답변'],
+  [0,'완전히 틀리거나 답변 거부'],
+];
+const AC_ROWS = [
+  [5,'기대 답변의 모든 핵심 포인트를 빠짐없이 포함'],
+  [4,'대부분 포함하나 사소한 항목 1~2개 누락'],
+  [3,'핵심 포인트의 절반 정도만 커버'],
+  [2,'주요 정보 대부분 누락, 일부만 언급'],
+  [1,'핵심 정보가 거의 없음'],
+  [0,'관련 정보 전혀 없음 또는 답변 거부'],
+];
+const F_ROWS = [
+  [5,'모든 내용이 context에서 직접 확인 가능'],
+  [4,'대부분 근거 있으나 사소한 추론 포함'],
+  [3,'핵심은 있으나 상당한 추론/일반화 포함'],
+  [2,'부분적으로만 관련, 환각 포함'],
+  [1,'대부분 환각이거나 context와 무관'],
+  [0,'완전한 환각 또는 context 무시'],
+];
+const CR_ROWS = [
+  [5,'context가 질문에 완벽히 관련, 충분한 정보 포함'],
+  [4,'대부분 관련, 일부 불필요한 내용'],
+  [3,'부분적 관련, 핵심 정보 일부 부족'],
+  [2,'관련성 낮고 대부분 무관'],
+  [1,'거의 관련 없는 문서'],
+  [0,'완전히 무관'],
+];
+
+const cardDefs = [
+  {label:'Correctness',ko:'정확성',value:S.avg_correctness.toFixed(2),max:'/5',color:'var(--accent)',
+    tooltip:`<div class="tt-title">Correctness · 정확성</div>
+      <div class="tt-desc">생성된 답변이 기대 답변과 의미적으로 일치하는가?</div>
+      <div class="tt-kv"><strong>관점:</strong> 답변의 정확성 — 맞는 정보인가</div>
+      <div class="tt-kv"><strong>판단 기준:</strong> 기대 답변의 핵심 사실과 생성 답변의 사실이 일치하는 정도</div>
+      <div class="tt-kv"><strong>Coverage와의 차이:</strong> Correctness는 "틀린 정보가 있는가"에 초점</div>
+      ${TTScoreTable(LLM_ROWS)}`},
+  {label:'Answer Coverage',ko:'답변 커버리지',value:(S.avg_answer_coverage||0).toFixed(2),max:'/5',color:'#f97316',
+    tooltip:`<div class="tt-title">Answer Coverage · 답변 커버리지</div>
+      <div class="tt-desc">기대 답변의 핵심 정보가 생성 답변에 얼마나 누락 없이 포함되었는가?</div>
+      <div class="tt-kv"><strong>관점:</strong> 답변의 완전성 — 빠진 정보가 없는가</div>
+      <div class="tt-kv"><strong>판단 기준:</strong> 기대 답변의 핵심 포인트 목록 대비 생성 답변이 커버한 비율</div>
+      <div class="tt-kv"><strong>Correctness와의 차이:</strong> Coverage는 "빠진 정보가 있는가"에 초점</div>
+      ${TTScoreTable(AC_ROWS)}`},
+  {label:'Faithfulness',ko:'충실성',value:S.avg_faithfulness.toFixed(2),max:'/5',color:'var(--green)',
+    tooltip:`<div class="tt-title">Faithfulness · 충실성</div>
+      <div class="tt-desc">생성된 답변이 검색된 context에 근거하고 있는가? (환각 없는가)</div>
+      <div class="tt-kv"><strong>관점:</strong> 답변의 근거 충실도</div>
+      <div class="tt-kv"><strong>판단 기준:</strong> 답변의 각 주장이 검색된 context에서 확인 가능한 정도</div>
+      ${TTScoreTable(F_ROWS)}`},
+  {label:'Context Relevance',ko:'검색 관련성',value:(S.avg_context_relevance||0).toFixed(2),max:'/5',color:'var(--purple)',
+    tooltip:`<div class="tt-title">Context Relevance · 검색 관련성</div>
+      <div class="tt-desc">검색된 context가 질문에 실제로 관련 있는가?</div>
+      <div class="tt-kv"><strong>관점:</strong> 검색 품질</div>
+      <div class="tt-kv"><strong>판단 기준:</strong> 검색된 문서가 질문에 답하는 데 필요한 정보를 포함하는 정도</div>
+      ${TTScoreTable(CR_ROWS)}`},
+  {label:'Recall@5 (Source)',ko:'검색 재현율·문서',value:((S.recall_at_k_source||0)*100).toFixed(0)+'%',max:'',color:'var(--cyan)',
+    tooltip:`<div class="tt-title">Recall@K (Source) · 검색 재현율 — 문서 단위</div>
+      <div class="tt-desc">top-K 검색 결과에 정답 문서(source 기준)가 포함된 질문의 비율</div>
+      <div class="tt-kv"><strong>범위:</strong> 0.0 ~ 1.0</div>
+      <div class="tt-kv"><strong>매칭:</strong> 파일명(source)만 일치하면 hit</div>
+      <div class="tt-kv"><strong>multi_doc/comparison (Strict):</strong> sources 리스트의 모든 source가 top-K에 있어야 1.0. 하나라도 누락 시 0.0</div>
+      <span class="tt-formula">(Recall@K > 0인 질문 수) / 전체 질문 수</span>`},
+  {label:'MRR (Source)',ko:'평균 역순위·문서',value:(S.mrr_source||0).toFixed(2),max:'',color:'var(--yellow)',
+    tooltip:`<div class="tt-title">MRR (Source) · 평균 역순위 — 문서 단위</div>
+      <div class="tt-desc">정답 문서(source 기준)가 검색 결과에서 몇 번째에 위치하는지의 역수 평균</div>
+      <div class="tt-kv"><strong>범위:</strong> 0.0 ~ 1.0</div>
+      <div class="tt-kv"><strong>매칭:</strong> 파일명(source)만 일치하면 hit</div>
+      <span class="tt-formula">mean(1/rank) — 정답 없으면 0</span>`},
+  {label:'Avg Latency',ko:'평균 응답시간',value:'67.1s',max:'',color:'var(--cyan)',
+    tooltip:`<div class="tt-title">평균 레이턴시 · 단계별 분해</div><div class="tt-desc">전체 파이프라인 평균 소요 시간 (20개 질문 기준)</div><table class="tt-table"><tr><th>단계</th><th>평균</th><th>비중</th></tr><tr><td style="color:#d1d5db">질의분석 (analyze)</td><td style="font-weight:700;color:#f3f4f6">17.87s</td><td style="color:#6b7280">27%<span style="display:inline-block;width:32px;height:6px;border-radius:3px;background:#3b82f6;opacity:0.7;vertical-align:middle;margin-left:6px"></span></td></tr><tr><td style="color:#d1d5db">문서검색 (retrieve)</td><td style="font-weight:700;color:#f3f4f6">0.87s</td><td style="color:#6b7280">1%<span style="display:inline-block;width:2px;height:6px;border-radius:3px;background:#06b6d4;opacity:0.7;vertical-align:middle;margin-left:6px"></span></td></tr><tr><td style="color:#d1d5db">근거추출 (extract_evidence)</td><td style="font-weight:700;color:#f3f4f6">26.68s</td><td style="color:#6b7280">40%<span style="display:inline-block;width:48px;height:6px;border-radius:3px;background:#a855f7;opacity:0.7;vertical-align:middle;margin-left:6px"></span></td></tr><tr><td style="color:#d1d5db">답변생성 (generate)</td><td style="font-weight:700;color:#f3f4f6">21.70s</td><td style="color:#6b7280">32%<span style="display:inline-block;width:39px;height:6px;border-radius:3px;background:#22c55e;opacity:0.7;vertical-align:middle;margin-left:6px"></span></td></tr></table><div style="margin-top:0.5rem;font-size:0.74rem;color:#6b7280">합계: <strong style="color:#f3f4f6">67.1s</strong></div>`},
+  {label:'평가 건수',ko:'',value:S.num_evaluated+'/'+S.num_queries,max:'',color:'var(--text)',tooltip:null},
+];
+cardsEl.innerHTML = cardDefs.map(c=>`
+  <div class="card">
+    <div class="label">${c.label}${c.ko?`<br><span style="font-size:0.7rem;color:var(--text2);text-transform:none;letter-spacing:0">${c.ko}</span>`:''}</div>
+    <div class="value" style="color:${c.color}">${c.value}</div>
+    <div class="max">${c.max}</div>
+    ${c.tooltip?`<div class="tooltip-box">${c.tooltip}</div>`:''}
+  </div>
+`).join('');
+
+// --- Radar ---
+new Chart(document.getElementById('radarChart'), {
+  type: 'radar',
+  data: {
+    labels: ['Correctness', 'Answer Coverage', 'Faithfulness', 'Context Relevance', 'Recall@K (x5)', 'MRR (x5)'],
+    datasets: [{
+      label: '현재 성능',
+      data: [S.avg_correctness, S.avg_answer_coverage||0, S.avg_faithfulness, S.avg_context_relevance||0, (S.recall_at_k_source||0)*5, (S.mrr_source||0)*5],
+      backgroundColor: 'rgba(59,130,246,0.15)',
+      borderColor: 'rgba(59,130,246,0.8)',
+      pointBackgroundColor: 'rgba(59,130,246,1)',
+      borderWidth: 2
+    }]
+  },
+  options: {
+    scales: { r: { min:0, max:5, ticks:{stepSize:1,color:'#666'}, grid:{color:'#2a2a2a'}, pointLabels:{color:'#a1a1a1',font:{size:11}} } },
+    plugins: { legend: {display:false} }
+  }
+});
+
+// --- Bar by type ---
+const types = ['single_doc','multi_doc','comparison'];
+const typeLabels = ['Single Doc','Multi Doc','Comparison'];
+const byType = {};
+PQ.forEach(q => {
+  const t = q.query_type || 'unknown';
+  if (!byType[t]) byType[t] = {c:[],ac:[],f:[],cr:[]};
+  byType[t].c.push(q.correctness?.score??0);
+  byType[t].ac.push(q.answer_coverage?.score??0);
+  byType[t].f.push(q.faithfulness?.score??0);
+  byType[t].cr.push(q.context_relevance?.score??0);
+});
+const avg = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 0;
+
+new Chart(document.getElementById('barChart'), {
+  type: 'bar',
+  data: {
+    labels: typeLabels,
+    datasets: [
+      {label:'Correctness', data:types.map(t=>avg(byType[t]?.c||[])), backgroundColor:'rgba(59,130,246,0.7)'},
+      {label:'Answer Coverage', data:types.map(t=>avg(byType[t]?.ac||[])), backgroundColor:'rgba(249,115,22,0.7)'},
+      {label:'Faithfulness', data:types.map(t=>avg(byType[t]?.f||[])), backgroundColor:'rgba(34,197,94,0.7)'},
+      {label:'Context Relevance', data:types.map(t=>avg(byType[t]?.cr||[])), backgroundColor:'rgba(168,85,247,0.7)'},
+    ]
+  },
+  options: {
+    scales: { y:{min:0,max:5,ticks:{color:'#666'},grid:{color:'#2a2a2a'}}, x:{ticks:{color:'#a1a1a1'},grid:{display:false}} },
+    plugins: { legend:{labels:{color:'#a1a1a1',font:{size:11}}} }
+  }
+});
+
+// --- Per-query bar ---
+new Chart(document.getElementById('heatChart'), {
+  type: 'bar',
+  data: {
+    labels: PQ.map(q => q.id?.replace('eval_','')),
+    datasets: [
+      {label:'C', data:PQ.map(q=>q.correctness?.score??0), backgroundColor:PQ.map(q=>{const s=q.correctness?.score??0; return s>=4?'rgba(34,197,94,0.6)':s>=3?'rgba(234,179,8,0.6)':'rgba(239,68,68,0.6)';})},
+      {label:'AC', data:PQ.map(q=>q.answer_coverage?.score??0), backgroundColor:'rgba(249,115,22,0.4)'},
+      {label:'F', data:PQ.map(q=>q.faithfulness?.score??0), backgroundColor:'rgba(34,197,94,0.3)'},
+      {label:'CR', data:PQ.map(q=>q.context_relevance?.score??0), backgroundColor:'rgba(168,85,247,0.3)'},
+    ]
+  },
+  options: {
+    scales: { y:{min:0,max:5,ticks:{color:'#666'},grid:{color:'#2a2a2a'}}, x:{ticks:{color:'#a1a1a1',font:{size:9}},grid:{display:false}} },
+    plugins: { legend:{labels:{color:'#a1a1a1',font:{size:10}}} }
+  }
+});
+
+// --- Doughnut ---
+const cScores = PQ.map(q=>q.correctness?.score??0);
+const dist = [0,1,2,3,4,5].map(s => cScores.filter(v=>v===s).length);
+new Chart(document.getElementById('distChart'), {
+  type: 'doughnut',
+  data: {
+    labels: ['0점','1점','2점','3점','4점','5점'],
+    datasets: [{
+      data: dist,
+      backgroundColor: ['rgba(239,68,68,0.7)','rgba(239,68,68,0.5)','rgba(249,115,22,0.6)','rgba(234,179,8,0.6)','rgba(34,197,94,0.5)','rgba(34,197,94,0.7)'],
+      borderWidth: 0
+    }]
+  },
+  options: { plugins: { legend:{position:'right', labels:{color:'#a1a1a1',font:{size:11},padding:12}} } }
+});
+
+// --- Insights ---
+const perfect = PQ.filter(q=>(q.correctness?.score??0)===5).length;
+const weak = PQ.filter(q=>(q.correctness?.score??0)<=2).length;
+document.getElementById('insights').innerHTML = `
+  <h2>핵심 인사이트</h2>
+  <div class="insight-item"><div class="insight-icon">✅</div><div class="insight-text"><strong>Faithfulness ${S.avg_faithfulness}/5</strong> <span>— 환각이 거의 없음. context에 없는 정보를 만들어내지 않음</span></div></div>
+  <div class="insight-item"><div class="insight-icon">🎯</div><div class="insight-text"><strong>Correctness 만점 ${perfect}/20건</strong> <span>— single_doc 유형에서 특히 강함. 정답 청크가 검색되면 높은 정확도</span></div></div>
+  <div class="insight-item"><div class="insight-icon">⚠️</div><div class="insight-text"><strong>저조 항목 ${weak}건 (Correctness ≤ 2)</strong> <span>— 공통 원인: 정답 청크가 top-5에 미포함 → "근거 없음" 응답</span></div></div>
+  <div class="insight-item"><div class="insight-icon">📊</div><div class="insight-text"><strong>유형별 격차</strong> <span>— single_doc > multi_doc > comparison 순. 복잡한 질문일수록 성능 하락</span></div></div>
+  <div class="insight-item"><div class="insight-icon">🔍</div><div class="insight-text"><strong>병목: Retrieval 정밀도</strong> <span>— Hit Rate 90%이지만, 정답 "페이지"가 아닌 다른 페이지가 검색되어 Correctness 하락</span></div></div>
+`;
+
+// --- Latency Table ---
+(function() {
+  const stages = ['analyze_query','retrieve','extract_evidence','generate'];
+  const stageLabels = ['analyze_query','retrieve','extract_evidence','generate'];
+  const groups = {
+    '전체 평균': PQ,
+    'Single Doc': PQ.filter(q=>q.query_type==='single_doc'),
+    'Multi Doc':  PQ.filter(q=>q.query_type==='multi_doc'),
+    'Comparison': PQ.filter(q=>q.query_type==='comparison'),
+  };
+
+  // 최대 total 구해서 bar 너비 기준 잡기
+  const allTotals = PQ.filter(q=>q.latencies).map(q=>stages.reduce((s,k)=>s+(q.latencies[k]||0),0));
+  const maxTotal = Math.max(...allTotals, 1);
+
+  const table = document.getElementById('latencyTable');
+  const header = `<thead><tr>
+    <th>구간</th>
+    <th>analyze_query</th><th>retrieve</th><th>extract_evidence</th><th>generate</th>
+    <th>합계</th><th>n</th>
+  </tr></thead>`;
+
+  const rows = Object.entries(groups).map(([label, items], idx) => {
+    const withLat = items.filter(q=>q.latencies);
+    const n = withLat.length;
+    if (!n) return `<tr><td colspan="7" style="color:var(--text2);padding:0.5rem 0.75rem">${label}: 데이터 없음</td></tr>`;
+    const avgs = stages.map(k => withLat.reduce((s,q)=>s+(q.latencies[k]||0),0)/n);
+    const total = avgs.reduce((a,b)=>a+b,0);
+    const barW = Math.round((total/maxTotal)*80);
+    const isTotal = idx===0;
+    return `<tr class="${isTotal?'total-row':''}">
+      <td>${label}</td>
+      ${avgs.map(v=>`<td>${v.toFixed(2)}s</td>`).join('')}
+      <td>${total.toFixed(2)}s<span class="latency-bar" style="width:${barW}px;background:var(--accent)"></span></td>
+      <td class="stage-col">${n}</td>
+    </tr>`;
+  }).join('');
+
+  table.innerHTML = header + `<tbody>${rows}</tbody>`;
+})();
+
+// --- Query Cards (expandable with answers) ---
+const scoreClass = s => 's'+Math.min(5,Math.max(0,s));
+const typeClass = t => t==='single_doc'?'type-single':t==='multi_doc'?'type-multi':'type-comparison';
+const typeName = t => t==='single_doc'?'Single':t==='multi_doc'?'Multi':'Compare';
+
+const cardsContainer = document.getElementById('queryCards');
+PQ.forEach(q => {
+  const cs = q.correctness?.score??0, acs = q.answer_coverage?.score??0, fs = q.faithfulness?.score??0, crs = q.context_relevance?.score??0;
+  const cReason = q.correctness?.reason??'', acReason = q.answer_coverage?.reason??'', fReason = q.faithfulness?.reason??'', crReason = q.context_relevance?.reason??'';
+  const gen = q.generated_answer || '(답변 없음)';
+  const exp = q.expected_answer || '(정답 없음)';
+  const hit = q.hit_position;
+  const qt = q.query_type || 'unknown';
+
+  const card = document.createElement('div');
+  card.className = 'query-card';
+  card.innerHTML = `
+    <div class="query-header" onclick="this.parentElement.classList.toggle('open')">
+      <span class="query-id">${q.id?.replace('eval_','#')}</span>
+      <span class="type-tag ${typeClass(qt)}">${typeName(qt)}</span>
+      <span class="query-q">${q.question||''}</span>
+      <span class="query-scores">
+        <span class="score-pill ${scoreClass(cs)}" title="Correctness">C:${cs}</span>
+        <span class="score-pill ${scoreClass(acs)}" title="Answer Coverage">AC:${acs}</span>
+        <span class="score-pill ${scoreClass(fs)}" title="Faithfulness">F:${fs}</span>
+        <span class="score-pill ${scoreClass(crs)}" title="Context Relevance">CR:${crs}</span>
+        <span class="hit-badge ${hit?'hit-yes':'hit-no'}">${hit?'Hit@'+hit:'MISS'}</span>
+      </span>
+      <span class="query-chevron">▶</span>
+    </div>
+    <div class="query-body">
+      <div class="meta-row">
+        <span><strong>유형:</strong> ${qt}</span>
+        <span><strong>검색 문서:</strong> ${q.num_retrieved||0}개</span>
+        <span><strong>Hit (source):</strong> <span class="${hit?'hit-yes':'hit-no'}">${hit?'Hit@'+hit:'MISS'}</span></span>
+        <span><strong>Recall@K (source):</strong> ${(q.recall_at_k*100).toFixed(0)}%</span>
+      </div>
+      <div class="meta-row" style="flex-direction:column;gap:0.4rem">
+        <span><strong>정답 문서:</strong> ${(q.ground_truth_sources||[]).map(s=>`<code style="font-size:0.76rem;background:rgba(59,130,246,0.1);color:#93c5fd;padding:0.1rem 0.4rem;border-radius:3px">${s}</code>`).join(' ')}</span>
+        <span><strong>검색된 문서:</strong> ${(q.retrieved_sources||[]).map(s=>{
+          const isHit = (q.ground_truth_sources||[]).includes(s);
+          return `<code style="font-size:0.76rem;background:${isHit?'rgba(34,197,94,0.12)':'rgba(239,68,68,0.08)'};color:${isHit?'#86efac':'#fca5a5'};padding:0.1rem 0.4rem;border-radius:3px">${s}</code>`;
+        }).join(' ')}</span>
+      </div>
+      <div class="meta-row latency-row">
+        ${q.latencies?`<span><strong>지연시간:</strong> analyze=${(q.latencies.analyze_query||0).toFixed(1)}s | retrieve=${(q.latencies.retrieve||0).toFixed(2)}s | evidence=${(q.latencies.extract_evidence||0).toFixed(1)}s | generate=${(q.latencies.generate||0).toFixed(1)}s</span>`:''}</span>
+      </div>
+      <div class="answer-grid">
+        <div class="answer-box expected">
+          <div class="box-label">기대 답변 (Expected)</div>
+          <div class="box-content">${escapeHtml(exp)}</div>
+        </div>
+        <div class="answer-box generated">
+          <div class="box-label">생성 답변 (Generated)</div>
+          <div class="box-content">${escapeHtml(gen)}</div>
+        </div>
+      </div>
+      <div class="judge-grid">
+        <div class="judge-item">
+          <div class="j-header">
+            <span class="j-label">Correctness <span class="j-label-ko">정확성</span></span>
+            <span class="score-pill ${scoreClass(cs)}">${cs}/5</span>
+          </div>
+          <div class="j-reason">${escapeHtml(cReason)}</div>
+        </div>
+        <div class="judge-item">
+          <div class="j-header">
+            <span class="j-label">Answer Coverage <span class="j-label-ko">커버리지</span></span>
+            <span class="score-pill ${scoreClass(acs)}">${acs}/5</span>
+          </div>
+          <div class="j-reason">${escapeHtml(acReason)}</div>
+        </div>
+        <div class="judge-item">
+          <div class="j-header">
+            <span class="j-label">Faithfulness <span class="j-label-ko">충실성</span></span>
+            <span class="score-pill ${scoreClass(fs)}">${fs}/5</span>
+          </div>
+          <div class="j-reason">${escapeHtml(fReason)}</div>
+        </div>
+        <div class="judge-item">
+          <div class="j-header">
+            <span class="j-label">Context Relevance <span class="j-label-ko">검색관련성</span></span>
+            <span class="score-pill ${scoreClass(crs)}">${crs}/5</span>
+          </div>
+          <div class="j-reason">${escapeHtml(crReason)}</div>
+        </div>
+      </div>
+    </div>
+  `;
+  cardsContainer.appendChild(card);
+});
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+let allOpen = false;
+function toggleAll() {
+  allOpen = !allOpen;
+  document.querySelectorAll('.query-card').forEach(c => {
+    if (allOpen) c.classList.add('open');
+    else c.classList.remove('open');
+  });
+}
+</script>
+</body>
+</html>
