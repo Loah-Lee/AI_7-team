@@ -219,7 +219,8 @@ processed_runtime/
 data_index/processed_runtime/
 
 # Local Chroma DB is large and rebuilt on first run
-data_index/chroma_B/
+data_index/chroma_B/*
+!data_index/chroma_B/.gitkeep
 
 # Model Weights (LLM 가중치는 HuggingFace 등에서 다운로드)
 *.pth
