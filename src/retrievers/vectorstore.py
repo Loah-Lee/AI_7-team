@@ -3,12 +3,14 @@
 
 from __future__ import annotations
 
-import sys
+import sys, json, math
 from pathlib import Path
 from typing import Any
 
 import chromadb
 from openai import OpenAI
+
+from src.retrievers.build_db import bm25_ef, _kiwi, dense_ef
 
 # 설정
 sys.path.insert(0, 'src')
@@ -16,9 +18,10 @@ from src.utils.config import OPENAI_API_KEY, EMBEDDING_MODEL, CHUNK_HASH_MOD, OR
 
 # 파서는 import 방식을 사용
 from src.parsers.csv_loader import CSVMarkdownConverter
-from src.parsers.pdf_loader import PDFMarkdownConverter
-from src.parsers.hwp_loader import HWPMarkdownConverter
 from src.graph.state import OrgInfo
+
+
+from sentence_transformers import SentenceTransformer
 
 
 class VectorStore:
@@ -30,19 +33,15 @@ class VectorStore:
             db_path = get_default_db_path()
 
         self.db_path = db_path
-        self.client = chromadb.PersistentClient(path=db_path)
-        self.collection = self.client.get_or_create_collection(
-            name="rfp_docs_v17",
-            metadata={"hnsw:space": "cosine"}
-        )
+        self.client = chromadb.PersistentClient(path="./chroma_db")
+        self.collection = self.client.get_collection(name="chunks")
         self.count = self.collection.count()
         self.org_registry: dict[str, OrgInfo] = {}
         self.last_search_results: list[dict[str, Any]] = []
 
         # 변환기 초기화
         self.csv_converter = CSVMarkdownConverter()
-        self.pdf_converter = PDFMarkdownConverter()
-        self.hwp_converter = HWPMarkdownConverter()
+
 
     def add_documents(self, chunks: list[dict[str, str]]) -> None:
         """문서 청크를 추가합니다."""
@@ -62,14 +61,8 @@ class VectorStore:
 
     def _create_embeddings(self, texts: list[str]) -> list[list[float]]:
         """텍스트 임베딩을 생성합니다."""
-        if OPENAI_API_KEY:
-            client = OpenAI(api_key=OPENAI_API_KEY)
-            embeddings = client.embeddings.create(model=EMBEDDING_MODEL, input=texts)
-            return [e.embedding for e in embeddings.data]
-        else:
-            from sentence_transformers import SentenceTransformer
-            model = SentenceTransformer("BM-K/KoSimCSE-roberta-multitask")
-            return model.encode(texts).tolist()
+        model = SentenceTransformer(EMBEDDING_MODEL)
+        return model.encode(texts).tolist()
 
     def register_org(self, org_info: OrgInfo, preserve_existing: bool = True) -> None:
         """기관 정보를 등록합니다."""
@@ -108,13 +101,100 @@ class VectorStore:
         if new.has_hwp:
             existing.has_hwp = True
 
+
+    def extract_nouns(self, text: str) -> str:
+        """명사 추출 (한국어 최적화)"""
+        if not text:
+            return ""
+        tokens = _kiwi.tokenize(text)
+        return " ".join([t.form for t in tokens if t.tag in ('NNG', 'NNP', 'NNB')])
+    
+
+    def _sparse_to_dict(self, sparse_vec) -> dict:
+        """SparseVector를 dict로 변환"""
+        return {str(idx): float(val) for idx, val in zip(sparse_vec.indices, sparse_vec.values)}
+    
+
+    def hybrid_query(self, collection, query_text: str, n_results: int = 10,
+                    alpha: float = 0.5,
+                    candidate_multiplier: int = 3,
+                    rrf_k: int = 60):
+        """
+        Manual Hybrid Fusion: Dense + Sparse 수동 결합
+        
+        Args:
+            collection: ChromaDB 컬렉션 객체
+            query_text: 쿼리 텍스트
+            n_results: 최종 반환 결과 수
+            alpha: Sparse 가중치 (0.3~0.7 권장)
+            candidate_multiplier: Dense 후보 확대 배수
+            rrf_k: RRF 민감도 상수
+        
+        Returns:
+            결합 점수 순으로 정렬된 결과 리스트
+        """
+        
+        # 1️⃣ Candidate Expansion: Dense에서 더 많은 후보 가져오기
+        dense_results = collection.query(
+            query_texts=[query_text],
+            n_results=n_results * candidate_multiplier  # 보통 n_results * 3
+        )
+        
+        # 2️⃣ Query용 Sparse Vector 생성
+        query_nouns = self.extract_nouns(query_text)
+        query_sparse = self._sparse_to_dict(bm25_ef([query_nouns])[0])
+        
+        scored_results = []
+        
+        # 3️⃣ Dense 결과 각각에 대해 Sparse 점수 계산 및 결합
+        for i, (uid, doc, meta) in enumerate(zip(
+            dense_results['ids'][0],
+            dense_results['documents'][0],
+            dense_results['metadatas'][0]
+        )):
+            # Sparse 점수: 저장된 sparse_embedding과 dot-product
+            doc_sparse = json.loads(meta.get('sparse_embedding', '{}'))
+            raw_sparse = sum(
+                query_sparse.get(k, 0.0) * v
+                for k, v in doc_sparse.items()
+            )
+            
+            # 음수 방지
+            raw_sparse = max(raw_sparse, 0.0)
+            
+            # 결합 점수 계산
+            dense_rank = i + 1  # 1-based rank
+            rrf_dense = 1 / (rrf_k + dense_rank)
+            sparse_score = math.log1p(raw_sparse)  # log(1 + x) 안정화
+            
+            combined = rrf_dense + (alpha * sparse_score)
+            
+            scored_results.append({
+                "id": uid,
+                "document": doc,
+                "metadata": meta,
+                "dense_rank": dense_rank,
+                "raw_sparse_score": raw_sparse,
+                "sparse_score": sparse_score,
+                "rrf_dense": rrf_dense,
+                "combined_score": combined
+            })
+        
+        # 4️⃣ 결합 점수 기준으로 재정렬
+        scored_results.sort(key=lambda x: x["combined_score"], reverse=True)
+        
+        # 5️⃣ Top-K 반환
+        return scored_results[:n_results]
+
+
     def search(self, query: str, top_k: int = 10) -> list[dict[str, Any]]:
         """문서를 검색합니다."""
-        query_embedding = self._create_query_embedding(query)
 
         try:
-            response = self.collection.query(query_embeddings=[query_embedding], n_results=top_k)
-            results = self._parse_search_results(response)
+            results = self.hybrid_query(self.collection, query, n_results=top_k, alpha=0.5)
+            # response = self.collection.query(query_embeddings=[query_embedding], n_results=top_k)
+            # results = self._parse_search_results(response)
+
             self.last_search_results = results  # 검색 결과 저장
             return results
         except Exception as e:
@@ -123,15 +203,8 @@ class VectorStore:
 
     def _create_query_embedding(self, query: str) -> list[float]:
         """쿼리 임베딩을 생성합니다."""
-        if OPENAI_API_KEY:
-            client = OpenAI(api_key=OPENAI_API_KEY)
-            return client.embeddings.create(
-                model=EMBEDDING_MODEL, input=[query]
-            ).data[0].embedding
-        else:
-            from sentence_transformers import SentenceTransformer
-            model = SentenceTransformer("BM-K/KoSimCSE-roberta-multitask")
-            return model.encode([query]).tolist()[0]
+        model = SentenceTransformer(EMBEDDING_MODEL)
+        return model.encode([query]).tolist()[0]
 
     def _parse_search_results(self, response: dict) -> list[dict[str, Any]]:
         """검색 응답을 파싱합니다."""

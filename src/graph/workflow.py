@@ -88,7 +88,7 @@ class RAGChatbotV17:
             print("=" * 60)
             print("입찰메이트 v17 - 마크다운 통합 데이터베이스 구축")
             print("=" * 60)
-            self._load_document_files(force_reload=True)
+            self._load_csv_files(force_reload=True)
             print("=" * 60)
             print(f"총 {len(self.vector_store.org_registry)}개 기관 등록 완료")
             print(f"벡터 DB 청크 수: {self.vector_store.count}")
@@ -168,86 +168,6 @@ class RAGChatbotV17:
         org_info.amount_numeric = parse_amount(md_data.amount)
         return org_info
 
-    def _load_document_files(self, force_reload: bool = False) -> None:
-        """PDF/HWP 파일을 로드하고 변환합니다."""
-        supported_extensions = ['.pdf', '.hwp', '.hwpx']
-        all_files = []
-        for ext in supported_extensions:
-            all_files.extend(list(self.data_dir.glob(f'*{ext}')))
-
-        if not all_files:
-            print("⚠️ PDF/HWP 파일을 찾을 수 없습니다.")
-            return
-
-        print(f"\n📄 문서 파일 처리 중: {len(all_files)}개")
-
-        from src.parsers.pdf_loader import PDFMarkdownConverter
-        from src.parsers.hwp_loader import HWPMarkdownConverter
-        
-        existing_count = self.vector_store.count
-        all_chunks = []
-
-        for file_path in all_files:
-            try:
-                org_name = PDFMarkdownConverter.extract_org_name(file_path.name)
-                is_pdf = file_path.suffix.lower() == '.pdf'
-
-                from src.graph.state import OrgInfo
-                org_info = OrgInfo(
-                    name=org_name,
-                    file_format='PDF' if is_pdf else 'HWP',
-                    has_pdf=is_pdf,
-                    has_hwp=not is_pdf
-                )
-                self.vector_store.register_org(org_info)
-
-                if existing_count > 0 and not force_reload:
-                    print(f"  ℹ️ {file_path.name}: {org_name} (기관 정보만 등록)")
-                    continue
-
-                print(f"  🔄 {file_path.name}: {org_name} 변환 중...", end="", flush=True)
-
-                if is_pdf:
-                    markdown = PDFMarkdownConverter().convert(file_path, org_name)
-                else:
-                    markdown = HWPMarkdownConverter().convert(file_path, org_name)
-
-                amount_str, amount_int = extract_amount_from_text(markdown)
-
-                if amount_int > 0:
-                    updated_info = OrgInfo(
-                        name=org_name,
-                        amount=amount_str,
-                        file_format='PDF' if is_pdf else 'HWP',
-                        has_pdf=is_pdf,
-                        has_hwp=not is_pdf
-                    )
-                    updated_info.amount_numeric = amount_int
-                    self.vector_store.register_org(updated_info)
-                    print(f" 💰{amount_str}", end="", flush=True)
-
-                sections = PDFMarkdownConverter.split_markdown_sections(markdown)
-                valid_sections = PDFMarkdownConverter.filter_valid_sections(sections)
-
-                for section in valid_sections:
-                    all_chunks.append({
-                        "text": f"## {section}",
-                        "source": file_path.name,
-                        "org": org_name,
-                        "type": "pdf" if is_pdf else "hwp"
-                    })
-
-                print(f" ✅ ({len(valid_sections)} 섹션)")
-
-            except Exception as e:
-                print(f"  ❌ {file_path.name}: {e}")
-
-        if all_chunks:
-            self.vector_store.add_documents(all_chunks)
-            print(f"  벡터 DB에 {len(all_chunks)}개 청크 추가")
-        elif existing_count == 0:
-            print("  ⚠️ 처리할 청크가 없습니다.")
-
     def answer(self, query: str) -> dict[str, Any]:
         """질문에 답변합니다."""
         # 기관명 먼저 추출 (자격요건, 제출서류 등 특정 기관 질문)
@@ -303,7 +223,7 @@ class RAGChatbotV17:
         org_rows = []
 
         for r in results[:15]:
-            org_name = r['metadata'].get('org', '')
+            org_name = r['metadata'].get('institution', '')
             if org_name and org_name not in seen_orgs:
                 seen_orgs.add(org_name)
 
