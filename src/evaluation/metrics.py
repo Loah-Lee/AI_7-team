@@ -96,6 +96,11 @@ def calculate_hit_position(
 ) -> int | None:
     """정답 문서가 검색 결과에서 몇 번째에 위치하는지 반환한다.
 
+    단일 source: 첫 번째 일치 위치를 반환한다.
+    다중 source (strict): 모든 source가 발견된 경우, 마지막으로 발견된 source의
+        위치를 반환한다 (= 모든 정답을 포함하기 위해 필요한 최소 rank).
+        하나라도 누락이면 None.
+
     Args:
         retrieved_docs: 검색된 문서 리스트 (RetrievedDoc 딕셔너리).
         ground_truth_source: 정답 문서 source 값(단일 문자열 또는 리스트).
@@ -141,7 +146,7 @@ def calculate_recall_at_k(
     ground_truth_page: int | None = None,
     k: int = 5,
 ) -> float:
-    """Recall@K — 정답 source가 top-K 내에 존재하면 1.0, 아니면 0.0.
+    """Recall@K — top-K 내에 정답 source가 있으면 1.0, 아니면 0.0.
 
     - 단일 source: top-K 내 포함 시 1.0
     - 다중 source: top-K 내에 모든 source가 포함되어야 1.0 (strict)
