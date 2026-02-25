@@ -213,6 +213,27 @@ data/
 output/
 !data/.gitkeep
 
+# Large local indexes / artifacts (do not track)
+data_index/
+.hf_cache/
+notebooks/data_assets/
+notebooks/data_chunks_rich/
+notebooks/data_chunks_rich_asset_v1/
+notebooks/data_chunks_rich_chroma_clean_v1/
+notebooks/data_chunks_rich_joined.jsonl
+notebooks/data_rich/
+notebooks/runs/
+
+# eval / run outputs (keep skeleton only)
+results/*
+!results/.gitkeep
+!results/figures/
+!results/figures/.gitkeep
+!results/logs/
+!results/logs/.gitkeep
+!results/outputs/
+!results/outputs/.gitkeep
+
 # Model Weights (LLM 가중치는 HuggingFace 등에서 다운로드)
 *.pth
 *.bin

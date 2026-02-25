@@ -14,6 +14,7 @@ from pathlib import Path
 OPENAI_API_KEY: str | None = os.environ.get("OPENAI_API_KEY")
 # EMBEDDING_MODEL: str = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
 EMBEDDING_MODEL: str = 'jhgan/ko-sroberta-multitask'
+CHROMA_COLLECTION: str = os.environ.get("CHROMA_COLLECTION", "chunks")
 DEFAULT_MODEL: str = os.environ.get("DEFAULT_MODEL", "gpt-4o-mini")
 REASONING_MODEL: str = os.environ.get("REASONING_MODEL", "gpt-5-mini")
 
@@ -21,7 +22,7 @@ REASONING_MODEL: str = os.environ.get("REASONING_MODEL", "gpt-5-mini")
 class EmbeddingConfig:
     """임베딩 설정."""
     model: str = EMBEDDING_MODEL
-    dimension: int = 1536
+    dimension: int = 1536 if EMBEDDING_MODEL.startswith("text-embedding-") else 768
     fallback_model: str = "distiluse-base-multilingual-cased-v2"
 
 embedding_config = EmbeddingConfig()
@@ -82,10 +83,10 @@ MIN_RANKING_KEYWORDS: list[str] = ["적은", "낮은", "작은"]
 PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
 
 # 주요 경로
-CHROMA_PATH = str(PROJECT_ROOT / 'chroma_db')
+CHROMA_PATH = PROJECT_ROOT / 'data_index' / 'chroma_B'
 OUTPUT_PATH = PROJECT_ROOT / 'output'
 DATA_PATH = PROJECT_ROOT / 'data'
-CHUNK_DIR = str(PROJECT_ROOT / 'output' / 'chunks')
+CHUNK_DIR = PROJECT_ROOT / 'output' / 'chunks'
 
 def get_data_dir() -> Path:
     """데이터 디렉토리 경로를 반환합니다."""
@@ -93,4 +94,4 @@ def get_data_dir() -> Path:
 
 def get_default_db_path() -> str:
     """기본 DB 경로를 반환합니다."""
-    return CHROMA_PATH.resolve()
+    return str(CHROMA_PATH.resolve())

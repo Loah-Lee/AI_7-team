@@ -27,7 +27,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 os.makedirs(CHROMA_PATH, exist_ok=True)
 _kiwi = Kiwi()
-client = chromadb.PersistentClient(path=CHROMA_PATH)
+client = chromadb.PersistentClient(path=str(CHROMA_PATH))
 
 # [Dense] SRoBERTa 임베딩
 dense_ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=EMBEDDING_MODEL)

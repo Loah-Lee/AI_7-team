@@ -72,7 +72,7 @@ class RAGChatbotV17:
         from src.graph.state import ConversationContext
         
         self.answer_generator = RFPAnswerGenerator(self.client)
-        self.vector_store = VectorStore(db_path=db_path or f"{self.data_dir}/chroma_db_v17")
+        self.vector_store = VectorStore(db_path=db_path)
         self.query_parser = QueryIntentParser(self.client)
         self.conversation = ConversationContext(max_history=5)
 
@@ -80,19 +80,14 @@ class RAGChatbotV17:
 
     def _load_documents(self) -> None:
         """모든 문서를 로드하고 변환합니다."""
-        is_initial_load = self.vector_store.count == 0
+        if self.vector_store.count > 0:
+            print(f"ℹ️ 기존 Chroma 컬렉션 재사용: count={self.vector_store.count}")
+            self._load_csv_files(verbose=False)
+            return
 
-        self._load_csv_files(verbose=is_initial_load)
-
-        if is_initial_load:
-            print("=" * 60)
-            print("입찰메이트 v17 - 마크다운 통합 데이터베이스 구축")
-            print("=" * 60)
-            self._load_document_files(force_reload=True)
-            print("=" * 60)
-            print(f"총 {len(self.vector_store.org_registry)}개 기관 등록 완료")
-            print(f"벡터 DB 청크 수: {self.vector_store.count}")
-            print("=" * 60)
+        # dev 통합 단계에서는 전처리(v3.1) 산출 DB 재사용을 기본으로 한다.
+        self._load_csv_files(verbose=True)
+        print("⚠️ 컬렉션이 비어 있습니다. preprocessor_v3.1 데이터(Chroma chunks)를 먼저 배치하세요.")
 
     def _load_csv_files(self, verbose: bool = False) -> None:
         """CSV 파일을 로드하고 변환합니다."""
@@ -169,121 +164,121 @@ class RAGChatbotV17:
         return org_info
 
     def _load_document_files(self, force_reload: bool = False) -> None:
-        """PDF/HWP 파일을 로드하고 변환합니다."""
-        supported_extensions = ['.pdf', '.hwp', '.hwpx']
-        all_files = []
-        for ext in supported_extensions:
-            all_files.extend(list(self.data_dir.glob(f'*{ext}')))
+        """레거시 자동 적재 경로(사용 중지)."""
+        _ = force_reload
+        print("ℹ️ 자동 문서 적재는 비활성화되었습니다. preprocessor_v3.1 산출 DB를 사용하세요.")
 
-        if not all_files:
-            print("⚠️ PDF/HWP 파일을 찾을 수 없습니다.")
-            return
+    @staticmethod
+    def _to_retrieved_docs(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        docs: list[dict[str, Any]] = []
+        for item in results:
+            metadata = item.get("metadata", {}) if isinstance(item.get("metadata"), dict) else {}
+            source = item.get("source") or metadata.get("source") or metadata.get("source_file") or "unknown"
+            docs.append(
+                {
+                    "source": str(source),
+                    "page": item.get("page"),
+                    "score": float(item.get("score", 0.0)),
+                    "content": str(item.get("text", "")),
+                    "metadata": metadata,
+                }
+            )
+        return docs
 
-        print(f"\n📄 문서 파일 처리 중: {len(all_files)}개")
-
-        from src.parsers.pdf_loader import PDFMarkdownConverter
-        from src.parsers.hwp_loader import HWPMarkdownConverter
-        
-        existing_count = self.vector_store.count
-        all_chunks = []
-
-        for file_path in all_files:
-            try:
-                org_name = PDFMarkdownConverter.extract_org_name(file_path.name)
-                is_pdf = file_path.suffix.lower() == '.pdf'
-
-                from src.graph.state import OrgInfo
-                org_info = OrgInfo(
-                    name=org_name,
-                    file_format='PDF' if is_pdf else 'HWP',
-                    has_pdf=is_pdf,
-                    has_hwp=not is_pdf
-                )
-                self.vector_store.register_org(org_info)
-
-                if existing_count > 0 and not force_reload:
-                    print(f"  ℹ️ {file_path.name}: {org_name} (기관 정보만 등록)")
-                    continue
-
-                print(f"  🔄 {file_path.name}: {org_name} 변환 중...", end="", flush=True)
-
-                if is_pdf:
-                    markdown = PDFMarkdownConverter().convert(file_path, org_name)
-                else:
-                    markdown = HWPMarkdownConverter().convert(file_path, org_name)
-
-                amount_str, amount_int = extract_amount_from_text(markdown)
-
-                if amount_int > 0:
-                    updated_info = OrgInfo(
-                        name=org_name,
-                        amount=amount_str,
-                        file_format='PDF' if is_pdf else 'HWP',
-                        has_pdf=is_pdf,
-                        has_hwp=not is_pdf
-                    )
-                    updated_info.amount_numeric = amount_int
-                    self.vector_store.register_org(updated_info)
-                    print(f" 💰{amount_str}", end="", flush=True)
-
-                sections = PDFMarkdownConverter.split_markdown_sections(markdown)
-                valid_sections = PDFMarkdownConverter.filter_valid_sections(sections)
-
-                for section in valid_sections:
-                    all_chunks.append({
-                        "text": f"## {section}",
-                        "source": file_path.name,
-                        "org": org_name,
-                        "type": "pdf" if is_pdf else "hwp"
-                    })
-
-                print(f" ✅ ({len(valid_sections)} 섹션)")
-
-            except Exception as e:
-                print(f"  ❌ {file_path.name}: {e}")
-
-        if all_chunks:
-            self.vector_store.add_documents(all_chunks)
-            print(f"  벡터 DB에 {len(all_chunks)}개 청크 추가")
-        elif existing_count == 0:
-            print("  ⚠️ 처리할 청크가 없습니다.")
-
-    def answer(self, query: str) -> dict[str, Any]:
+    def answer(
+        self,
+        query: str,
+        *,
+        retriever_mode: str = "dynamic",
+        top_k: int = 30,
+        hybrid_alpha: float = 0.6,
+        dynamic_hard_threshold: int = 2,
+    ) -> dict[str, Any]:
         """질문에 답변합니다."""
-        # 기관명 먼저 추출 (자격요건, 제출서류 등 특정 기관 질문)
         org_name = self._extract_org_name_from_query(query)
-
+        search_query = query
         if org_name and org_name in self.vector_store.org_registry:
-            # 특정 기관에 대한 질문 - 해당 기관 문서만 검색
-            results = self.vector_store.search(f"{org_name} {query}", top_k=20)
-        else:
-            # 일반 검색
-            results = self.vector_store.search(query, top_k=30)
+            search_query = f"{org_name} {query}"
 
+        retrieve_k = max(1, int(top_k))
+        results = self.vector_store.search(
+            search_query,
+            top_k=retrieve_k,
+            mode=retriever_mode,
+            hybrid_alpha=hybrid_alpha,
+            dynamic_hard_threshold=dynamic_hard_threshold,
+        )
+        retrieval_mode = self.vector_store.last_retrieval_mode
+
+        # easy query에서 hybrid가 빈약할 때 chroma로 재시도
+        if retriever_mode == "dynamic" and retrieval_mode == "hybrid":
+            unique_sources = self.vector_store.count_unique_sources(results)
+            weak_hybrid = (
+                not results
+                or (results and float(results[0].get("score", 0.0)) < 0.2)
+                or (len(results) >= 2 and unique_sources < 2)
+            )
+            if weak_hybrid:
+                fallback = self.vector_store.search(
+                    search_query,
+                    top_k=retrieve_k,
+                    mode="chroma",
+                    hybrid_alpha=hybrid_alpha,
+                    dynamic_hard_threshold=dynamic_hard_threshold,
+                )
+                if fallback:
+                    fallback_unique_sources = self.vector_store.count_unique_sources(fallback)
+                    keep_fallback = (
+                        not results
+                        or float(fallback[0].get("score", 0.0)) > float(results[0].get("score", 0.0))
+                        or fallback_unique_sources > unique_sources
+                    )
+                    if keep_fallback:
+                        results = fallback
+                        retrieval_mode = "dynamic_chroma_fallback"
+
+        retrieved_docs = self._to_retrieved_docs(results)
         if not results:
             return {
                 "answer": "관련 정보를 찾을 수 없습니다.",
-                "found": False
+                "found": False,
+                "status": "not_found",
+                "retrieval_mode": retrieval_mode,
+                "retrieved_docs": [],
+                "evidence": "",
             }
 
-        # LLM로 답변 생성
+        context_parts = []
+        for r in results[:20]:
+            metadata = r.get("metadata", {}) if isinstance(r.get("metadata"), dict) else {}
+            source = r.get("source") or metadata.get("source", "Unknown")
+            org = metadata.get("org", "")
+            text = r.get("text", "")
+            context_parts.append(f"[{org} - {source}]\n{text[:8000]}")
+
+        context = "\n\n---\n\n".join(context_parts)
+
         if self.client:
-            context_parts = []
-            for r in results[:20]:
-                source = r['metadata'].get('source', 'Unknown')
-                org = r['metadata'].get('org', '')
-                text = r.get('text', '')
-                context_parts.append(f"[{org} - {source}]\n{text[:8000]}")
-
-            context = "\n\n---\n\n".join(context_parts)
             answer = self.answer_generator.generate(query, context)
-
             if answer and "오류:" not in answer:
-                return {"answer": answer, "found": True}
+                return {
+                    "answer": answer,
+                    "found": True,
+                    "status": "ok",
+                    "retrieval_mode": retrieval_mode,
+                    "retrieved_docs": retrieved_docs,
+                    "evidence": context,
+                }
 
-        # 기관 요약 반환
         summary = self._create_multi_org_summary(results, query)
-        return {"answer": summary, "found": True}
+        return {
+            "answer": summary,
+            "found": True,
+            "status": "partial",
+            "retrieval_mode": retrieval_mode,
+            "retrieved_docs": retrieved_docs,
+            "evidence": context,
+        }
 
     def _extract_org_name_from_query(self, query: str) -> str | None:
         """질문에서 기관명을 추출합니다."""
@@ -297,7 +292,7 @@ class RAGChatbotV17:
                 return org_name
         return None
 
-    def _create_multi_org_summary(self, results: list, query: str) -> dict[str, Any]:
+    def _create_multi_org_summary(self, results: list, query: str) -> str:
         """여러 기관의 요약 답변을 생성합니다 - 입찰 요약 형식."""
         seen_orgs = set()
         org_rows = []
