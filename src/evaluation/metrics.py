@@ -113,13 +113,26 @@ def calculate_hit_position(
     if not gt_sources:
         return None
 
+    if len(gt_sources) == 1:
+        for idx, doc in enumerate(retrieved_docs, start=1):
+            if not _is_source_match(doc.get("source"), gt_sources):
+                continue
+            if ground_truth_page is not None and doc.get("page") != ground_truth_page:
+                continue
+            return idx
+        return None
+
+    # Multi-source strict: 모든 GT source의 첫 출현 위치 수집 → max 반환
+    # 하나라도 미발견이면 None
+    gt_set = set(gt_sources)
+    found_at: dict[str, int] = {}
     for idx, doc in enumerate(retrieved_docs, start=1):
-        if not _is_source_match(doc.get("source"), gt_sources):
-            continue
-        if ground_truth_page is not None and doc.get("page") != ground_truth_page:
-            continue
-        return idx
-    return None
+        norm_src = _normalize_source_name(doc.get("source"))
+        if norm_src in gt_set and norm_src not in found_at:
+            found_at[norm_src] = idx
+        if len(found_at) == len(gt_set):
+            return max(found_at.values())
+    return None  # 하나 이상 미발견
 
 
 def calculate_empty_retrieval_rate(
