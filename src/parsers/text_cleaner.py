@@ -1,161 +1,126 @@
-#!/usr/bin/env python3
-"""
-텍스트 정규화 모듈
+"""텍스트 클리닝 모듈.
 
-텍스트 데이터를 정리하고 정규화합니다.
+한국 RFP 문서 특유의 노이즈(불릿 기호, Bold markdown, 반복 머리말 등)를
+정규화하여 임베딩 품질을 높인다.
+
+적용 순서:
+0. (PDF only) 마크다운 테이블 → 자연어 평탄화
+1. 불릿 기호 정규화 (○□❍ → "- ")
+2. Bold markdown 제거 (**text** → text)
+4. 수평선 제거 (HWP only)
+5. 반복 머리말/꼬리말 제거
+6. 공백 정규화
 """
 
 from __future__ import annotations
 
 import re
-from typing import Any
+
+from langchain_core.documents import Document
+
+from .table_flattener import flatten_tables_in_text
+
+# ── 1. 불릿 기호 정규화 ──────────────────────────────────────────
+# 한국 RFP에서 자주 쓰이는 불릿 기호 → "- "로 변환 (리스트 의미 보존)
+_BULLET_RE = re.compile(
+    r"^(\s*)[○□❍❏◎◇▶▷►●■★☆◆▪▸ｏ]\s*",
+    re.MULTILINE,
+)
+# PDF 파서가 불릿 기호를 backtick으로 감싸는 경우: `❏`, `❍` 등
+_BACKTICK_BULLET_RE = re.compile(
+    r"^(\s*)`[○□❍❏◎◇▶▷►●■★☆◆▪▸ｏ]`\s*",
+    re.MULTILINE,
+)
+
+# ── 2. Bold markdown 제거 ────────────────────────────────────────
+_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+
+# ── 3. Heading markdown 제거 ────────────────────────────────────
+_HEADING_RE = re.compile(r"^#{1,6}\s+", re.MULTILINE)
+
+# ── 4. 수평선 (HWP only) ────────────────────────────────────────
+_HORIZONTAL_RULE_RE = re.compile(r"^[ \t]*[-_=]{3,}[ \t]*$", re.MULTILINE)
+
+# ── 5. 반복 머리말/꼬리말 ───────────────────────────────────────
+_HEADER_FOOTER_PATTERNS = [
+    # 독립 페이지 번호: "- 3 -", "3/10", "3 / 10", "3", 등
+    re.compile(r"^[ \t]*-?\s*\d{1,4}\s*-?[ \t]*$", re.MULTILINE),
+    re.compile(r"^[ \t]*\d{1,4}\s*/\s*\d{1,4}[ \t]*$", re.MULTILINE),
+    # 일반적인 머리말/꼬리말 키워드
+    re.compile(r"^[ \t]*제\s*안\s*요\s*청\s*서[ \t]*$", re.MULTILINE),
+    re.compile(r"^[ \t]*\(?\s*비\s*밀\s*\)?\s*$", re.MULTILINE),
+]
+
+# ── 6. 공백 정규화 ──────────────────────────────────────────────
+_MULTI_BLANK_RE = re.compile(r"\n{3,}")
+_TRAILING_WS_RE = re.compile(r"[ \t]+$", re.MULTILINE)
+
+def clean_text(text: str, file_type: str = "pdf") -> str:
+    """단일 텍스트 블록을 클리닝한다.
+
+    Args:
+        text: 원본 텍스트.
+        file_type: "pdf" 또는 "hwp". HWP만 수평선 제거 적용.
+
+    Returns:
+        클리닝된 텍스트.
+    """
+    # 0. PDF 전용: 마크다운 테이블 → 자연어 평탄화
+    if file_type.lower() == "pdf":
+        text = flatten_tables_in_text(text)
+
+    result = text
+
+    # 1. 불릿 기호 정규화
+    result = _BULLET_RE.sub(r"\1- ", result)
+    result = _BACKTICK_BULLET_RE.sub(r"\1- ", result)
+
+    # 2. Bold markdown 제거
+    result = _BOLD_RE.sub(r"\1", result)
+
+    # 3. Heading markdown 제거
+    result = _HEADING_RE.sub("", result)
+
+    # 4. 수평선 제거 (HWP only — PDF는 테이블 구분선 보존)
+    if file_type.lower() == "hwp":
+        # 테이블 행이 아닌 수평선만 제거
+        result = _HORIZONTAL_RULE_RE.sub("", result)
+
+    # 5. 반복 머리말/꼬리말 제거
+    for pattern in _HEADER_FOOTER_PATTERNS:
+        result = pattern.sub("", result)
+
+    # 6. 공백 정규화
+    result = result.replace("\t", "    ")  # 탭 → 4 spaces
+    result = _TRAILING_WS_RE.sub("", result)
+    result = _MULTI_BLANK_RE.sub("\n\n", result)
+    result = result.strip()
+
+    return result
 
 
-class TextCleaner:
-    """텍스트 정규화 및 전처리를 수행하는 클래스."""
+def clean_documents(documents: list[Document]) -> list[Document]:
+    """Document 리스트 전체를 클리닝한다.
 
-    # 한국어 불용어
-    STOP_WORDS = {
-        '이다', '하다', '되다', '있다', '없다', '같다', '아니다',
-        '이', '그', '저', '것', '등', '및', '또는', '혹은'
-    }
+    각 Document의 page_content를 clean_text()로 처리한다.
+    file_type 메타데이터를 참조하여 PDF/HWP 조건 분기.
+    클리닝 후 빈 문서는 제거한다.
 
-    def __init__(
-        self,
-        normalize_newlines: bool = True,
-        remove_extra_spaces: bool = True,
-        remove_special_chars: bool = False,
-        min_line_length: int = 0
-    ):
-        """텍스트 클리너를 초기화합니다.
+    Args:
+        documents: 원본 Document 리스트.
 
-        Args:
-            normalize_newlines: 연속 줄바꿈 정리 여부
-            remove_extra_spaces: 연속 공백 제거 여부
-            remove_special_chars: 특수 문자 제거 여부
-            min_line_length: 최소 줄 길이
-        """
-        self.normalize_newlines = normalize_newlines
-        self.remove_extra_spaces = remove_extra_spaces
-        self.remove_special_chars = remove_special_chars
-        self.min_line_length = min_line_length
-
-    def clean(self, text: str) -> str:
-        """텍스트를 정리합니다.
-
-        Args:
-            text: 정리할 텍스트
-
-        Returns:
-            정리된 텍스트
-        """
-        if not text:
-            return ""
-
-        cleaned = text
-
-        if self.normalize_newlines:
-            cleaned = self._normalize_newlines(cleaned)
-
-        if self.remove_extra_spaces:
-            cleaned = self._remove_extra_spaces(cleaned)
-
-        if self.remove_special_chars:
-            cleaned = self._remove_special_chars(cleaned)
-
-        cleaned = self._filter_lines(cleaned)
-
-        return cleaned.strip()
-
-    def _normalize_newlines(self, text: str) -> str:
-        """연속된 줄바꿈을 정리합니다.
-
-        Args:
-            text: 정리할 텍스트
-
-        Returns:
-            정리된 텍스트
-        """
-        return re.sub(r'\n{3,}', '\n\n', text)
-
-    def _remove_extra_spaces(self, text: str) -> str:
-        """연속된 공백을 제거합니다.
-
-        Args:
-            text: 정리할 텍스트
-
-        Returns:
-            정리된 텍스트
-        """
-        # 공백 2개 이상을 1개로 변환
-        text = re.sub(r' +', ' ', text)
-        # 탭을 공백으로 변환
-        text = text.replace('\t', ' ')
-        return text
-
-    def _remove_special_chars(self, text: str) -> str:
-        """특수 문자를 제거합니다.
-
-        Args:
-            text: 정리할 텍스트
-
-        Returns:
-            정리된 텍스트
-        """
-        # HTML 태그 제거
-        text = re.sub(r'<[^>]+>', '', text)
-        # 특수 문자 제거 (한글, 영어, 숫자, 공백, 문장부호만 유지)
-        text = re.sub(r'[^\w\s\.\,\!\?\-\/\:\(\)]', '', text)
-        return text
-
-    def _filter_lines(self, text: str) -> str:
-        """최소 길이 미만의 줄을 제거합니다.
-
-        Args:
-            text: 정리할 텍스트
-
-        Returns:
-            정리된 텍스트
-        """
-        if self.min_line_length <= 0:
-            return text
-
-        lines = text.split('\n')
-        filtered = [
-            line for line in lines
-            if len(line.strip()) >= self.min_line_length or not line.strip()
-        ]
-        return '\n'.join(filtered)
-
-    def extract_sentences(self, text: str) -> list[str]:
-        """텍스트에서 문장을 추출합니다.
-
-        Args:
-            text: 텍스트
-
-        Returns:
-            문장 리스트
-        """
-        # 문장 종결 패턴
-        sentence_endings = re.compile(r'(?<=[.!?])\s+(?=[가-힣A-Z])')
-        sentences = sentence_endings.split(text)
-        return [s.strip() for s in sentences if s.strip()]
-
-    def extract_keywords(self, text: str, min_length: int = 2) -> list[str]:
-        """텍스트에서 키워드를 추출합니다.
-
-        Args:
-            text: 텍스트
-            min_length: 최소 키워드 길이
-
-        Returns:
-            키워드 리스트
-        """
-        # 명사 추출 (간단한 정규식 기반)
-        words = re.findall(r'[가-힣]{2,}', text)
-        # 불용어 제거
-        keywords = [w for w in words if w not in self.STOP_WORDS and len(w) >= min_length]
-        # 빈도수 기반 정렬
-        from collections import Counter
-        counter = Counter(keywords)
-        return [word for word, _ in counter.most_common(20)]
+    Returns:
+        클리닝된 Document 리스트 (빈 문서 제외).
+    """
+    cleaned: list[Document] = []
+    for doc in documents:
+        file_type = doc.metadata.get("file_type", "pdf")
+        cleaned_text = clean_text(doc.page_content, file_type)
+        if cleaned_text:
+            cleaned.append(
+                Document(
+                    page_content=cleaned_text,
+                    metadata=dict(doc.metadata),
+                )
+            )
+    return cleaned

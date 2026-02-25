@@ -209,6 +209,8 @@ __marimo__/
 # === Project Specifics ===
 # Data (RFP 원본 및 전처리 데이터는 로컬/VM에서만 관리)
 data/
+# 전처리된 데이터 임시 저장소
+output/
 !data/.gitkeep
 
 # Model Weights (LLM 가중치는 HuggingFace 등에서 다운로드)
