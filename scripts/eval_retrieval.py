@@ -294,6 +294,7 @@ def evaluate_e2e(
             "id": item.get("id", f"q_{i}"),
             "question": question,
             "query_type": item.get("query_type", "unknown"),
+            "memo": item.get("memo", ""),
             "expected_answer": expected_answer,
             "generated_answer": generated_answer,
             "correctness": judge_result["correctness"],

@@ -586,6 +586,8 @@ PQ.forEach(q => {{
       <span class="query-id">${{q.id?.replace('eval_','#')}}</span>
       <span class="type-tag ${{typeClass(qt)}}">${{typeName(qt)}}</span>
       <span class="query-q">${{q.question||''}}</span>
+      ${{q.memo?`<span style="font-size:0.75rem;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;flex-shrink:0" title="${{q.memo}}">💬 ${{q.memo}}</span>`:''}}
+
       <span class="query-scores">
         <span class="score-pill ${{scoreClass(cs)}}" title="Correctness">C:${{cs}}</span>
         <span class="score-pill ${{scoreClass(acs)}}" title="Answer Coverage">AC:${{acs}}</span>
@@ -596,6 +598,7 @@ PQ.forEach(q => {{
       <span class="query-chevron">▶</span>
     </div>
     <div class="query-body">
+      ${{q.memo?`<div class="meta-row" style="background:rgba(234,179,8,0.06);border-left:3px solid #eab308;padding:0.5rem 0.75rem;border-radius:0 4px 4px 0;margin-bottom:0.75rem"><span style="font-size:0.8rem;color:#eab308">💬 <strong>메모:</strong></span> <span style="font-size:0.8rem;color:var(--text)">${{q.memo}}</span></div>`:''}}
       <div class="meta-row">
         <span><strong>유형:</strong> ${{qt}}</span>
         <span><strong>검색 문서:</strong> ${{q.num_retrieved||0}}개</span>
