@@ -34,15 +34,15 @@ from .text_cleaner import (
 # Parameters
 # ---------------------------------------------------------------------------
 
-CHUNK_SIZE = 1000
-CHUNK_OVERLAP = 200
+CHUNK_SIZE = 500
+CHUNK_OVERLAP = 100
 
 # ---------------------------------------------------------------------------
 # Regex patterns
 # ---------------------------------------------------------------------------
 
 _PAGE_MARKER_OLD_RE = re.compile(r'<<PAGE:\s*(\d+)>>')
-_PAGE_MARKER_NEW_RE = re.compile(r'\[\[\[Page:\s*(\d+)\]\]\]')
+_PAGE_MARKER_NEW_RE = re.compile(r'<<PAGE:\s*(\d+)>>')
 
 # Group A: 제N편/장/절/조/항
 _LEGAL_RE = re.compile(r"^(제\s*\d+\s*[장절조편항][\s.:]\s*.+)$", re.MULTILINE)
@@ -53,7 +53,7 @@ _NUMBERED_D3_RE = re.compile(
     r"^(\d+\.\d+\.\d+(?:\.\d+)*\.?\s+\S.+)$", re.MULTILINE,
 )
 _NUMBERED_D2_RE = re.compile(r"^(\d+\.\d+\.?\s+\S.+)$", re.MULTILINE)
-_NUMBERED_D1_RE = re.compile(r"^(\d{1,2}\.\s+\S.+)$", re.MULTILINE)
+_NUMBERED_D1_RE = re.compile(r"^((?:1[0-9]|[1-9])\.\s+\S.+)$", re.MULTILINE)
 
 # Group B: 로마 숫자 (ASCII + Unicode)
 _ROMAN_RE = re.compile(
@@ -351,80 +351,95 @@ def _find_section(section_map: List[Tuple[int, str, str]], position: int) -> Tup
     return result_l1, result_l2
 
 
-def step6_section_split(text: str) -> List[Dict]:
-    """섹션 맵 구축 → 페이지 마커 제거 → RecursiveCharacterTextSplitter → 메타데이터 할당.
-
-    MarkdownHeaderTextSplitter를 대체하여 헤더가 본문과 분리되지 않도록 한다.
-
-    Returns:
-        [{'page_content': str, 'metadata': {'section_level1', 'section_level2',
-         'page_start', 'page_end'}}, ...]
-    """
-    # 1. 섹션 맵 구축 (페이지 마커 제거 전, 원본 위치 기준)
-    section_map = _build_section_map(text)
-
-    # 2. 페이지 범위 추출을 위한 전체 페이지 마커 수집
-    page_markers_by_pos: List[Tuple[int, int]] = []  # (char_pos, page_num)
-    for m in _PAGE_MARKER_NEW_RE.finditer(text):
-        page_markers_by_pos.append((m.start(), int(m.group(1))))
-
-    # 3. 페이지 마커 제거 후 텍스트 준비
-    clean_text = _remove_page_markers(text)
-
-    # 4. RecursiveCharacterTextSplitter로 분할
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=CHUNK_SIZE,
-        chunk_overlap=CHUNK_OVERLAP,
-    )
-    raw_chunks = splitter.split_text(clean_text)
-
-    # 5. 각 chunk에 섹션/페이지 메타데이터 할당
-    results: List[Dict] = []
-    search_start = 0
-    last_page_start = 1
-    last_page_end = 1
-    for chunk_text in raw_chunks:
-        chunk_text = chunk_text.strip()
-        if not chunk_text:
-            continue
-
-        # chunk의 원본 위치 찾기 (clean_text에서 순차 검색)
-        chunk_pos = clean_text.find(chunk_text[:80], search_start)
-        if chunk_pos == -1:
-            chunk_pos = clean_text.find(chunk_text[:80])
-        if chunk_pos >= 0:
-            search_start = chunk_pos + 1
-
-        # clean_text 위치 ≈ 원본 text 위치 (페이지 마커 제거 오프셋은 소량)
-        orig_pos = chunk_pos if chunk_pos >= 0 else 0
-
-        # 섹션 할당
-        section_l1, section_l2 = _find_section(section_map, orig_pos)
-
-        chunk_end = orig_pos + len(chunk_text)
-        chunk_pages: List[int] = []
-        nearest_before: Optional[int] = None
-        for marker_pos, page_num in page_markers_by_pos:
-            if orig_pos <= marker_pos <= chunk_end:
-                chunk_pages.append(page_num)
-            elif marker_pos < orig_pos:
-                nearest_before = page_num
-        if chunk_pages:
-            page_start = min(chunk_pages)
-            page_end = max(chunk_pages)
-            last_page_start = page_start
-            last_page_end = page_end
-        elif nearest_before is not None:
-            page_start = nearest_before
-            page_end = nearest_before
-            last_page_start = page_start
-            last_page_end = page_end
+def _get_header_boundaries(text: str) -> List[Tuple[int, int, bool]]:
+    """L1/L2 헤더 경계 추출: (위치, 레벨, 경계여부)."""
+    all_headers: List[Tuple[int, int]] = []
+    
+    for m in _H1_RE.finditer(text):
+        all_headers.append((m.start(), 1))
+    
+    for m in _H2_RE.finditer(text):
+        all_headers.append((m.start(), 2))
+    
+    all_headers.sort(key=lambda x: x[0])
+    
+    result: List[Tuple[int, int, bool]] = []
+    l2_count = 0
+    
+    for pos, level in all_headers:
+        if level == 1:
+            result.append((pos, 1, True))
+            l2_count = 0
         else:
-            page_start = last_page_start
-            page_end = last_page_end
+            l2_count += 1
+            is_boundary = (l2_count >= 2)
+            result.append((pos, 2, is_boundary))
+    
+    return result
 
+def step6_section_split(text: str) -> List[Dict]:
+    """청킹 도 페이지 처리: 청킹 → 페이지 추출 → 마커 제거."""
+    section_map = _build_section_map(text)
+    header_boundaries = _get_header_boundaries(text)  # (pos, level, is_boundary)
+    
+    # 단계 1: 경계점 기반으로 청크 분할 (페이지 마커 제거 전)
+    boundary_positions = [0]
+    for pos, level, is_boundary in header_boundaries:
+        if is_boundary:
+            boundary_positions.append(pos)
+    boundary_positions.append(len(text))
+    boundary_positions = sorted(set(boundary_positions))
+    
+    raw_chunks = []  # (내용, 시작위치, 섫마른위치)
+    for i in range(len(boundary_positions) - 1):
+        start = boundary_positions[i]
+        end = boundary_positions[i + 1]
+        chunk_raw = text[start:end].strip()
+        if chunk_raw:
+            raw_chunks.append((chunk_raw, start, end))
+    
+    # 단계 2: 경계 기반 분할 + 길이 초과 시 촉4가 분할 (마커 유지)
+    raw_sub_chunks = []  # (청크내용, 섹션시작위치)
+    for chunk_raw, chunk_start, chunk_end in raw_chunks:
+        if len(chunk_raw) > CHUNK_SIZE:
+            sub_chunks = _split_by_size_recursive(chunk_raw, CHUNK_SIZE, CHUNK_OVERLAP)
+        else:
+            sub_chunks = [chunk_raw]
+        for sc in sub_chunks:
+            if sc.strip():
+                raw_sub_chunks.append((sc, chunk_start))
+    
+    # 단계 3: 각 최종 청크에서 페이지 추출 → 마커 제거
+    results = []
+    last_page_end = 1
+    
+    for chunk_raw, chunk_start in raw_sub_chunks:
+        # 이 청크 내 페이지 마커 추출
+        page_nums = []
+        for m in _PAGE_MARKER_NEW_RE.finditer(chunk_raw):
+            try:
+                page_nums.append(int(m.group(1)))
+            except (ValueError, IndexError):
+                pass
+        
+        # 페이지 범위: 시작=이전 끝, 끝=현재 청크 마커
+        page_start = last_page_end
+        if page_nums:
+            page_end = max(page_nums)
+        else:
+            page_end = last_page_end
+        last_page_end = page_end
+        
+        # 마커 제거
+        chunk_clean = _PAGE_MARKER_NEW_RE.sub('', chunk_raw).strip()
+        if not chunk_clean:
+            continue
+        
+        # 섹션 정보
+        section_l1, section_l2 = _find_section(section_map, chunk_start)
+        
         results.append({
-            'page_content': chunk_text,
+            'page_content': chunk_clean,
             'metadata': {
                 'section_level1': section_l1,
                 'section_level2': section_l2,
@@ -432,8 +447,51 @@ def step6_section_split(text: str) -> List[Dict]:
                 'page_end': page_end,
             },
         })
-
+    
+    # 단계 4: header-only 청크 병합 (다음 content 청크에 합침)
+    if results:
+        merged: List[Dict] = []
+        header_buf: List[Dict] = []
+        for chunk in results:
+            content_text = chunk['page_content']
+            content_lines = [l for l in content_text.split('\n') if l.strip()]
+            is_header_only = (content_lines
+                              and all(l.strip().startswith('#') for l in content_lines))
+            if is_header_only:
+                header_buf.append(chunk)
+            else:
+                if header_buf:
+                    hdr_text = '\n\n'.join(h['page_content'] for h in header_buf)
+                    chunk['page_content'] = hdr_text + '\n\n' + chunk['page_content']
+                    chunk['metadata']['page_start'] = header_buf[0]['metadata']['page_start']
+                    if chunk['metadata']['section_level1'] == 'N/A':
+                        chunk['metadata']['section_level1'] = header_buf[-1]['metadata']['section_level1']
+                    header_buf = []
+                merged.append(chunk)
+        # 잔여 header-only: 마지막 content 청크에 붙임
+        if header_buf and merged:
+            hdr_text = '\n\n'.join(h['page_content'] for h in header_buf)
+            merged[-1]['page_content'] += '\n\n' + hdr_text
+            merged[-1]['metadata']['page_end'] = header_buf[-1]['metadata']['page_end']
+        elif header_buf:
+            merged.extend(header_buf)
+        results = merged
+    
     return results
+
+
+def _split_by_size_recursive(text: str, chunk_size: int = CHUNK_SIZE, chunk_overlap: int = CHUNK_OVERLAP) -> List[str]:
+    """RecursiveCharacterTextSplitter: 단락('
+
+') → 줄('
+') → 단어(' ') → 문자 단위 분할."""
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        separators=['\n\n', '\n', ' ', ''],
+        keep_separator='start',
+    )
+    return splitter.split_text(text)
 
 
 # ---------------------------------------------------------------------------
@@ -457,7 +515,6 @@ def process_file(file_path: Path) -> List[Dict]:
     print(f"   Step 3 (hierarchy): {len(hierarchy)} headings")
     body = step4_insert_headers(body, hierarchy)
 
-    body = step5_convert_page_markers(body)
     # Step 6: 섹션 맵 + RecursiveCharacterTextSplitter (헤더 단독 분리 방지)
     split_results = step6_section_split(body)
     print(f"   Step 6 (section split): {len(split_results)} chunks")
