@@ -75,30 +75,12 @@ st.set_page_config(
 
 
 @st.cache_resource
-def get_chatbot(cache_key: str):
-    _ = cache_key
+def get_chatbot():
     from src.graph.workflow import RAGChatbotV17
 
     data_dir = str(get_data_dir())
     db_path = str(Path(get_default_db_path()).resolve())
     return RAGChatbotV17(data_dir=data_dir, db_path=db_path)
-
-
-def build_chatbot_cache_key() -> str:
-    watch_files = [
-        Path(_PROJECT_ROOT) / "src" / "graph" / "workflow.py",
-        Path(_PROJECT_ROOT) / "src" / "graph" / "nodes.py",
-        Path(_PROJECT_ROOT) / "src" / "prompts" / "templates.py",
-        Path(_PROJECT_ROOT) / "src" / "utils" / "config.py",
-    ]
-    parts = [str(get_data_dir()), str(Path(get_default_db_path()).resolve())]
-    for file_path in watch_files:
-        try:
-            stat = file_path.stat()
-            parts.append(f"{file_path}:{stat.st_mtime_ns}:{stat.st_size}")
-        except FileNotFoundError:
-            parts.append(f"{file_path}:missing")
-    return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:12]
 
 
 def init_session_state() -> None:
@@ -651,7 +633,7 @@ def main() -> None:
     inject_styles()
     init_session_state()
 
-    chatbot = get_chatbot(build_chatbot_cache_key())
+    chatbot = get_chatbot()
     if not chatbot:
         st.error("챗봇을 로드하지 못했습니다.")
         return
