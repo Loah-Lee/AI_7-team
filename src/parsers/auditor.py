@@ -1,44 +1,78 @@
-"""
-Auditor Step 2: Text cleanup + TOC detection for parsed markdown files.
+"""Auditor Step 2: 7-Step Markdown Audit Pipeline.
+
+Steps:
+  1. (Pre) PDF → markdown (done by preprocessor)
+  2. Normalize: bold merge, roman normalize, strip parser headers
+  3. Find hierarchy value candidates
+  4. Filter inappropriate candidates
+  5. Determine L1/L2 by appearance order
+  6. Insert page markers at page boundaries
+  7. Insert headers based on hierarchy
 """
 import re
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
+
+# ---------------------------------------------------------------------------
+# Regex patterns
+# ---------------------------------------------------------------------------
+
 _PAGE_MARKER_RE = re.compile(r'<<PAGE:\s*\d+>>')
 _PAGE_NUM_RE = re.compile(r'<<PAGE:\s*(\d+)>>')
+
 _BULLET_RE = re.compile(r'^(\s*)[○●■※◆◇▶▷►]\s*', re.MULTILINE)
 _SINGLE_CHAR_RE = re.compile(r'((?:[가-힣]\s){2,}[가-힣])')
 _BOLD_STRIP_RE = re.compile(r'\*\*(.+?)\*\*')
+_CONSECUTIVE_BOLD_RE = re.compile(r'\*\*(.+?)\*\*\s*\*\*(.+?)\*\*')
+_MD_HEADER_RE = re.compile(r'^#+\s')
 
 SPACING_SAFETY_RATIO = 0.15
 
-_H_LEGAL_RE = re.compile(r"^(제\s*\d+\s*[장절조편항][\s.:]\s*.+)$", re.MULTILINE)
-_H_NUMBERED_D3_RE = re.compile(r"^(\d+\.\d+\.\d+(?:\.\d+)*\.?\s+\S.+)$", re.MULTILINE)
+# Heading patterns
+_H_LEGAL_RE = re.compile(
+    r"^(제\s*\d+\s*[장절조편항][\s.:]\s*.+)$", re.MULTILINE,
+)
+_H_LEGAL_TYPE_RE = re.compile(r"제\s*\d+\s*([장절조편항])")
+_H_NUMBERED_D3_RE = re.compile(
+    r"^(\d+\.\d+\.\d+(?:\.\d+)*\.?\s+\S.+)$", re.MULTILINE,
+)
 _H_NUMBERED_D2_RE = re.compile(r"^(\d+\.\d+\.?\s+\S.+)$", re.MULTILINE)
-_H_NUMBERED_D1_RE = re.compile(r"^(\d{1,2}\.\s+\S.+)$", re.MULTILINE)
-_H_ROMAN_RE = re.compile(r"^([IVXivxⅠ-Ⅻⅰ-ⅻ]+\.\s+\S.+)$", re.MULTILINE)
+_H_NUMBERED_D1_RE = re.compile(
+    r"^((?:1[0-9]|[1-9])\.\s+\S.+)$", re.MULTILINE,
+)
+_H_ROMAN_RE = re.compile(
+    r"^([IVXivxⅠ-Ⅻⅰ-ⅻ]+\.\s+\S.+)$", re.MULTILINE,
+)
 _H_KOREAN_LET_RE = re.compile(r"^([가-하]\.\s+\S.+)$", re.MULTILINE)
 _H_BRACKET_RE = re.compile(r"^(\[.+\]\s*.*)$", re.MULTILINE)
-_ALL_HEADING_RE = [
-    _H_LEGAL_RE, _H_NUMBERED_D3_RE, _H_NUMBERED_D2_RE,
-    _H_NUMBERED_D1_RE, _H_ROMAN_RE, _H_KOREAN_LET_RE, _H_BRACKET_RE,
-]
 
-_H_LEGAL_TYPE_RE = re.compile(r"제\s*\d+\s*([장절조편항])")
 LEGAL_ORDER = ["편", "장", "절", "조", "항"]
 
 _HEADING_RE_NAMED = [
-    ("legal",        _H_LEGAL_RE),
-    ("numbered_d3",  _H_NUMBERED_D3_RE),
-    ("numbered_d2",  _H_NUMBERED_D2_RE),
-    ("numbered_d1",  _H_NUMBERED_D1_RE),
-    ("roman",        _H_ROMAN_RE),
+    ("legal",         _H_LEGAL_RE),
+    ("numbered_d3",   _H_NUMBERED_D3_RE),
+    ("numbered_d2",   _H_NUMBERED_D2_RE),
+    ("numbered_d1",   _H_NUMBERED_D1_RE),
+    ("roman",         _H_ROMAN_RE),
     ("korean_letter", _H_KOREAN_LET_RE),
-    ("bracket",      _H_BRACKET_RE),
+    ("bracket",       _H_BRACKET_RE),
 ]
 
+# 유효한 한글 말머리: 자음 + ㅏ, 받침 없음
+_VALID_KOREAN_MARKERS = set('가나다라마바사아자차카타파하')
+
+# 로마자 정규화: 로마 숫자 + (선택적 점) + 내용
+_ROMAN_NORM_RE = re.compile(
+    r'^([IVXivxⅠ-Ⅻⅰ-ⅻ]+)\s*\.?\s+(.+)$',
+)
+
+
+# ---------------------------------------------------------------------------
+# Text cleanup helpers
+# ---------------------------------------------------------------------------
 
 def fix_single_char_spacing(text: str) -> str:
+    """반복 단일 한글 글자 사이 공백 제거 (안전 비율 초과 시 원본 반환)."""
     original_len = len(text)
     result = _SINGLE_CHAR_RE.sub(lambda m: m.group(0).replace(' ', ''), text)
     if original_len > 0 and abs(len(result) - original_len) / original_len > SPACING_SAFETY_RATIO:
@@ -47,10 +81,12 @@ def fix_single_char_spacing(text: str) -> str:
 
 
 def standardize_bullets(text: str) -> str:
+    """다양한 불릿 기호 → '* ' 표준화."""
     return _BULLET_RE.sub(r'\1* ', text)
 
 
 def merge_table_cell_linebreaks(text: str) -> str:
+    """테이블 셀 내부 줄바꿈 병합."""
     lines = text.split('\n')
     merged: List[str] = []
     i = 0
@@ -77,286 +113,340 @@ def merge_table_cell_linebreaks(text: str) -> str:
 
 
 def cleanup_whitespace(text: str) -> str:
+    """연속 공백/빈줄 정규화."""
     text = re.sub(r' {2,}', ' ', text)
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text
 
 
 # ---------------------------------------------------------------------------
-# TOC detection (2-pass: heading extraction → pattern-only consecutive block)
+# Pipeline step functions
 # ---------------------------------------------------------------------------
 
+def _split_by_page_markers(body: str) -> List[Tuple[int, str]]:
+    """페이지 마커 기준으로 본문 분할.
 
-def _get_page_ranges(text: str) -> List[Tuple[int, int, int]]:
-    markers = list(_PAGE_NUM_RE.finditer(text))
-    if not markers:
-        return []
-    pages = []
-    for i, m in enumerate(markers):
-        pnum = int(m.group(1))
-        start = m.end()
-        end = markers[i + 1].start() if i + 1 < len(markers) else len(text)
-        pages.append((pnum, start, end))
+    Returns:
+        [(page_num, content), ...]
+    """
+    parts = _PAGE_NUM_RE.split(body)
+    if len(parts) < 2:
+        return [(1, body.strip())]
+
+    pages: List[Tuple[int, str]] = []
+    for i in range(1, len(parts), 2):
+        page_num = int(parts[i])
+        content = parts[i + 1].strip() if i + 1 < len(parts) else ''
+        pages.append((page_num, content))
     return pages
 
 
-def _is_heading_line(line: str) -> bool:
-    for regex in _ALL_HEADING_RE:
-        if regex.match(line):
-            return True
-    return False
+def _step2_normalize(text: str) -> str:
+    """Step 2: Markdown 정규화.
 
-
-def _classify_page(page_text: str) -> Tuple[int, int]:
-    clean = _BOLD_STRIP_RE.sub(r'\1', page_text)
-    headings, contents = 0, 0
-    for line in clean.split('\n'):
-        s = line.strip()
-        if not s or _PAGE_MARKER_RE.match(s) or s.startswith('#'):
-            continue
-        if _is_heading_line(s):
-            headings += 1
-        else:
-            contents += 1
-    return headings, contents
-
-
-def detect_toc_pages(text: str) -> Set[int]:
-    pages = _get_page_ranges(text)
-    if not pages:
-        return set()
-
-    toc_pages: Set[int] = set()
-    toc_started = False
-
-    for pnum, start, end in pages:
-        h, c = _classify_page(text[start:end])
-        is_pattern_only = (h >= 3 and c == 0)
-
-        if is_pattern_only:
-            if not toc_started:
-                toc_started = True
-            toc_pages.add(pnum)
-        elif toc_started:
-            break
-
-    return toc_pages
-
-
-def neutralize_toc(text: str, toc_pages: Set[int]) -> str:
-    if not toc_pages:
-        return text
-    pages = _get_page_ranges(text)
-    for pnum, start, end in reversed(pages):
-        if pnum not in toc_pages:
-            continue
-        page_text = text[start:end]
-        lines = page_text.split('\n')
-        indented = []
-        for line in lines:
-            s = line.strip()
-            if not s or _PAGE_MARKER_RE.match(s) or s.startswith('|'):
-                indented.append(line)
-            else:
-                indented.append('  ' + line)
-        text = text[:start] + '\n'.join(indented) + text[end:]
-    return text
-
-
-# ---------------------------------------------------------------------------
-# TOC-based heading type → level mapping (Selection Stage)
-# ---------------------------------------------------------------------------
-
-# 목차 줄 끝의 점선·페이지번호 제거용
-_TOC_TRAIL_RE = re.compile(r'\s*[·\u00b7…⋯·\.]+[\s\d]*$')
-
-
-def _extract_toc_heading_types(
-    text: str, toc_pages: Set[int],
-) -> Dict[str, int]:
-    """목차(TOC) 페이지를 파싱하여 heading type → level 매핑을 생성한다.
-
-    Bold 항목 → L1, non-bold 항목 → L2.
-    neutralize_toc() 호출 전에 실행해야 한다 (원본 TOC 텍스트 필요).
-
-    Returns:
-        Dict[str, int]: e.g. {'roman': 1, 'bracket': 1, 'numbered_d1': 2}
+    실행 순서: 텍스트 정리 → 2-3 헤더 제거 → 2-1 bold 병합 → 2-2 로마자 정규화
+    (헤더 제거를 먼저 해야 로마자 정규화가 올바르게 동작)
     """
-    if not toc_pages:
-        return {}
-
-    pages = _get_page_ranges(text)
-    l1_types: Set[str] = set()
-    l2_types: Set[str] = set()
-
-    for pnum, start, end in pages:
-        if pnum not in toc_pages:
-            continue
-        page_text = text[start:end]
-        for line in page_text.split('\n'):
-            s = line.strip()
-            if not s or _PAGE_MARKER_RE.match(s) or s.startswith('#'):
-                continue
-
-            # bold 여부 판별
-            is_bold = bool(re.match(r'^\*\*.+\*\*', s))
-
-            # bold 제거 후 후행 점선·페이지번호 제거
-            clean = _BOLD_STRIP_RE.sub(r'\1', s)
-            clean = _TOC_TRAIL_RE.sub('', clean).strip()
-            if not clean:
-                continue
-
-            # heading 패턴 매칭
-            matched_type = None
-            for type_name, regex in _HEADING_RE_NAMED:
-                if regex.match(clean):
-                    if type_name == 'legal':
-                        m = _H_LEGAL_TYPE_RE.search(clean)
-                        matched_type = f'제N{m.group(1)}' if m else None
-                    else:
-                        matched_type = type_name
-                    break
-
-            if not matched_type:
-                continue
-
-            if is_bold:
-                l1_types.add(matched_type)
-            else:
-                l2_types.add(matched_type)
-
-    # 매핑 생성: L1 우선, L2에만 있는 타입 추가
-    result: Dict[str, int] = {}
-    for t in l1_types:
-        result[t] = 1
-    for t in l2_types:
-        if t not in result:
-            result[t] = 2
-
-    if result:
-        print(f'📋 TOC type→level mapping: {result}')
-
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Body header insertion (Loop 2) — TOC mapping 기반
-# ---------------------------------------------------------------------------
-
-
-def insert_body_headers(
-    text: str, toc_pages: Set[int], toc_type_level: Dict[str, int],
-) -> str:
-    """본문에서 TOC 매핑에 해당하는 heading만 #/## 삽입.
-
-    toc_type_level이 비어 있으면 아무것도 삽입하지 않는다.
-    """
-    if not toc_type_level:
-        return text
-
-    pages = _get_page_ranges(text)
-    if not pages:
-        return text
-
-    page2_start = 0
-    for pnum, start, end in pages:
-        if pnum >= 2:
-            page2_start = start
-            break
-
-    def _pos_to_page(pos: int) -> int:
-        for pn, s, e in pages:
-            if s <= pos < e:
-                return pn
-        return -1
+    # 기존 텍스트 정리
+    text = fix_single_char_spacing(text)
+    text = standardize_bullets(text)
+    text = merge_table_cell_linebreaks(text)
+    text = cleanup_whitespace(text)
 
     lines = text.split('\n')
-    # ── Phase 1: 모든 본문 heading 후보 수집 ──
-    candidates: List[Tuple[int, str, int]] = []  # (line_idx, type_name, char_pos)
-    char_pos = 0
-    for idx, line in enumerate(lines):
-        line_start = char_pos
-        char_pos += len(line) + 1
-        if line_start < page2_start:
-            continue
-        if _pos_to_page(line_start) in toc_pages:
+
+    # 2-3) Parser 삽입 헤더 제거: '# text' → 'text', '### text' → 'text'
+    for i, line in enumerate(lines):
+        m = _MD_HEADER_RE.match(line)
+        if m:
+            lines[i] = line[m.end():]
+
+    # 2-1) 연속 bold 병합: **A** **B** → **A B**
+    for i, line in enumerate(lines):
+        prev = None
+        while prev != line:
+            prev = line
+            line = _CONSECUTIVE_BOLD_RE.sub(r'**\1 \2**', line)
+        lines[i] = line
+
+    # 2-2) 로마자 숫자 정규화 (단락 시작인 경우만)
+    for i, line in enumerate(lines):
+        is_para_start = (i == 0) or (lines[i - 1].strip() == '')
+        if not is_para_start:
             continue
         s = line.strip()
-        if not s or _PAGE_MARKER_RE.match(s) or s.startswith('#') or s.startswith('|'):
+        if not s:
             continue
 
+        # bold 제거 후 로마자 검사
         clean = _BOLD_STRIP_RE.sub(r'\1', s)
-        # heading 패턴 매칭
-        matched_type = None
-        for type_name, regex in _HEADING_RE_NAMED:
-            if regex.match(clean):
-                if type_name == 'legal':
-                    m = _H_LEGAL_TYPE_RE.search(clean)
-                    matched_type = f'제N{m.group(1)}' if m else None
-                else:
-                    matched_type = type_name
-                break
-        if matched_type and matched_type in toc_type_level:
-            candidates.append((idx, matched_type, line_start))
-
-    if not candidates:
-        return text
-
-    # ── Phase 2: bracket 검증 ──
-    # bracket 뒤에 다른 L1 타입이 등장하면 해당 bracket은 heading이 아님
-    l1_non_bracket = {t for t, lvl in toc_type_level.items() if lvl == 1 and t != 'bracket'}
-    last_l1_pos = max(
-        (pos for _, t, pos in candidates if t in l1_non_bracket),
-        default=-1,
-    )
-    filtered = [
-        (idx, t, p) for idx, t, p in candidates
-        if t != 'bracket' or p > last_l1_pos
-    ]
-
-    # ── Phase 3: 헤더 삽입 ──
-    assignments: List[Tuple[int, int]] = [
-        (idx, toc_type_level[t]) for idx, t, _ in filtered
-        if toc_type_level[t] <= 2
-    ]
-    if not assignments:
-        return text
-    for idx, level in reversed(assignments):
-        prefix = '# ' if level == 1 else '## '
-        lines[idx] = prefix + lines[idx]
+        m = _ROMAN_NORM_RE.match(clean)
+        if m:
+            roman_part = m.group(1)
+            rest_part = m.group(2).strip()
+            is_full_bold = s.startswith('**') and s.endswith('**')
+            if is_full_bold:
+                lines[i] = f'**{roman_part}. {rest_part}**'
+            else:
+                lines[i] = f'{roman_part}. {rest_part}'
 
     return '\n'.join(lines)
 
 
-def _process_body(body: str) -> str:
-    chunks: List[str] = []
-    parts = _PAGE_MARKER_RE.split(body)
-    markers = _PAGE_MARKER_RE.findall(body)
+def _step3_find_candidates(
+    text: str,
+) -> List[Tuple[int, str, str]]:
+    """Step 3: 계층 값 후보 수집.
 
-    for i, part in enumerate(parts):
-        part = fix_single_char_spacing(part)
-        part = standardize_bullets(part)
-        part = merge_table_cell_linebreaks(part)
-        part = cleanup_whitespace(part)
-        chunks.append(part)
-        if i < len(markers):
-            chunks.append(markers[i])
+    Returns:
+        [(line_idx, type_name, heading_text), ...]
+    """
+    candidates: List[Tuple[int, str, str]] = []
+    lines = text.split('\n')
 
-    return ''.join(chunks)
+    for idx, line in enumerate(lines):
+        s = line.strip()
+        if not s or _PAGE_MARKER_RE.match(s) or s.startswith('|'):
+            continue
+
+        matched_type: Optional[str] = None
+        for type_name, regex in _HEADING_RE_NAMED:
+            if type_name == 'bracket':
+                continue  # bracket 무시
+            if regex.match(s):
+                if type_name == 'legal':
+                    m = _H_LEGAL_TYPE_RE.search(s)
+                    matched_type = f'제N{m.group(1)}' if m else None
+                else:
+                    matched_type = type_name
+                break
+
+        if matched_type:
+            candidates.append((idx, matched_type, s))
+
+    return candidates
+
+
+def _step4_filter_candidates(
+    candidates: List[Tuple[int, str, str]],
+) -> List[Tuple[int, str, str]]:
+    """Step 4: 부적절한 후보 제거.
+
+    - 모음이 ㅏ가 아니거나 받침이 있는 한글 (그., 후., 강., 삼.)
+    """
+    filtered: List[Tuple[int, str, str]] = []
+    for idx, type_name, heading_text in candidates:
+        # 한글 말머리 필터: 가나다라마바사아자차카타파하 만 허용
+        if type_name == 'korean_letter':
+            first_char = heading_text[0]
+            if first_char not in _VALID_KOREAN_MARKERS:
+                continue
+
+        filtered.append((idx, type_name, heading_text))
+
+    return filtered
+
+
+def _step5_determine_levels(
+    candidates: List[Tuple[int, str, str]],
+) -> Dict[str, int]:
+    """Step 5: 등장 순서 기반 L1/L2 결정.
+
+    첫 타입 → L1, 다음 다른 타입 → L2.
+    bracket은 이미 제외됨.
+    """
+    if not candidates:
+        return {}
+
+    l1_type: Optional[str] = None
+    l2_type: Optional[str] = None
+
+    for _, type_name, _ in candidates:
+        if l1_type is None:
+            l1_type = type_name
+        elif type_name != l1_type and l2_type is None:
+            l2_type = type_name
+            break
+
+    result: Dict[str, int] = {}
+    if l1_type:
+        result[l1_type] = 1
+    if l2_type:
+        result[l2_type] = 2
+
+    if result:
+        print(f'📋 Level mapping (order-based): {result}')
+
+    return result
+
+
+def _step6_insert_page_markers(
+    normalized_pages: List[Tuple[int, str]],
+) -> str:
+    """Step 6: 정규화된 페이지들에 page marker 재삽입."""
+    parts: List[str] = []
+    for page_num, content in normalized_pages:
+        parts.append(f'<<PAGE: {page_num}>>')
+        parts.append('')
+        if content:
+            parts.append(content)
+        parts.append('')
+    return '\n'.join(parts)
+
+
+def _step7_insert_headers(
+    text: str,
+    type_level_map: Dict[str, int],
+) -> str:
+    """Step 7: 계층 매핑 기반 헤더 삽입.
+
+    순차적으로 텍스트를 스캔, type_level_map에 매칭되는 라인에 #/## 삽입.
+    """
+    if not type_level_map:
+        return text
+
+    lines = text.split('\n')
+
+    for idx, line in enumerate(lines):
+        s = line.strip()
+        if not s or _PAGE_MARKER_RE.match(s) or s.startswith('|'):
+            continue
+
+        matched_type: Optional[str] = None
+        for type_name, regex in _HEADING_RE_NAMED:
+            if type_name == 'bracket':
+                continue
+            if regex.match(s):
+                if type_name == 'legal':
+                    m = _H_LEGAL_TYPE_RE.search(s)
+                    matched_type = f'제N{m.group(1)}' if m else None
+                else:
+                    matched_type = type_name
+                break
+
+        if matched_type and matched_type in type_level_map:
+            level = type_level_map[matched_type]
+            prefix = '# ' if level == 1 else '## '
+            lines[idx] = prefix + line
+
+    return '\n'.join(lines)
+
+
+# TOC separator pattern: 3+ consecutive dashes, dots, or middle dots
+_TOC_SEP_RE = re.compile(r'[-\u00b7\u2015\u2500\u2501\u2502\u2503\u2550\u2551\u2026\u22ef\u00b7\u30fb·.─━]{5,}')
+# Trailing page number after separators
+_TOC_TRAILING_NUM_RE = re.compile(r'\s+\d+\s*$')
+
+
+def _normalize_heading_title(raw: str) -> str:
+    """Heading 제목 정규화: TOC 구분자, 후행 페이지 번호, 공백 정리."""
+    t = raw.strip()
+    t = _TOC_SEP_RE.sub('', t)
+    t = _TOC_TRAILING_NUM_RE.sub('', t)
+    t = re.sub(r'\s+', ' ', t).strip()
+    return t
+
+
+def _strip_toc_duplicate_headers(text: str) -> str:
+    """TOC 페이지의 중복 heading 제거.
+
+    1. 페이지 마커 기준으로 페이지 분할
+    2. TOC 페이지 탐지 (구분자 비율 > 50%)
+    3. TOC 페이지의 heading 중 본문에도 동일 제목이 있는 경우 # 제거
+    4. 본문에만 있는 heading은 유지 (목차 하단 본문 시작 가능)
+    """
+    pages_raw = _PAGE_NUM_RE.split(text)
+    if len(pages_raw) < 2:
+        return text
+
+    # 페이지별 라인 수집
+    page_data: List[Tuple[int, List[str]]] = []
+    for i in range(1, len(pages_raw), 2):
+        pnum = int(pages_raw[i])
+        content = pages_raw[i + 1] if i + 1 < len(pages_raw) else ''
+        page_data.append((pnum, content.split('\n')))
+
+    # TOC 페이지 탐지: 구분자 라인 비율 > 50%
+    toc_pages: Set[int] = set()
+    for pnum, lines in page_data:
+        non_empty = [l for l in lines if l.strip()]
+        if not non_empty:
+            continue
+        sep_count = sum(1 for l in non_empty if _TOC_SEP_RE.search(l))
+        if sep_count / len(non_empty) > 0.5:
+            toc_pages.add(pnum)
+
+    if not toc_pages:
+        return text
+
+    # 전체 heading 수집: normalized_title -> [(page, line_idx, is_toc_page)]
+    heading_map: Dict[str, List[Tuple[int, int, bool]]] = {}
+    for pnum, lines in page_data:
+        is_toc = pnum in toc_pages
+        for li, line in enumerate(lines):
+            m = _MD_HEADER_RE.match(line)
+            if m:
+                title_part = line[m.end():].strip()
+                norm = _normalize_heading_title(title_part)
+                if norm:
+                    heading_map.setdefault(norm, []).append((pnum, li, is_toc))
+
+    # 중복 heading 찾기: TOC에도 있고 본문에도 있는 것
+    toc_dup_keys: Set[str] = set()
+    for norm, locs in heading_map.items():
+        has_toc = any(is_toc for _, _, is_toc in locs)
+        has_body = any(not is_toc for _, _, is_toc in locs)
+        if has_toc and has_body:
+            toc_dup_keys.add(norm)
+
+    if not toc_dup_keys:
+        return text
+
+    # TOC 페이지에서 중복 heading의 # 제거
+    removed = 0
+    for pnum, lines in page_data:
+        if pnum not in toc_pages:
+            continue
+        for li, line in enumerate(lines):
+            m = _MD_HEADER_RE.match(line)
+            if m:
+                title_part = line[m.end():].strip()
+                norm = _normalize_heading_title(title_part)
+                if norm in toc_dup_keys:
+                    lines[li] = line[m.end():]  # # 제거, 내용만 유지
+                    removed += 1
+
+    if removed:
+        print(f"   TOC cleanup: {removed} duplicate headings stripped from pages {sorted(toc_pages)}")
+
+    # 재조립
+    parts: List[str] = []
+    if pages_raw[0].strip():
+        parts.append(pages_raw[0])
+    for pnum, lines in page_data:
+        parts.append(f'<<PAGE: {pnum}>>')
+        parts.append('\n'.join(lines))
+    return '\n'.join(parts)
 
 
 def validate_tables(text: str) -> None:
+    """테이블 라인 수 출력 (진단용)."""
     table_lines = [line for line in text.split('\n') if line.startswith('|')]
     print(f"📊 Table validation: {len(table_lines)} lines starting with |")
 
 
+# ---------------------------------------------------------------------------
+# Main pipeline
+# ---------------------------------------------------------------------------
+
 def audit_file(input_path: str, output_path: str) -> None:
+    """7-Step Auditor Pipeline."""
     print(f"🔍 Auditing: {input_path}")
 
     with open(input_path, 'r', encoding='utf-8') as f:
         content = f.read()
 
+    # Parse frontmatter
     parts = content.split('---', 2)
     if len(parts) >= 3 and parts[0].strip() == '':
         frontmatter = parts[1]
@@ -367,20 +457,51 @@ def audit_file(input_path: str, output_path: str) -> None:
         body = content
         has_frontmatter = False
 
-    body = _process_body(body)
-    toc_pages = detect_toc_pages(body)
-    toc_type_level: Dict[str, int] = {}
-    if toc_pages:
-        print(f"📑 TOC detected: pages {sorted(toc_pages)}")
-        toc_type_level = _extract_toc_heading_types(body, toc_pages)
-        body = neutralize_toc(body, toc_pages)
-    body = insert_body_headers(body, toc_pages if toc_pages else set(), toc_type_level)
-    validate_tables(body)
+    # --- Pre: 페이지별 분할 ---
+    pages = _split_by_page_markers(body)
+    print(f"   Pages: {len(pages)}")
 
+    # --- Step 2: 페이지별 정규화 ---
+    normalized_pages = [(pnum, _step2_normalize(page_content))
+                        for pnum, page_content in pages]
+
+    # --- Bold 전체 제거 (step 2 완료 후, step 3 전) ---
+    # step 2-2 로마자 정규화에서 is_full_bold 판별이 필요하므로
+    # step 2 내부가 아닌 완료 후에 제거한다.
+    normalized_pages = [(pnum, _BOLD_STRIP_RE.sub(r'\1', content))
+                        for pnum, content in normalized_pages]
+
+    # Steps 3-5: 전체 텍스트에서 수행 (마커 없이)
+    combined = '\n\n'.join(c for _, c in normalized_pages)
+
+    # --- Step 3: 계층 값 후보 수집 ---
+    candidates = _step3_find_candidates(combined)
+    print(f"   Step 3: {len(candidates)} candidates")
+
+    # --- Step 4: 부적절한 후보 제거 ---
+    filtered = _step4_filter_candidates(candidates)
+    removed = len(candidates) - len(filtered)
+    print(f"   Step 4: {len(filtered)} after filter (-{removed})")
+
+    # --- Step 5: L1/L2 결정 ---
+    type_level_map = _step5_determine_levels(filtered)
+
+    # --- Step 6: 페이지 마커 재삽입 ---
+    body_with_markers = _step6_insert_page_markers(normalized_pages)
+
+    # --- Step 7: 헤더 삽입 ---
+    body_final = _step7_insert_headers(body_with_markers, type_level_map)
+
+    # --- TOC 중복 heading 제거 (step 7 후, chunker 전) ---
+    body_final = _strip_toc_duplicate_headers(body_final)
+
+    validate_tables(body_final)
+
+    # Output
     if has_frontmatter:
-        output_content = f"---{frontmatter}---{body}"
+        output_content = f"---{frontmatter}---{body_final}"
     else:
-        output_content = body
+        output_content = body_final
 
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(output_content)
