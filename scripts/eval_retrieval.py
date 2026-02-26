@@ -118,7 +118,50 @@ def run_rag_pipeline(question: str, metadata_filter: dict | None, top_k: int) ->
             input_state["retriever_top_k"] = top_k
 
         result = graph.invoke(input_state)
-        return result
+        if not isinstance(result, dict):
+            return {}
+
+        graph_retrieved = result.get("retrieved_docs", [])
+        retrieved_docs: list[dict] = []
+        if isinstance(graph_retrieved, list):
+            for doc in graph_retrieved:
+                if not isinstance(doc, dict):
+                    continue
+                source = str(doc.get("source", "unknown") or "unknown")
+                page = doc.get("page")
+                try:
+                    score = float(doc.get("score", 0.0) or 0.0)
+                except (TypeError, ValueError):
+                    score = 0.0
+                content = str(doc.get("content") or doc.get("text") or "")
+                retrieved_docs.append(
+                    {
+                        "source": source,
+                        "page": page,
+                        "score": score,
+                        "content": content,
+                    }
+                )
+
+        evidence_items = result.get("evidence", [])
+        if isinstance(evidence_items, list):
+            evidence_text = "\n\n".join(
+                str(item.get("text", "")).strip()
+                for item in evidence_items
+                if isinstance(item, dict) and str(item.get("text", "")).strip()
+            )
+        else:
+            evidence_text = str(evidence_items or "")
+
+        return {
+            "answer": result.get("answer", ""),
+            "evidence": evidence_text,
+            "evidence_items": evidence_items if isinstance(evidence_items, list) else [],
+            "retrieved_docs": retrieved_docs,
+            "csv_short_circuit": bool(result.get("csv_short_circuit", False)),
+            "source_type": str(result.get("source_type", "") or "").lower(),
+            "latencies": result.get("latencies", {}),
+        }
 
     global _CHATBOT_SINGLETON
     if _CHATBOT_SINGLETON is None:
@@ -136,31 +179,51 @@ def run_rag_pipeline(question: str, metadata_filter: dict | None, top_k: int) ->
             query_text = f"{institution} {query_text}"
 
     response = _CHATBOT_SINGLETON.answer(query_text, top_k=top_k or 5)
-    raw_retrieved = getattr(_CHATBOT_SINGLETON.vector_store, "last_search_results", []) or []
-
+    response_retrieved = response.get("retrieved_docs", [])
     retrieved_docs = []
-    for doc in raw_retrieved:
-        if not isinstance(doc, dict):
-            continue
-        meta = doc.get("metadata", {}) or {}
-        source = str(
-            meta.get("source")
-            or meta.get("source_file")
-            or meta.get("filename")
-            or "unknown"
-        )
-        try:
-            score = float(doc.get("score", 0.0) or 0.0)
-        except (TypeError, ValueError):
-            score = 0.0
-        retrieved_docs.append(
-            {
-                "source": source,
-                "page": meta.get("page"),
-                "score": score,
-                "content": str(doc.get("content", "") or ""),
-            }
-        )
+    if isinstance(response_retrieved, list) and response_retrieved:
+        for doc in response_retrieved:
+            if not isinstance(doc, dict):
+                continue
+            source = str(doc.get("source", "unknown") or "unknown")
+            page = doc.get("page")
+            try:
+                score = float(doc.get("score", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                score = 0.0
+            retrieved_docs.append(
+                {
+                    "source": source,
+                    "page": page,
+                    "score": score,
+                    "content": str(doc.get("content") or doc.get("text") or ""),
+                }
+            )
+    else:
+        raw_retrieved = getattr(_CHATBOT_SINGLETON.vector_store, "last_search_results", []) or []
+        for doc in raw_retrieved:
+            if not isinstance(doc, dict):
+                continue
+            meta = doc.get("metadata", {}) or {}
+            source = str(
+                doc.get("source")
+                or meta.get("source")
+                or meta.get("source_file")
+                or meta.get("filename")
+                or "unknown"
+            )
+            try:
+                score = float(doc.get("score", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                score = 0.0
+            retrieved_docs.append(
+                {
+                    "source": source,
+                    "page": doc.get("page") if doc.get("page") is not None else meta.get("page"),
+                    "score": score,
+                    "content": str(doc.get("content") or doc.get("text") or ""),
+                }
+            )
 
     evidence_items = response.get("evidence", [])
     if isinstance(evidence_items, list):

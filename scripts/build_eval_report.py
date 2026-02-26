@@ -601,16 +601,16 @@ PQ.forEach(q => {{
       ${{q.memo?`<div class="meta-row" style="background:rgba(234,179,8,0.06);border-left:3px solid #eab308;padding:0.5rem 0.75rem;border-radius:0 4px 4px 0;margin-bottom:0.75rem"><span style="font-size:0.8rem;color:#eab308">💬 <strong>메모:</strong></span> <span style="font-size:0.8rem;color:var(--text)">${{q.memo}}</span></div>`:''}}
       <div class="meta-row">
         <span><strong>유형:</strong> ${{qt}}</span>
-        <span><strong>검색 문서:</strong> ${{q.num_retrieved||0}}개</span>
+        <span><strong>검색 문서:</strong> ${{Math.min((q.num_retrieved||0), (S.top_k||5))}}개</span>
         <span><strong>Hit (source):</strong> <span class="${{hit?'hit-yes':'hit-no'}}">${{hit?'Hit@'+hit:'MISS'}}</span></span>
         <span><strong>Recall@K (source):</strong> ${{(q.recall_at_k*100).toFixed(0)}}%</span>
       </div>
       <div class="meta-row" style="flex-direction:column;gap:0.4rem">
         <span><strong>정답 문서:</strong> ${{(q.ground_truth_sources||[]).map(s=>`<code style="font-size:0.76rem;background:rgba(59,130,246,0.1);color:#93c5fd;padding:0.1rem 0.4rem;border-radius:3px">${{s}}</code>`).join(' ')}}</span>
-        <span><strong>검색된 문서:</strong> ${{(q.retrieved_sources||[]).map(s=>{{
+        <span><strong>검색된 문서:</strong> ${{(q.retrieved_sources||[]).slice(0, (S.top_k||5)).map(s=>{{
           const isHit = (q.ground_truth_sources||[]).some(gt=>isEquivalentSource(s, gt));
           return `<code style="font-size:0.76rem;background:${{isHit?'rgba(34,197,94,0.12)':'rgba(239,68,68,0.08)'}};color:${{isHit?'#86efac':'#fca5a5'}};padding:0.1rem 0.4rem;border-radius:3px">${{s}}</code>`;
-        }}).join(' ')}}</span>
+        }}).join(' ')}} ${{(q.retrieved_sources||[]).length > (S.top_k||5) ? `<span style="color:var(--text2);font-size:0.78rem">... +${{(q.retrieved_sources||[]).length-(S.top_k||5)}}개</span>` : ''}}</span>
       </div>
       <div class="meta-row latency-row">
         ${{q.latencies?`<span><strong>지연시간:</strong> analyze=${{(q.latencies.analyze_query||0).toFixed(1)}}s | retrieve=${{(q.latencies.retrieve||0).toFixed(2)}}s | evidence=${{(q.latencies.extract_evidence||0).toFixed(1)}}s | generate=${{(q.latencies.generate||0).toFixed(1)}}s</span>`:''}}</span>

@@ -570,8 +570,7 @@ class RAGChatbotV17:
                 return value.strip()
         return ""
 
-    @classmethod
-    def _infer_metadata_doc_type(cls, metadata: dict[str, Any]) -> str:
+    def _infer_metadata_doc_type(self, metadata: dict[str, Any]) -> str:
         raw_type = str(metadata.get("type", "") or "").strip().lower()
         if raw_type in {"pdf", "hwp", "csv"}:
             return raw_type
@@ -594,7 +593,7 @@ class RAGChatbotV17:
             if ext == "csv":
                 return "csv"
 
-        source = cls._extract_metadata_source(metadata)
+        source = self._extract_metadata_source(metadata)
         suffix = Path(source).suffix.lower()
         if suffix == ".pdf":
             return "pdf"
@@ -602,6 +601,35 @@ class RAGChatbotV17:
             return "hwp"
         if suffix == ".csv":
             return "csv"
+
+        # source가 stem만 남은 컬렉션에서는 CSV 메타를 역참조해 문서 타입을 추론한다.
+        source_stem = self._source_to_stem(source)
+        if source_stem:
+            row = self._lookup_csv_row_by_stem(source_stem)
+            inferred_ext = str(
+                row.get("source_ext")
+                or row.get("file_format")
+                or row.get("파일형식")
+                or ""
+            ).strip().lower().lstrip(".")
+            if inferred_ext == "pdf":
+                return "pdf"
+            if inferred_ext in {"hwp", "hwpx"}:
+                return "hwp"
+            if inferred_ext == "csv":
+                return "csv"
+
+            source_name = str(row.get("filename", "") or "").strip()
+            source_suffix = Path(source_name).suffix.lower().lstrip(".")
+            if source_suffix == "pdf":
+                return "pdf"
+            if source_suffix in {"hwp", "hwpx"}:
+                return "hwp"
+            if source_suffix == "csv":
+                return "csv"
+
+        if raw_type in {"chunk", "hierarchy"}:
+            return "unknown"
         return raw_type or "unknown"
 
     def _normalize_retrieval_results(self, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -650,14 +678,14 @@ class RAGChatbotV17:
 
         type_filter = {str(t).lower() for t in (doc_types or []) if t}
         filtered: list[dict[str, Any]] = []
+        legacy_relaxed: list[dict[str, Any]] = []
+        allow_legacy_type_relax = bool(type_filter.intersection({"pdf", "hwp"}) and "csv" not in type_filter)
         for item in results:
             md = item.get("metadata", {}) or {}
             item_type = self._infer_metadata_doc_type(md)
             item_org = str(md.get("org", "")).strip()
             item_source = self._extract_metadata_source(md)
 
-            if type_filter and item_type not in type_filter:
-                continue
             if org_name:
                 org_matched = self._org_names_loosely_match(item_org, org_name)
                 if not org_matched and item_source:
@@ -675,8 +703,18 @@ class RAGChatbotV17:
                     )
                 if not org_matched:
                     continue
+            if type_filter and item_type not in type_filter:
+                raw_type = str(md.get("type", "") or "").strip().lower()
+                unresolved = item_type in {"", "unknown"} or raw_type in {"", "unknown", "chunk", "hierarchy"}
+                if allow_legacy_type_relax and unresolved:
+                    legacy_relaxed.append(item)
+                continue
             filtered.append(item)
-        return filtered
+        if filtered:
+            return filtered
+        if type_filter and allow_legacy_type_relax and legacy_relaxed:
+            return legacy_relaxed
+        return []
 
     def _lookup_csv_row_by_stem(self, stem: str) -> dict[str, Any]:
         """문서 stem으로 CSV 메타데이터 행을 조회합니다."""
@@ -2922,6 +2960,11 @@ class RAGChatbotV17:
                 "extract_evidence": round(_safe_float(latencies.get("extract_evidence", extract_elapsed)), 4),
                 "generate": round(_safe_float(latencies.get("generate", generation_elapsed)), 4),
             }
+
+            if not isinstance(payload.get("retrieved_docs"), list):
+                payload["retrieved_docs"] = self._serialize_retrieved_docs(
+                    self.vector_store.last_search_results,
+                )
             return payload
 
         query = query.strip()
@@ -2929,11 +2972,13 @@ class RAGChatbotV17:
             return _finalize_payload({
                 "answer": "질문을 입력해 주세요.",
                 "found": False,
+                "source_type": "unknown",
                 "answer_mode": "generative",
                 "slot_fill_rate": 0.0,
                 "evidence_count": 0,
                 "confidence": 0.0,
                 "evidence": [],
+                "retrieved_docs": [],
             })
 
         # 1) 질문 의도 파악
@@ -3207,11 +3252,13 @@ class RAGChatbotV17:
         return _finalize_payload({
             "answer": "관련 정보를 찾을 수 없습니다.",
             "found": False,
+            "source_type": "unknown",
             "answer_mode": "extractive",
             "slot_fill_rate": 0.0,
             "evidence_count": 0,
             "confidence": 0.0,
             "evidence": [],
+            "retrieved_docs": [],
         })
 
     @staticmethod
@@ -3244,6 +3291,12 @@ class RAGChatbotV17:
         """검색 결과를 기반으로 최종 답변을 생성합니다."""
         source_type = self._infer_source_type(results)
         evidence_spans = self._build_evidence_spans(results, question_plan=question_plan, max_items=3)
+        retrieved_docs_payload = self._serialize_retrieved_docs(results)
+
+        def _attach_retrieved_docs(payload: dict[str, Any]) -> dict[str, Any]:
+            payload["retrieved_docs"] = list(retrieved_docs_payload)
+            return payload
+
         query_is_comparison_like = (
             question_plan.is_comparison
             or question_plan.query_kind in {"multi_doc", "comparison"}
@@ -3271,7 +3324,7 @@ class RAGChatbotV17:
                 self.conversation.add_exchange(query, warning, intent)
                 slot_fill_rate = self._estimate_slot_fill_rate(question_plan, warning, evidence_spans)
                 confidence = self._estimate_confidence(slot_fill_rate, evidence_spans, answer_mode="extractive")
-                return self._build_answer_payload(
+                return _attach_retrieved_docs(self._build_answer_payload(
                     answer=warning,
                     found=True,
                     source_type=source_type,
@@ -3279,13 +3332,13 @@ class RAGChatbotV17:
                     slot_fill_rate=slot_fill_rate,
                     confidence=confidence,
                     evidence_spans=evidence_spans,
-                )
+                ))
             comparison_answer = self._build_comparison_answer_from_results(query, results)
             if comparison_answer:
                 self.conversation.add_exchange(query, comparison_answer, intent)
                 slot_fill_rate = self._estimate_slot_fill_rate(question_plan, comparison_answer, evidence_spans)
                 confidence = self._estimate_confidence(slot_fill_rate, evidence_spans, answer_mode="extractive")
-                return self._build_answer_payload(
+                return _attach_retrieved_docs(self._build_answer_payload(
                     answer=comparison_answer,
                     found=True,
                     source_type=source_type,
@@ -3293,7 +3346,7 @@ class RAGChatbotV17:
                     slot_fill_rate=slot_fill_rate,
                     confidence=confidence,
                     evidence_spans=evidence_spans,
-                )
+                ))
         # 사실형/기한/책임 질의는 생성 전에 추출 우선으로 답변 시도
         if self._should_try_extractive_first(query, question_plan):
             extractive_answer = self._build_non_llm_answer(query, results, intent)
@@ -3306,7 +3359,7 @@ class RAGChatbotV17:
                     self.conversation.add_exchange(query, extractive_answer, intent)
                     slot_fill_rate = self._estimate_slot_fill_rate(question_plan, extractive_answer, evidence_spans)
                     confidence = self._estimate_confidence(slot_fill_rate, evidence_spans, answer_mode="extractive")
-                    return self._build_answer_payload(
+                    return _attach_retrieved_docs(self._build_answer_payload(
                         answer=extractive_answer,
                         found=True,
                         source_type=source_type,
@@ -3314,7 +3367,7 @@ class RAGChatbotV17:
                         slot_fill_rate=slot_fill_rate,
                         confidence=confidence,
                         evidence_spans=evidence_spans,
-                    )
+                    ))
                 extractive_draft = extractive_answer
 
         if not self.llm:
@@ -3324,7 +3377,7 @@ class RAGChatbotV17:
                 self.conversation.add_exchange(query, answer, intent)
                 slot_fill_rate = self._estimate_slot_fill_rate(question_plan, answer, evidence_spans)
                 confidence = self._estimate_confidence(slot_fill_rate, evidence_spans, answer_mode="extractive")
-                return self._build_answer_payload(
+                return _attach_retrieved_docs(self._build_answer_payload(
                     answer=answer,
                     found=True,
                     source_type=source_type,
@@ -3332,12 +3385,12 @@ class RAGChatbotV17:
                     slot_fill_rate=slot_fill_rate,
                     confidence=confidence,
                     evidence_spans=evidence_spans,
-                )
+                ))
             summary = self._create_multi_org_summary(results, query)
             self.conversation.add_exchange(query, summary, intent)
             slot_fill_rate = self._estimate_slot_fill_rate(question_plan, summary, evidence_spans)
             confidence = self._estimate_confidence(slot_fill_rate, evidence_spans, answer_mode="generative")
-            return self._build_answer_payload(
+            return _attach_retrieved_docs(self._build_answer_payload(
                 answer=summary,
                 found=True,
                 source_type=source_type,
@@ -3345,7 +3398,7 @@ class RAGChatbotV17:
                 slot_fill_rate=slot_fill_rate,
                 confidence=confidence,
                 evidence_spans=evidence_spans,
-            )
+            ))
 
         context = self._build_context(query, results)
         history = self.conversation.get_context_summary()
@@ -3397,7 +3450,7 @@ class RAGChatbotV17:
             self.conversation.add_exchange(query, answer, intent)
             slot_fill_rate = self._estimate_slot_fill_rate(question_plan, answer, evidence_spans)
             confidence = self._estimate_confidence(slot_fill_rate, evidence_spans, answer_mode=answer_mode)
-            return self._build_answer_payload(
+            return _attach_retrieved_docs(self._build_answer_payload(
                 answer=answer,
                 found=True,
                 source_type=source_type,
@@ -3405,14 +3458,14 @@ class RAGChatbotV17:
                 slot_fill_rate=slot_fill_rate,
                 confidence=confidence,
                 evidence_spans=evidence_spans,
-            )
+            ))
 
         # 예외적으로 생성 실패 시 fallback
         summary = self._create_multi_org_summary(results, query)
         self.conversation.add_exchange(query, summary, intent)
         slot_fill_rate = self._estimate_slot_fill_rate(question_plan, summary, evidence_spans)
         confidence = self._estimate_confidence(slot_fill_rate, evidence_spans, answer_mode="generative")
-        return self._build_answer_payload(
+        return _attach_retrieved_docs(self._build_answer_payload(
             answer=summary,
             found=True,
             source_type=source_type,
@@ -3420,7 +3473,7 @@ class RAGChatbotV17:
             slot_fill_rate=slot_fill_rate,
             confidence=confidence,
             evidence_spans=evidence_spans,
-        )
+        ))
 
     def _build_non_llm_answer(
         self,
@@ -3742,6 +3795,46 @@ class RAGChatbotV17:
             "confidence": draft.confidence,
             "evidence": evidence_dicts,
         }
+
+    @staticmethod
+    def _serialize_retrieved_docs(
+        results: list[dict[str, Any]],
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        docs: list[dict[str, Any]] = []
+        for item in results or []:
+            if not isinstance(item, dict):
+                continue
+            md = item.get("metadata", {}) or {}
+            if not isinstance(md, dict):
+                md = {}
+
+            source = str(
+                item.get("source")
+                or md.get("source")
+                or md.get("source_file")
+                or md.get("filename")
+                or "unknown"
+            ).strip() or "unknown"
+            page = item.get("page")
+            if page is None:
+                page = RAGChatbotV17._extract_metadata_page(md)
+            try:
+                score = float(item.get("score", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                score = 0.0
+            content = str(item.get("text") or item.get("content") or "").strip()
+            docs.append(
+                {
+                    "source": source,
+                    "page": page,
+                    "score": score,
+                    "content": content,
+                }
+            )
+            if limit is not None and len(docs) >= max(limit, 0):
+                break
+        return docs
 
     @staticmethod
     def _format_answer_for_readability(answer: str) -> str:
@@ -7086,13 +7179,12 @@ class RAGChatbotV17:
         excerpt = "\n".join(excerpt_lines).strip()
         return excerpt[:max_chars] if excerpt else cleaned[:max_chars]
 
-    @staticmethod
-    def _infer_source_type(results: list[dict[str, Any]]) -> str:
+    def _infer_source_type(self, results: list[dict[str, Any]]) -> str:
         """결과에서 대표 소스 타입을 반환합니다."""
         if not results:
             return "csv"
         first = results[0].get("metadata", {}) or {}
-        return str(first.get("type", "csv"))
+        return self._infer_metadata_doc_type(first)
 
     def _handle_ranking_query(self, intent: QueryIntent) -> dict[str, Any]:
         """랭킹 질문을 처리합니다. (사업비 순 TOP N)"""
@@ -7331,11 +7423,13 @@ class RAGChatbotV17:
                 "해당 기관 문서가 인덱싱되어 있는지 확인해 주세요."
             ),
             "found": False,
+            "source_type": "unknown",
             "answer_mode": "extractive",
             "slot_fill_rate": 0.0,
             "evidence_count": 0,
             "confidence": 0.0,
             "evidence": [],
+            "retrieved_docs": [],
         }
 
     def _resolve_known_org_name(self, candidate: str) -> str | None:
