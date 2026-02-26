@@ -179,7 +179,7 @@ def run_rag_pipeline(question: str, metadata_filter: dict | None, top_k: int) ->
         "retrieved_docs": retrieved_docs,
         "csv_short_circuit": bool(response.get("csv_short_circuit", False)),
         "source_type": str(response.get("source_type", "") or "").lower(),
-        "latencies": {},
+        "latencies": response.get("latencies", {}),
     }
 
 

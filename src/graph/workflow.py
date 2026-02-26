@@ -2454,6 +2454,8 @@ class RAGChatbotV17:
     def answer(self, query: str, top_k: int = 24) -> dict[str, Any]:
         """질문에 답변합니다."""
         answer_started = time.perf_counter()
+        analyze_started = answer_started
+        analyze_elapsed = 0.0
         # 질의마다 검색 상태를 초기화해 이전 질의 결과가 재사용되지 않도록 한다.
         self.vector_store.last_search_results = []
         perf_stats: dict[str, float | int | bool] = {
@@ -2466,9 +2468,38 @@ class RAGChatbotV17:
             "hybrid_budget_remaining": RETRIEVAL_MAX_HYBRID_CALLS,
             "budget_exhausted": False,
         }
+
+        def _safe_float(value: Any) -> float:
+            try:
+                parsed = float(value)
+            except (TypeError, ValueError):
+                return 0.0
+            return parsed if parsed > 0 else 0.0
+
+        def _finalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
+            nonlocal analyze_elapsed
+
+            total_elapsed = time.perf_counter() - answer_started
+            if analyze_elapsed <= 0.0:
+                analyze_elapsed = total_elapsed
+
+            retrieval_elapsed = _safe_float(perf_stats.get("retrieval_elapsed", 0.0))
+            generation_elapsed = _safe_float(perf_stats.get("generation_elapsed", 0.0))
+            extract_elapsed = max(total_elapsed - analyze_elapsed - retrieval_elapsed - generation_elapsed, 0.0)
+
+            existing = payload.get("latencies")
+            latencies = existing if isinstance(existing, dict) else {}
+            payload["latencies"] = {
+                "analyze_query": round(_safe_float(latencies.get("analyze_query", analyze_elapsed)), 4),
+                "retrieve": round(_safe_float(latencies.get("retrieve", retrieval_elapsed)), 4),
+                "extract_evidence": round(_safe_float(latencies.get("extract_evidence", extract_elapsed)), 4),
+                "generate": round(_safe_float(latencies.get("generate", generation_elapsed)), 4),
+            }
+            return payload
+
         query = query.strip()
         if not query:
-            return {
+            return _finalize_payload({
                 "answer": "질문을 입력해 주세요.",
                 "found": False,
                 "answer_mode": "generative",
@@ -2476,7 +2507,7 @@ class RAGChatbotV17:
                 "evidence_count": 0,
                 "confidence": 0.0,
                 "evidence": [],
-            }
+            })
 
         # 1) 질문 의도 파악
         intent = self.query_parser.parse(query)
@@ -2506,10 +2537,10 @@ class RAGChatbotV17:
             intent.query_type = "search"
             intent.confidence = min(intent.confidence, 0.7)
         if intent.query_type == "ranking":
-            return self._handle_ranking_query(intent)
+            return _finalize_payload(self._handle_ranking_query(intent))
         if intent.query_type == "category":
             self._log_perf_stats(query, perf_stats, total_elapsed=time.perf_counter() - answer_started)
-            return self._handle_category_query(intent)
+            return _finalize_payload(self._handle_category_query(intent))
 
         # 2) 후속질문 컨텍스트 반영
         follow_up_ctx = self.conversation.get_follow_up_context(query)
@@ -2592,27 +2623,28 @@ class RAGChatbotV17:
                 is_single_org_query = False
             elif intent.query_type == "org":
                 self._log_perf_stats(query, perf_stats, total_elapsed=time.perf_counter() - answer_started)
-                return self._build_org_not_found_payload(org_name)
+                return _finalize_payload(self._build_org_not_found_payload(org_name))
 
         csv_payload = self._try_csv_short_circuit(query, intent, org_name=org_name)
         if csv_payload:
             perf_stats["csv_short_circuit_hit"] = int(perf_stats.get("csv_short_circuit_hit", 0)) + 1
             self._log_perf_stats(query, perf_stats, total_elapsed=time.perf_counter() - answer_started)
-            return csv_payload
+            return _finalize_payload(csv_payload)
         org_overview_payload = self._try_org_overview_short_circuit(query, intent, org_name=org_name)
         if org_overview_payload:
             self._log_perf_stats(query, perf_stats, total_elapsed=time.perf_counter() - answer_started)
-            return org_overview_payload
+            return _finalize_payload(org_overview_payload)
         chunk_budget_payload = self._try_chunk_budget_short_circuit(query, intent, org_name=org_name)
         if chunk_budget_payload:
             self._log_perf_stats(query, perf_stats, total_elapsed=time.perf_counter() - answer_started)
-            return chunk_budget_payload
+            return _finalize_payload(chunk_budget_payload)
         org_scan_payload = self._try_org_document_scan_short_circuit(query, intent, org_name=org_name)
         if org_scan_payload:
             self._log_perf_stats(query, perf_stats, total_elapsed=time.perf_counter() - answer_started)
-            return org_scan_payload
+            return _finalize_payload(org_scan_payload)
 
         # 3) 검색 (기관 지정 질의는 원본 문서 우선 + 비교 질의는 더 넓게 검색)
+        analyze_elapsed = time.perf_counter() - analyze_started
         retrieval_started = time.perf_counter()
         is_comparison_query = self._is_comparison_query(query)
         precision_fact_query = self._is_precision_fact_query(query)
@@ -2658,7 +2690,7 @@ class RAGChatbotV17:
                     comparison_targets=coverage_targets if comparison_like_query else None,
                 )
                 self._log_perf_stats(query, perf_stats, total_elapsed=time.perf_counter() - answer_started)
-                return payload
+                return _finalize_payload(payload)
             if is_single_org_query:
                 # 기관 스코프 검색 실패 시 전역 검색 후 기관 필터링으로 1회 보완한다.
                 global_retry = self._retrieve_results(
@@ -2691,10 +2723,10 @@ class RAGChatbotV17:
                         comparison_targets=coverage_targets if comparison_like_query else None,
                     )
                     self._log_perf_stats(query, perf_stats, total_elapsed=time.perf_counter() - answer_started)
-                    return payload
+                    return _finalize_payload(payload)
                 perf_stats["retrieval_elapsed"] = time.perf_counter() - retrieval_started
                 self._log_perf_stats(query, perf_stats, total_elapsed=time.perf_counter() - answer_started)
-                return self._build_org_not_found_payload(org_name)
+                return _finalize_payload(self._build_org_not_found_payload(org_name))
 
         retrieval = self._retrieve_results(
             retrieval_query,
@@ -2728,7 +2760,7 @@ class RAGChatbotV17:
             if not retrieval:
                 perf_stats["retrieval_elapsed"] = time.perf_counter() - retrieval_started
                 self._log_perf_stats(query, perf_stats, total_elapsed=time.perf_counter() - answer_started)
-                return self._build_org_not_found_payload(org_name)
+                return _finalize_payload(self._build_org_not_found_payload(org_name))
         if retrieval:
             perf_stats["retrieval_elapsed"] = time.perf_counter() - retrieval_started
             self.vector_store.last_search_results = retrieval
@@ -2741,11 +2773,11 @@ class RAGChatbotV17:
                 comparison_targets=coverage_targets if comparison_like_query else None,
             )
             self._log_perf_stats(query, perf_stats, total_elapsed=time.perf_counter() - answer_started)
-            return payload
+            return _finalize_payload(payload)
 
         perf_stats["retrieval_elapsed"] = time.perf_counter() - retrieval_started
         self._log_perf_stats(query, perf_stats, total_elapsed=time.perf_counter() - answer_started)
-        return {
+        return _finalize_payload({
             "answer": "관련 정보를 찾을 수 없습니다.",
             "found": False,
             "answer_mode": "extractive",
@@ -2753,7 +2785,7 @@ class RAGChatbotV17:
             "evidence_count": 0,
             "confidence": 0.0,
             "evidence": [],
-        }
+        })
 
     @staticmethod
     def _log_perf_stats(query: str, perf_stats: dict[str, float | int | bool], total_elapsed: float) -> None:
@@ -2800,6 +2832,7 @@ class RAGChatbotV17:
         if query_is_comparison_like and not resolved_targets:
             resolved_targets = self._resolve_query_target_orgs(query, min_targets=2)
         is_multi_target = len(resolved_targets) >= 2
+        extractive_draft = ""
         if query_is_comparison_like and is_multi_target:
             if not self._has_comparison_coverage(
                 query, results, min_docs_per_org=1, explicit_orgs=resolved_targets[:2]
@@ -2842,18 +2875,20 @@ class RAGChatbotV17:
                 and not self._looks_uncertain_answer(extractive_answer)
                 and (query_is_comparison_like or not self._has_comparison_structure(extractive_answer))
             ):
-                self.conversation.add_exchange(query, extractive_answer, intent)
-                slot_fill_rate = self._estimate_slot_fill_rate(question_plan, extractive_answer, evidence_spans)
-                confidence = self._estimate_confidence(slot_fill_rate, evidence_spans, answer_mode="extractive")
-                return self._build_answer_payload(
-                    answer=extractive_answer,
-                    found=True,
-                    source_type=source_type,
-                    answer_mode="extractive",
-                    slot_fill_rate=slot_fill_rate,
-                    confidence=confidence,
-                    evidence_spans=evidence_spans,
-                )
+                if not self.llm:
+                    self.conversation.add_exchange(query, extractive_answer, intent)
+                    slot_fill_rate = self._estimate_slot_fill_rate(question_plan, extractive_answer, evidence_spans)
+                    confidence = self._estimate_confidence(slot_fill_rate, evidence_spans, answer_mode="extractive")
+                    return self._build_answer_payload(
+                        answer=extractive_answer,
+                        found=True,
+                        source_type=source_type,
+                        answer_mode="extractive",
+                        slot_fill_rate=slot_fill_rate,
+                        confidence=confidence,
+                        evidence_spans=evidence_spans,
+                    )
+                extractive_draft = extractive_answer
 
         if not self.llm:
             # LLM이 없으면 규칙 기반 응답 후 요약 fallback
@@ -2888,7 +2923,12 @@ class RAGChatbotV17:
         context = self._build_context(query, results)
         history = self.conversation.get_context_summary()
         generation_started = time.perf_counter()
-        answer = self.answer_generator.generate(query, context, history)
+        answer = self.answer_generator.generate(
+            query,
+            context,
+            history,
+            extractive_draft=extractive_draft,
+        )
         if perf_stats is not None:
             perf_stats["generation_elapsed"] = perf_stats.get("generation_elapsed", 0.0) + (
                 time.perf_counter() - generation_started
@@ -2913,7 +2953,7 @@ class RAGChatbotV17:
                 answer_mode = "extractive"
         # LLM이 과도하게 "명시 없음"으로 수렴하면 규칙 기반 근거 답변으로 보완
         if self._looks_uncertain_answer(answer):
-            fallback = self._build_non_llm_answer(query, results, intent)
+            fallback = extractive_draft or self._build_non_llm_answer(query, results, intent)
             if (
                 fallback
                 and not self._looks_uncertain_answer(fallback)
@@ -2921,6 +2961,9 @@ class RAGChatbotV17:
             ):
                 answer = fallback
                 answer_mode = "hybrid"
+        if "오류:" in answer and extractive_draft:
+            answer = extractive_draft
+            answer_mode = "hybrid"
         if answer and "오류:" not in answer:
             self.conversation.add_exchange(query, answer, intent)
             slot_fill_rate = self._estimate_slot_fill_rate(question_plan, answer, evidence_spans)

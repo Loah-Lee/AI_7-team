@@ -7,6 +7,7 @@ import sys
 import json
 import re
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -31,31 +32,36 @@ class QueryIntentParser:
     def __init__(self, llm: ChatOpenAI | None):
         self.llm = llm
         self.last_parse_used_llm = False
+        self.last_parse_elapsed = 0.0
 
     def parse(self, query: str) -> QueryIntent:
         """질문을 분석하여 의도를 파악합니다."""
+        started = time.perf_counter()
         self.last_parse_used_llm = False
-        if not self.llm:
-            return self._parse_with_regex(query)
+        try:
+            if not self.llm:
+                return self._parse_with_regex(query)
 
-        if INTENT_REGEX_FIRST:
-            regex_intent = self._parse_with_regex(query)
-            if regex_intent.confidence >= 0.75:
+            if INTENT_REGEX_FIRST:
+                regex_intent = self._parse_with_regex(query)
+                if regex_intent.confidence >= 0.75:
+                    return regex_intent
+
+                llm_intent = self._parse_with_llm(query)
+                if llm_intent.confidence >= regex_intent.confidence:
+                    self.last_parse_used_llm = True
+                    return llm_intent
                 return regex_intent
 
             llm_intent = self._parse_with_llm(query)
-            if llm_intent.confidence >= regex_intent.confidence:
-                self.last_parse_used_llm = True
-                return llm_intent
-            return regex_intent
-
-        llm_intent = self._parse_with_llm(query)
-        self.last_parse_used_llm = True
-        if llm_intent.confidence < 0.7:
-            regex_intent = self._parse_with_regex(query)
-            if regex_intent.confidence > llm_intent.confidence:
-                return regex_intent
-        return llm_intent
+            self.last_parse_used_llm = True
+            if llm_intent.confidence < 0.7:
+                regex_intent = self._parse_with_regex(query)
+                if regex_intent.confidence > llm_intent.confidence:
+                    return regex_intent
+            return llm_intent
+        finally:
+            self.last_parse_elapsed = time.perf_counter() - started
 
     def _parse_with_llm(self, query: str) -> QueryIntent:
         """LLM로 질문을 분석합니다."""
@@ -285,31 +291,48 @@ class RFPAnswerGenerator:
 
     def __init__(self, llm: ChatOpenAI | None) -> None:
         self.llm = llm
+        self.last_generation_elapsed = 0.0
 
-    def generate(self, query: str, context: str, history: str = "") -> str:
+    def generate(self, query: str, context: str, history: str = "", extractive_draft: str = "") -> str:
         """간결한 RFP 답변을 생성합니다."""
-        if not self.llm:
-            return "LLM 클라이언트가 없습니다."
-
-        # history가 있으면 프롬프트에 포함
-        if history:
-            prompt = ANSWER_GENERATION_PROMPT.format(query=query, context=context, history=f"## 이전 대화 기록\n{history}")
-        else:
-            # history 없으면 빈 문자열로 처리
-            prompt = ANSWER_GENERATION_PROMPT.format(query=query, context=context, history="")
-
+        started = time.perf_counter()
         try:
-            messages = [
-                SystemMessage(content=RFP_SYSTEM_PROMPT),
-                HumanMessage(content=prompt)
-            ]
+            if not self.llm:
+                return "LLM 클라이언트가 없습니다."
 
-            response = self.llm.invoke(messages)
-            answer = response.content
-            return self._clean_final_answer(answer)
+            prompt_history = history or ""
+            if extractive_draft:
+                prompt_history = (
+                    f"{prompt_history}\n\n## 추출 초안 (문서 근거를 유지한 채 정제)\n{extractive_draft}"
+                    if prompt_history
+                    else f"## 추출 초안 (문서 근거를 유지한 채 정제)\n{extractive_draft}"
+                )
 
-        except Exception as e:
-            return f"오류: {str(e)}"
+            # history가 있으면 프롬프트에 포함
+            if prompt_history:
+                prompt = ANSWER_GENERATION_PROMPT.format(
+                    query=query,
+                    context=context,
+                    history=f"## 이전 대화 기록\n{prompt_history}",
+                )
+            else:
+                # history 없으면 빈 문자열로 처리
+                prompt = ANSWER_GENERATION_PROMPT.format(query=query, context=context, history="")
+
+            try:
+                messages = [
+                    SystemMessage(content=RFP_SYSTEM_PROMPT),
+                    HumanMessage(content=prompt)
+                ]
+
+                response = self.llm.invoke(messages)
+                answer = response.content
+                return self._clean_final_answer(answer)
+
+            except Exception as e:
+                return f"오류: {str(e)}"
+        finally:
+            self.last_generation_elapsed = time.perf_counter() - started
 
     @staticmethod
     def _clean_final_answer(answer: str) -> str:
