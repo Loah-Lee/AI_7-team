@@ -34,8 +34,8 @@ from .text_cleaner import (
 # Parameters
 # ---------------------------------------------------------------------------
 
-CHUNK_SIZE = 500
-CHUNK_OVERLAP = 100
+CHUNK_SIZE = 1000
+CHUNK_OVERLAP = 200
 
 # ---------------------------------------------------------------------------
 # Regex patterns
@@ -518,7 +518,7 @@ def process_file(file_path: Path) -> List[Dict]:
     # Step 6: 섹션 맵 + RecursiveCharacterTextSplitter (헤더 단독 분리 방지)
     split_results = step6_section_split(body)
     print(f"   Step 6 (section split): {len(split_results)} chunks")
-    source = doc_meta.get('source_file', 'Unknown')
+    source = doc_meta.get('document_title', 'Unknown')
     name = source.rsplit('.', 1)[0] if '.' in source else source
     institution = 'N/A'
     project_name = 'N/A'
@@ -540,7 +540,7 @@ def process_file(file_path: Path) -> List[Dict]:
                 'section_level2': meta['section_level2'],
                 'page_start': meta['page_start'],
                 'page_end': meta['page_end'],
-                'institution': institution,
+                'org': institution,
                 'project_name': project_name,
                 'chunk_size': len(content),
                 'created_at': datetime.now().isoformat(),
