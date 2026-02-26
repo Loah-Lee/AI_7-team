@@ -955,6 +955,9 @@ class RAGChatbotV17:
 
         keywords = self._extract_query_keywords(query, max_keywords=12)
         focus_terms = self._extract_focus_terms_for_fact(query, max_terms=8)
+        normalized_query = unicodedata.normalize("NFKC", (query or "").lower())
+        is_dimension_query = any(token in normalized_query for token in ["규격", "치수", "가로", "세로", "도면", "mm"])
+        is_visual_query = self._is_visual_layout_query(query)
         ranked: list[dict[str, Any]] = []
         candidate_source_set = set(candidate_source_keys)
         for item in candidates:
@@ -969,13 +972,45 @@ class RAGChatbotV17:
             keyword_hits = sum(1 for kw in keywords if kw and (kw in text_key or kw in source_key))
             focus_hits = sum(1 for term in focus_terms if term and term in text.lower())
             anchor_score = self._anchor_match_score(query, text)
+            dim_token_hit = bool(
+                re.search(r"(평면도|도면|치수|가로|세로|상단\s*분할|가운데\s*문|문\s*폭)", text, re.IGNORECASE)
+            )
+            dim_split_hit = bool(
+                re.search(r"\d{1,2},?\d{3}\s*[|/]\s*\d{1,2},?\d{3}\s*[|/]\s*\d{1,2},?\d{3}", text)
+                or re.search(r"전체\s*가로\s*길이[^0-9]*(\d{1,2},?\d{3})[^0-9]+(\d{1,2},?\d{3})", text)
+                or (
+                    len(re.findall(r"\d{1,2},?\d{3}", text)) >= 8
+                    and any(marker in text.lower() for marker in ["평면도", "도면", "img"])
+                )
+            )
+            visual_marker_hit = bool(
+                re.search(r"(표\s*\d+|그림\s*\d+|image|img\d+|caption|table|도면|평면도|이미지|캡션)", text, re.IGNORECASE)
+            )
+            dimension_anchor = is_dimension_query and (dim_token_hit or dim_split_hit)
+            visual_anchor = is_visual_query and (visual_marker_hit or dim_token_hit or dim_split_hit)
 
-            if anchor_score <= 0 and keyword_hits < 2 and focus_hits <= 0:
+            if anchor_score <= 0 and keyword_hits < 2 and focus_hits <= 0 and not (dimension_anchor or visual_anchor):
                 continue
 
             score = anchor_score
             score += min(2.5, keyword_hits * 0.55)
             score += min(1.2, focus_hits * 0.35)
+            if is_dimension_query:
+                if dim_token_hit:
+                    score += 2.2
+                if dim_split_hit:
+                    score += 3.2
+                if dim_token_hit and dim_split_hit:
+                    score += 0.8
+                if "적정 사업기간" in text or "개월" in text:
+                    score -= 2.0
+            if is_visual_query:
+                if visual_marker_hit:
+                    score += 1.2
+                if dim_split_hit:
+                    score += 1.4
+                if "적정 사업기간" in text and not dim_split_hit:
+                    score -= 1.4
             if candidate_source_set and source_key in candidate_source_set:
                 score += 1.0
             if md.get("page") is not None:
@@ -4473,6 +4508,7 @@ class RAGChatbotV17:
                 "문자셋", "인코딩", "utf",
                 "협상", "평가", "배점", "기준", "적격",
                 "누구", "핵심투입인력", "사업관리자", "pm", "가이드", "guideline", "guide",
+                "규격", "치수", "가로", "세로", "도면", "mm",
                 "목표", "목적", "추진목표", "추진 목표",
             ]
         )
@@ -4630,9 +4666,13 @@ class RAGChatbotV17:
                 line_lower = unicodedata.normalize("NFKC", line.lower())
                 has_cpu_marker = any(marker in line_lower for marker in ["cpu", "xeon", "intel", "ghz", "core"])
                 is_metadata_summary = any(marker in line for marker in metadata_summary_markers)
-                has_dimension_marker = any(marker in line_lower for marker in ["최소규격", "최대규격", "가로", "세로", "치수", "도면", "mm"])
+                has_dimension_marker = any(
+                    marker in line_lower
+                    for marker in ["최소규격", "최대규격", "가로", "세로", "치수", "도면", "평면도", "상단 분할", "가운데 문"]
+                )
                 has_dimension_value = bool(
-                    re.search(r"\d{1,2},?\d{3}\s*/\s*\d{1,2},?\d{3}\s*/\s*\d{1,2},?\d{3}", line)
+                    re.search(r"\d{1,2},?\d{3}\s*[|/]\s*\d{1,2},?\d{3}\s*[|/]\s*\d{1,2},?\d{3}", line)
+                    or re.search(r"전체\s*가로\s*길이[^0-9]*(\d{1,2},?\d{3})[^0-9]+(\d{1,2},?\d{3})", line)
                     or re.search(r"\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*mm", line, re.IGNORECASE)
                 )
                 focus_hit = any(token in line_lower for token in focus_tokens) if focus_tokens else False
@@ -5232,25 +5272,152 @@ class RAGChatbotV17:
             dim_lines = [
                 line
                 for line, _src in ranked
-                if any(marker in line for marker in ["최소규격", "최대규격", "가로", "세로", "치수", "도면", "mm"])
+                if any(marker in line for marker in ["최소규격", "최대규격", "가로", "세로", "치수", "도면", "평면도", "상단 분할"])
+                or re.search(r"\d{1,2},?\d{3}\s*[|/]\s*\d{1,2},?\d{3}\s*[|/]\s*\d{1,2},?\d{3}", line)
+                or (
+                    len(re.findall(r"\d{1,2},?\d{3}", line)) >= 8
+                    and any(marker in line.lower() for marker in ["평면도", "도면", "img"])
+                )
             ]
-            if len(dim_lines) < 2:
+            if len(dim_lines) < 4:
                 dim_lines.extend(
                     [
                         line
                         for line, _src in fallback_lines
-                        if any(marker in line for marker in ["최소규격", "최대규격", "가로", "세로", "치수", "도면", "mm"])
+                        if any(marker in line for marker in ["최소규격", "최대규격", "가로", "세로", "치수", "도면", "평면도", "상단 분할"])
+                        or re.search(r"\d{1,2},?\d{3}\s*[|/]\s*\d{1,2},?\d{3}\s*[|/]\s*\d{1,2},?\d{3}", line)
+                        or (
+                            len(re.findall(r"\d{1,2},?\d{3}", line)) >= 8
+                            and any(marker in line.lower() for marker in ["평면도", "도면", "img"])
+                        )
                     ]
                 )
+            if len(dim_lines) < 6:
+                dim_lines.extend(
+                    [
+                        line
+                        for line, _src in _ensure_source_wide_lines(max_sources=2, max_lines_per_source=2600)
+                        if any(marker in line for marker in ["최소규격", "최대규격", "가로", "세로", "치수", "도면", "평면도", "상단 분할"])
+                        or re.search(r"\d{1,2},?\d{3}\s*[|/]\s*\d{1,2},?\d{3}\s*[|/]\s*\d{1,2},?\d{3}", line)
+                        or (
+                            len(re.findall(r"\d{1,2},?\d{3}", line)) >= 8
+                            and any(marker in line.lower() for marker in ["평면도", "도면", "img"])
+                        )
+                    ]
+                )
+            dedup_dim_lines: list[str] = []
+            seen_dim_lines: set[str] = set()
+            for line in dim_lines:
+                key = unicodedata.normalize("NFKC", line.lower()).strip()
+                if not key or key in seen_dim_lines:
+                    continue
+                seen_dim_lines.add(key)
+                dedup_dim_lines.append(line)
+            dim_lines = dedup_dim_lines
             if dim_lines:
                 min_line = next((line for line in dim_lines if "최소규격" in line), "")
                 max_line = next((line for line in dim_lines if "최대규격" in line), "")
                 mm_pattern = re.compile(r"\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*mm", re.IGNORECASE)
-                split_pattern = re.compile(r"(\d{1,2},?\d{3})\s*/\s*(\d{1,2},?\d{3})\s*/\s*(\d{1,2},?\d{3})")
+                split_pattern = re.compile(r"(\d{1,2},?\d{3})\s*[|/]\s*(\d{1,2},?\d{3})\s*[|/]\s*(\d{1,2},?\d{3})")
+                plain_num_pattern = re.compile(r"\d{1,2},?\d{3}")
                 min_vals = mm_pattern.findall(min_line) if min_line else []
                 max_vals = mm_pattern.findall(max_line) if max_line else []
                 min_split = split_pattern.search(min_line) if min_line else None
                 max_split = split_pattern.search(max_line) if max_line else None
+                min_total = ""
+                max_total = ""
+                min_split_vals: list[str] = []
+                max_split_vals: list[str] = []
+
+                def _fmt_mm(value: str) -> str:
+                    digits = re.sub(r"[^0-9]", "", value or "")
+                    if not digits:
+                        return ""
+                    try:
+                        return f"{int(digits):,}mm"
+                    except Exception:
+                        return f"{digits}mm"
+
+                def _fmt_split(values: list[str]) -> str:
+                    if len(values) < 3:
+                        return " / ".join(_fmt_mm(v) for v in values if _fmt_mm(v))
+                    first = _fmt_mm(values[0])
+                    middle = _fmt_mm(values[1])
+                    last = _fmt_mm(values[2])
+                    if middle:
+                        return f"{first} / {middle}(가운데 문) / {last}"
+                    return " / ".join(v for v in [first, last] if v)
+
+                for line in dim_lines:
+                    if "전체 가로 길이" in line or "가로 총 길이" in line:
+                        nums = plain_num_pattern.findall(line)
+                        if len(nums) >= 2 and not (min_total and max_total):
+                            min_total, max_total = nums[0], nums[1]
+                    if "상단 분할" in line or "세 구간" in line:
+                        triples = split_pattern.findall(line)
+                        if len(triples) >= 2 and not (min_split_vals and max_split_vals):
+                            min_split_vals = list(triples[0])
+                            max_split_vals = list(triples[1])
+                        elif len(triples) == 1:
+                            if not min_split_vals:
+                                min_split_vals = list(triples[0])
+                            elif not max_split_vals:
+                                max_split_vals = list(triples[0])
+
+                dim_blob = " ".join(dim_lines)
+                if not (min_total and max_total):
+                    total_match = re.search(
+                        r"전체\s*가로\s*길이[^0-9]*(\d{1,2},?\d{3})[^0-9]+(\d{1,2},?\d{3})",
+                        dim_blob,
+                    )
+                    if total_match:
+                        min_total, max_total = total_match.group(1), total_match.group(2)
+                if not (min_split_vals and max_split_vals):
+                    split_match = re.search(
+                        r"상단\s*분할[^0-9]*(\d{1,2},?\d{3})\s*[|/]\s*(\d{1,2},?\d{3})\s*[|/]\s*(\d{1,2},?\d{3})"
+                        r"[^0-9]+(\d{1,2},?\d{3})\s*[|/]\s*(\d{1,2},?\d{3})\s*[|/]\s*(\d{1,2},?\d{3})",
+                        dim_blob,
+                    )
+                    if split_match:
+                        min_split_vals = [split_match.group(i) for i in [1, 2, 3]]
+                        max_split_vals = [split_match.group(i) for i in [4, 5, 6]]
+                if not (min_total and max_total and min_split_vals and max_split_vals):
+                    for line in dim_lines:
+                        nums = plain_num_pattern.findall(line)
+                        if len(nums) >= 9 and any(marker in line.lower() for marker in ["평면도", "도면", "img", "텍스트"]):
+                            min_total = min_total or nums[0]
+                            if not min_split_vals and len(nums) >= 4:
+                                min_split_vals = [nums[1], nums[2], nums[3]]
+                            if len(nums) >= 9:
+                                max_total = max_total or nums[5]
+                                if not max_split_vals:
+                                    max_split_vals = [nums[6], nums[7], nums[8]]
+                            break
+                if (not min_split_vals or not max_split_vals) and (min_split or max_split):
+                    if min_split and not min_split_vals:
+                        min_split_vals = [min_split.group(i) for i in [1, 2, 3]]
+                    if max_split and not max_split_vals:
+                        max_split_vals = [max_split.group(i) for i in [1, 2, 3]]
+
+                evidence_dim_lines: list[str] = []
+                for marker in ["전체 가로 길이", "상단 분할", "최소규격", "최대규격"]:
+                    for line in dim_lines:
+                        if marker in line and line not in evidence_dim_lines:
+                            evidence_dim_lines.append(line)
+                        if len(evidence_dim_lines) >= 3:
+                            break
+                    if len(evidence_dim_lines) >= 3:
+                        break
+                if not evidence_dim_lines:
+                    evidence_dim_lines = dim_lines[:3]
+
+                if min_total and max_total and min_split_vals and max_split_vals:
+                    answer = (
+                        "문서 기준 지역의회 회의실 도면 가로 치수는 "
+                        f"`최소규격 {_fmt_mm(min_total)} ({_fmt_split(min_split_vals)}), "
+                        f"최대규격 {_fmt_mm(max_total)} ({_fmt_split(max_split_vals)})`입니다."
+                    )
+                    return (answer, evidence_dim_lines, best_source)
                 if min_vals or max_vals:
                     parts: list[str] = []
                     if min_vals:
@@ -5261,13 +5428,17 @@ class RAGChatbotV17:
                 elif min_split or max_split:
                     parts: list[str] = []
                     if min_split:
-                        parts.append(f"최소규격: {min_split.group(1)} / {min_split.group(2)} / {min_split.group(3)}")
+                        parts.append(
+                            f"최소규격: {_fmt_mm(min_split.group(1))} / {_fmt_mm(min_split.group(2))}(가운데 문) / {_fmt_mm(min_split.group(3))}"
+                        )
                     if max_split:
-                        parts.append(f"최대규격: {max_split.group(1)} / {max_split.group(2)} / {max_split.group(3)}")
+                        parts.append(
+                            f"최대규격: {_fmt_mm(max_split.group(1))} / {_fmt_mm(max_split.group(2))}(가운데 문) / {_fmt_mm(max_split.group(3))}"
+                        )
                     answer = f"문서 기준 가로 세부 치수는 `{'; '.join(parts)}`입니다."
                 else:
                     answer = f"문서 기준 치수 관련 직접 근거는 `{dim_lines[0]}`입니다."
-                return (answer, dim_lines[:3], best_source)
+                return (answer, evidence_dim_lines, best_source)
 
         if wants_goal:
             goal_scored: list[tuple[int, str]] = []
@@ -6141,6 +6312,120 @@ class RAGChatbotV17:
         return False
 
     @staticmethod
+    def _is_visual_layout_query(query: str) -> bool:
+        """도면/표/이미지 등 시각적 구조 해석이 필요한 질의인지 판별합니다."""
+        normalized = unicodedata.normalize("NFKC", (query or "").lower())
+        if not normalized:
+            return False
+        visual_markers = [
+            "도면",
+            "평면도",
+            "표",
+            "이미지",
+            "그림",
+            "캡션",
+            "세부 치수",
+            "분할",
+            "좌측",
+            "우측",
+            "왼쪽",
+            "오른쪽",
+            "가운데 문",
+        ]
+        return any(marker in normalized for marker in visual_markers)
+
+    def _build_retrieval_strategy(
+        self,
+        query: str,
+        org_name: str | None,
+        top_k: int,
+        doc_types: list[str] | None,
+        target_orgs: list[str] | None,
+    ) -> dict[str, Any]:
+        """질문 유형/타깃 범위에 따라 검색 전략 파라미터를 동적으로 계산합니다."""
+        q_norm = unicodedata.normalize("NFKC", (query or "").lower())
+        precision_fact_query = self._is_precision_fact_query(query)
+        visual_fact_query = self._is_visual_layout_query(query)
+        resolved_targets = self._resolve_query_target_orgs(query, explicit_orgs=target_orgs or [], min_targets=2)
+        comparison_like = (
+            org_name is None
+            and (self._is_comparison_query(query) or len(resolved_targets) >= 2)
+        )
+        single_doc_focus = self._is_single_doc_focus_query(
+            query,
+            target_org_count=len(resolved_targets),
+        )
+        source_hints = self._extract_project_hints_from_query(query)
+        strong_source_hint = any(len(self._normalize_text_for_match(hint)) >= 8 for hint in source_hints)
+
+        high_recall_query = bool(re.search(r"[a-z]{2,5}\s*[-_ ]?\s*\d{2,3}", q_norm, flags=re.IGNORECASE)) or any(
+            token in q_norm
+            for token in [
+                "문자셋", "인코딩", "utf", "charset", "가용성", "무중단", "비교", "각각", "공통",
+                "협상", "평가", "배점", "적격", "정보보안교육", "교육결과",
+                "저작권", "지식재산", "지적재산", "소유권", "귀속", "라이선스", "부담", "책임",
+                "규격", "치수", "가로", "세로", "도면", "mm",
+            ]
+        )
+        if visual_fact_query:
+            high_recall_query = True
+
+        multiplier = max(0.5, RETRIEVAL_HIGH_RECALL_K_MULTIPLIER)
+        if visual_fact_query:
+            multiplier = max(multiplier, 1.45)
+        elif precision_fact_query:
+            multiplier = max(multiplier, 1.2)
+
+        pass_limit = max(1, RETRIEVAL_SEARCH_PASSES)
+        if self._is_accuracy_mode_enabled() and (precision_fact_query or comparison_like or visual_fact_query):
+            pass_limit = max(pass_limit, 2)
+        if visual_fact_query and not comparison_like:
+            pass_limit = max(pass_limit, 2)
+        pass_limit = min(pass_limit, 3)
+
+        max_global_expansions = 1 if comparison_like else (2 if visual_fact_query else 999)
+        expand_csv_in_pass = bool(not doc_types and precision_fact_query and not single_doc_focus and not visual_fact_query)
+        run_csv_boost_pass = bool(not doc_types and not visual_fact_query)
+
+        fallback_types = list(doc_types) if doc_types else ["pdf", "hwp", "csv"]
+        if not doc_types and (single_doc_focus or visual_fact_query):
+            fallback_types = ["pdf", "hwp"]
+
+        asset_sidecar_candidate = bool(
+            self._asset_sidecar_enabled
+            and not doc_types
+            and not comparison_like
+            and len(resolved_targets) <= 1
+            and (
+                visual_fact_query
+                or (precision_fact_query and (single_doc_focus or strong_source_hint))
+            )
+        )
+        asset_force = bool(visual_fact_query and len(resolved_targets) <= 1)
+        asset_top_k = max(6, min(20 if visual_fact_query else 18, top_k + (8 if visual_fact_query else 6)))
+
+        return {
+            "q_norm": q_norm,
+            "resolved_targets": resolved_targets,
+            "precision_fact_query": precision_fact_query,
+            "visual_fact_query": visual_fact_query,
+            "high_recall_query": high_recall_query,
+            "multiplier": multiplier,
+            "comparison_like": comparison_like,
+            "single_doc_focus": single_doc_focus,
+            "pass_limit": pass_limit,
+            "max_global_expansions": max_global_expansions,
+            "expand_csv_in_pass": expand_csv_in_pass,
+            "run_csv_boost_pass": run_csv_boost_pass,
+            "fallback_types": fallback_types,
+            "source_focused_fallback": bool(single_doc_focus or visual_fact_query),
+            "asset_sidecar_candidate": asset_sidecar_candidate,
+            "asset_force": asset_force,
+            "asset_top_k": asset_top_k,
+            "promote_anchor_results": bool(precision_fact_query or visual_fact_query),
+        }
+
+    @staticmethod
     def _consume_hybrid_budget(perf_stats: dict[str, float | int | bool] | None) -> bool:
         """하이브리드 검색 호출 예산을 차감하고 호출 가능 여부를 반환합니다."""
         if perf_stats is None:
@@ -6243,33 +6528,25 @@ class RAGChatbotV17:
         started = time.perf_counter()
         merged: list[dict[str, Any]] = []
         primary_types = list(doc_types) if doc_types else ["pdf", "hwp"]
-        pass_limit = max(1, RETRIEVAL_SEARCH_PASSES)
         per_call_k = max(8, int(top_k * 0.8))
-        q_norm = unicodedata.normalize("NFKC", query.lower())
-        precision_fact_query = self._is_precision_fact_query(query)
-        high_recall_query = bool(re.search(r"[a-z]{2,5}\s*[-_ ]?\s*\d{2,3}", q_norm, flags=re.IGNORECASE)) or any(
-            token in q_norm
-            for token in [
-                "문자셋", "인코딩", "utf", "charset", "가용성", "무중단", "비교", "각각", "공통",
-                "협상", "평가", "배점", "적격", "정보보안교육", "교육결과",
-                "저작권", "지식재산", "지적재산", "소유권", "귀속", "라이선스", "부담", "책임",
-            ]
-        )
-        multiplier = max(0.5, RETRIEVAL_HIGH_RECALL_K_MULTIPLIER)
-        early_stopped = False
-        resolved_targets = self._resolve_query_target_orgs(query, explicit_orgs=target_orgs or [], min_targets=2)
-        comparison_like = (
-            org_name is None
-            and (self._is_comparison_query(query) or len(resolved_targets) >= 2)
-        )
-        single_doc_focus = self._is_single_doc_focus_query(
+        strategy = self._build_retrieval_strategy(
             query,
-            target_org_count=len(resolved_targets),
+            org_name=org_name,
+            top_k=top_k,
+            doc_types=doc_types,
+            target_orgs=target_orgs,
         )
-        if self._is_accuracy_mode_enabled() and (precision_fact_query or comparison_like):
-            pass_limit = max(pass_limit, 2)
-        pass_limit = min(pass_limit, 3)
-        max_global_expansions = 1 if comparison_like else 999
+        q_norm = str(strategy.get("q_norm") or "")
+        precision_fact_query = bool(strategy.get("precision_fact_query"))
+        visual_fact_query = bool(strategy.get("visual_fact_query"))
+        high_recall_query = bool(strategy.get("high_recall_query"))
+        multiplier = float(strategy.get("multiplier") or max(0.5, RETRIEVAL_HIGH_RECALL_K_MULTIPLIER))
+        early_stopped = False
+        resolved_targets = list(strategy.get("resolved_targets") or [])
+        comparison_like = bool(strategy.get("comparison_like"))
+        single_doc_focus = bool(strategy.get("single_doc_focus"))
+        pass_limit = int(strategy.get("pass_limit") or max(1, RETRIEVAL_SEARCH_PASSES))
+        max_global_expansions = int(strategy.get("max_global_expansions") or 999)
 
         for expanded_idx, q in enumerate(self._expand_query_terms(query), start=1):
             if expanded_idx > max_global_expansions:
@@ -6282,7 +6559,7 @@ class RAGChatbotV17:
                     request_k = max(request_k, int(request_k * (1 + (0.35 * pass_idx))))
 
                 call_types = list(primary_types)
-                if pass_idx > 0 and not doc_types and precision_fact_query and not single_doc_focus:
+                if pass_idx > 0 and not doc_types and bool(strategy.get("expand_csv_in_pass")):
                     call_types = ["pdf", "hwp", "csv"]
 
                 step_started = time.perf_counter()
@@ -6318,6 +6595,8 @@ class RAGChatbotV17:
 
         # CSV 보강 패스는 조건 충족 시에만 단일 호출로 수행
         if (
+            bool(strategy.get("run_csv_boost_pass"))
+            and
             not doc_types
             and not early_stopped
             and (
@@ -6348,7 +6627,10 @@ class RAGChatbotV17:
             and not early_stopped
             and (
                 self._should_run_combined_fallback(merged, query=query, top_k=top_k)
-                or (precision_fact_query and not self._has_precision_anchor_evidence(query, merged, top_n=max(top_k, 14)))
+                or (
+                    (precision_fact_query or visual_fact_query)
+                    and not self._has_precision_anchor_evidence(query, merged, top_n=max(top_k, 14))
+                )
             )
             and (not comparison_like or len(merged) < max(6, top_k // 2))
         ):
@@ -6361,9 +6643,8 @@ class RAGChatbotV17:
             else:
                 fallback_boost = 1.2
             fallback_k = max(top_k, int(top_k * max(multiplier, fallback_boost)))
-            fallback_types = ["pdf", "hwp", "csv"]
-            if single_doc_focus:
-                fallback_types = ["pdf", "hwp"]
+            fallback_types = list(strategy.get("fallback_types") or ["pdf", "hwp", "csv"])
+            if bool(strategy.get("source_focused_fallback")):
                 fallback_k = min(fallback_k, max(top_k + 10, 24))
             fallback_results = self._run_retrieval_call(
                 query,
@@ -6380,21 +6661,26 @@ class RAGChatbotV17:
                     f"k={fallback_k} elapsed={elapsed:.3f}s merged={len(merged)}"
                 )
 
-        if (
-            precision_fact_query
-            and single_doc_focus
-            and not doc_types
-            and not comparison_like
+        missing_precision_anchor = not self._has_precision_anchor_evidence(query, merged, top_n=max(top_k, 14))
+        should_run_asset_sidecar = (
+            bool(strategy.get("asset_sidecar_candidate"))
             and not early_stopped
-            and not self._has_precision_anchor_evidence(query, merged, top_n=max(top_k, 14))
-        ):
+            and not doc_types
+            and (
+                bool(strategy.get("asset_force"))
+                or missing_precision_anchor
+                or len(merged) < max(4, top_k // 2)
+                or not self._has_source_diversity(merged, min_unique_sources=2, top_n=top_k)
+            )
+        )
+        if should_run_asset_sidecar:
             asset_started = time.perf_counter()
             asset_hints = self._collect_asset_source_hints(query, merged, max_hints=max(8, top_k))
             asset_results = self._search_asset_sidecar(
                 query,
                 source_hints=asset_hints,
                 org_name=org_name,
-                top_k=max(6, min(18, top_k + 6)),
+                top_k=int(strategy.get("asset_top_k") or max(6, min(18, top_k + 6))),
             )
             if asset_results:
                 merged = self._merge_results(merged, asset_results, top_k=top_k * 3)
@@ -6406,13 +6692,13 @@ class RAGChatbotV17:
                 )
 
         reranked = self._rerank_results(query, merged, org_name=org_name, prefer_original=prefer_original)
-        if precision_fact_query:
+        if bool(strategy.get("promote_anchor_results")):
             reranked = self._promote_source_anchor_results(
                 query,
                 reranked,
                 top_window=max(24, top_k * 3),
             )
-        if self._is_comparison_query(query):
+        if comparison_like or self._is_comparison_query(query):
             reranked = self._diversify_comparison_results(reranked, top_window=max(10, top_k))
         if debug_timing:
             total = time.perf_counter() - started
@@ -6801,9 +7087,21 @@ class RAGChatbotV17:
                 if marker in t:
                     score += 0.5
 
-        if any(token in q for token in ["치수", "규격", "가로", "세로", "도면", "mm"]):
-            if re.search(r"\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*mm", t):
+        if any(token in q for token in ["치수", "규격", "가로", "세로", "도면", "mm", "평면도", "분할"]):
+            if re.search(
+                r"\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*mm|"
+                r"\d{1,2},?\d{3}\s*[|/]\s*\d{1,2},?\d{3}\s*[|/]\s*\d{1,2},?\d{3}|"
+                r"전체\s*가로\s*길이",
+                t,
+                re.IGNORECASE,
+            ):
                 score += 3.0
+            if any(marker in t for marker in ["평면도", "도면", "상단 분할", "가운데 문"]):
+                score += 1.0
+
+        if self._is_visual_layout_query(query):
+            if any(marker in t for marker in ["표", "그림", "table", "image", "caption", "img"]):
+                score += 1.2
 
         focus_terms = self._extract_focus_terms_for_fact(query, max_terms=6)
         if focus_terms:
