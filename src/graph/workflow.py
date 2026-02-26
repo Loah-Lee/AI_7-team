@@ -2996,6 +2996,36 @@ class RAGChatbotV17:
                 "generate": round(_safe_float(latencies.get("generate", generation_elapsed)), 4),
             }
 
+            # CSV short-circuit 응답은 실제 검색 호출이 없어 last_search_results가 비어도
+            # evidence에 source가 포함되어 있으면 source-level 평가가 가능하도록 채운다.
+            if not isinstance(payload.get("retrieved_docs"), list):
+                source_type = str(payload.get("source_type", "") or "").lower()
+                evidence_items = payload.get("evidence")
+                if source_type == "csv" and isinstance(evidence_items, list):
+                    csv_retrieved_docs: list[dict[str, Any]] = []
+                    seen_sources: set[str] = set()
+                    for item in evidence_items:
+                        if not isinstance(item, dict):
+                            continue
+                        source = str(item.get("source", "") or "").strip()
+                        if not source or source in seen_sources:
+                            continue
+                        seen_sources.add(source)
+                        try:
+                            score = float(item.get("score", 1.0) or 1.0)
+                        except (TypeError, ValueError):
+                            score = 1.0
+                        csv_retrieved_docs.append(
+                            {
+                                "source": source,
+                                "page": item.get("page"),
+                                "score": score,
+                                "content": str(item.get("text", "") or ""),
+                            }
+                        )
+                    if csv_retrieved_docs:
+                        payload["retrieved_docs"] = csv_retrieved_docs
+
             if not isinstance(payload.get("retrieved_docs"), list):
                 payload["retrieved_docs"] = self._serialize_retrieved_docs(
                     self.vector_store.last_search_results,

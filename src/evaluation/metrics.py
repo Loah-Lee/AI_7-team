@@ -177,13 +177,15 @@ def calculate_hit_position(
 
     # Multi-source strict: 모든 GT source의 첫 출현 위치 수집 → max 반환
     # 하나라도 미발견이면 None
-    gt_set = set(gt_sources)
     found_at: dict[str, int] = {}
     for idx, doc in enumerate(retrieved_docs, start=1):
-        norm_src = _normalize_source_name(doc.get("source"))
-        if norm_src in gt_set and norm_src not in found_at:
-            found_at[norm_src] = idx
-        if len(found_at) == len(gt_set):
+        retrieved_source = doc.get("source")
+        for gt_source in gt_sources:
+            if gt_source in found_at:
+                continue
+            if _is_equivalent_source_name(retrieved_source, gt_source):
+                found_at[gt_source] = idx
+        if len(found_at) == len(gt_sources):
             return max(found_at.values())
     return None  # 하나 이상 미발견
 
