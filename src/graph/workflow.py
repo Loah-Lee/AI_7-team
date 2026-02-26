@@ -2451,14 +2451,18 @@ class RAGChatbotV17:
         if not candidates:
             return None
 
-        # 기관 문서 스캔 기반 즉답 경로에서 사용한 근거 상위본만 노출한다.
-        self.vector_store.last_search_results = candidates[:40]
-
         direct_fact = self._extract_direct_fact_from_results(query, candidates, target_org=org_name)
         if not direct_fact:
             return None
 
         fact_answer, evidence, source_line = direct_fact
+        # 즉답 추출에 실제 사용된 근거 라인을 포함한 청크를 우선 노출한다.
+        self.vector_store.last_search_results = self._rerank_org_scan_candidates_by_evidence(
+            candidates,
+            fact_answer=fact_answer,
+            evidence_lines=evidence,
+            top_n=40,
+        )
         detail = "\n".join([f"- {line}" for line in evidence[:3]])
         answer = (
             f"{org_name} 문서 기준 {fact_answer}\n\n"
@@ -2487,6 +2491,64 @@ class RAGChatbotV17:
         }
         self.conversation.add_exchange(query, payload["answer"], intent)
         return payload
+
+    def _rerank_org_scan_candidates_by_evidence(
+        self,
+        candidates: list[dict[str, Any]],
+        fact_answer: str,
+        evidence_lines: list[str],
+        top_n: int = 40,
+    ) -> list[dict[str, Any]]:
+        """org scan 후보를 추출 근거 중심으로 재정렬합니다."""
+        if not candidates:
+            return []
+
+        fact_key = self._normalize_text_for_match(fact_answer or "")
+        evidence_keys = [
+            self._normalize_text_for_match(line)
+            for line in (evidence_lines or [])[:3]
+            if self._normalize_text_for_match(line)
+        ]
+        evidence_token_sets: list[set[str]] = []
+        for line in (evidence_lines or [])[:3]:
+            normalized = unicodedata.normalize("NFKC", str(line or "").lower())
+            tokens = {
+                tok
+                for tok in re.findall(r"[0-9a-zA-Z가-힣]{3,}", normalized)
+                if tok and not tok.isdigit()
+            }
+            if tokens:
+                evidence_token_sets.append(tokens)
+
+        scored: list[tuple[float, int, dict[str, Any]]] = []
+        for idx, item in enumerate(candidates):
+            text = str(item.get("text", "") or "")
+            text_key = self._normalize_text_for_match(text)
+            score = float(item.get("score", 0.0) or 0.0)
+            bonus = 0.0
+
+            if fact_key and fact_key in text_key:
+                bonus += 4.2
+
+            for ev_key in evidence_keys:
+                if ev_key and ev_key in text_key:
+                    bonus += 4.8
+
+            lowered_text = unicodedata.normalize("NFKC", text.lower())
+            text_tokens = {
+                tok
+                for tok in re.findall(r"[0-9a-zA-Z가-힣]{3,}", lowered_text)
+                if tok and not tok.isdigit()
+            }
+            for ev_tokens in evidence_token_sets:
+                overlap = len(text_tokens & ev_tokens)
+                if overlap > 0:
+                    bonus += min(2.0, overlap * 0.45)
+
+            scored.append((score + bonus, -idx, item))
+
+        scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        return [item for _, _, item in scored[: max(1, top_n)]]
 
     def _add_csv_chunks(self, markdowns: list) -> None:
         """CSV 청크를 벡터 DB에 추가합니다."""
@@ -3911,6 +3973,8 @@ class RAGChatbotV17:
                     "page": page,
                     "score": score,
                     "content": content,
+                    "chunk_id": md.get("chunk_id") if md.get("chunk_id") is not None else md.get("uid"),
+                    "chunk_index": md.get("chunk_index") if md.get("chunk_index") is not None else md.get("chunk_order"),
                 }
             )
             if limit is not None and len(docs) >= max(limit, 0):
@@ -7157,14 +7221,42 @@ class RAGChatbotV17:
         return score
 
     @staticmethod
-    def _result_key(item: dict[str, Any]) -> tuple[str, str, int | None, str, str]:
+    def _result_key(item: dict[str, Any]) -> tuple[str, str, int | None, str, str, str]:
         md = item.get("metadata", {}) or {}
+        chunk_id = (
+            md.get("chunk_id")
+            if md.get("chunk_id") is not None
+            else (md.get("uid") if md.get("uid") is not None else item.get("chunk_id"))
+        )
+        chunk_index = (
+            md.get("chunk_index")
+            if md.get("chunk_index") is not None
+            else (md.get("chunk_order") if md.get("chunk_order") is not None else item.get("chunk_index"))
+        )
+
+        chunk_marker = ""
+        if chunk_id is not None and str(chunk_id).strip():
+            chunk_marker = f"id:{str(chunk_id).strip()}"
+        elif chunk_index is not None and str(chunk_index).strip():
+            chunk_marker = f"idx:{str(chunk_index).strip()}"
+        else:
+            # 청크 메타가 비어있을 때만 텍스트 기반 보조 키를 사용한다.
+            fallback_text = str(item.get("text", "") or "")[:500]
+            fallback_key = re.sub(
+                r"[^0-9a-zA-Z가-힣]+",
+                "",
+                unicodedata.normalize("NFKC", fallback_text.lower()),
+            )
+            if fallback_key:
+                chunk_marker = f"txt:{fallback_key[:160]}"
+
         return (
             str(md.get("source", "")),
             str(md.get("org", "")),
             md.get("page"),
             str(md.get("type", "")),
             str(md.get("section", "")),
+            chunk_marker,
         )
 
     def _merge_results(
@@ -7175,7 +7267,7 @@ class RAGChatbotV17:
     ) -> list[dict[str, Any]]:
         """중복 제거하며 검색 결과를 병합합니다."""
         merged: list[dict[str, Any]] = []
-        seen: set[tuple[str, str, int | None, str, str]] = set()
+        seen: set[tuple[str, str, int | None, str, str, str]] = set()
         for item in [*base, *incoming]:
             key = self._result_key(item)
             if key in seen:
