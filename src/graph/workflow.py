@@ -5897,6 +5897,12 @@ class RAGChatbotV17:
                 )
 
         reranked = self._rerank_results(query, merged, org_name=org_name, prefer_original=prefer_original)
+        if precision_fact_query:
+            reranked = self._promote_source_anchor_results(
+                query,
+                reranked,
+                top_window=max(24, top_k * 3),
+            )
         if self._is_comparison_query(query):
             reranked = self._diversify_comparison_results(reranked, top_window=max(10, top_k))
         if debug_timing:
@@ -6202,6 +6208,98 @@ class RAGChatbotV17:
                 score += 2.2
             if re.search(r"85\s*%", text):
                 score += 3.2
+
+        return score
+
+    def _promote_source_anchor_results(
+        self,
+        query: str,
+        results: list[dict[str, Any]],
+        top_window: int = 30,
+    ) -> list[dict[str, Any]]:
+        """정밀 사실 질의에서 상위 source 내부의 앵커 청크를 우선 배치합니다."""
+        if len(results) <= 1:
+            return results
+
+        target_source = ""
+        for item in results:
+            md = item.get("metadata", {}) or {}
+            source = str(md.get("source", "") or "").strip()
+            if source:
+                target_source = source
+                break
+        if not target_source:
+            return results
+
+        target_source_key = self._normalize_text_for_match(target_source)
+        limit = min(max(2, top_window), len(results))
+        head = results[:limit]
+        tail = results[limit:]
+
+        scored: list[tuple[float, int, dict[str, Any]]] = []
+        for idx, item in enumerate(head):
+            md = item.get("metadata", {}) or {}
+            source = str(md.get("source", "") or "").strip()
+            text = str(item.get("text", "") or "")
+            same_source = self._normalize_text_for_match(source) == target_source_key
+            anchor = self._anchor_match_score(query, text)
+
+            boost = 0.0
+            if same_source and anchor > 0:
+                boost += 4.0 + anchor
+            elif same_source:
+                boost += 0.8
+            elif anchor > 0:
+                boost += 0.4
+            scored.append((boost, -idx, item))
+
+        scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        return [item for _, _, item in scored] + tail
+
+    def _anchor_match_score(self, query: str, text: str) -> float:
+        """질문 유형별 핵심 앵커가 텍스트에 존재하는지 점수화합니다."""
+        if not text:
+            return 0.0
+        q = unicodedata.normalize("NFKC", (query or "").lower())
+        t = unicodedata.normalize("NFKC", text.lower())
+        score = 0.0
+
+        if any(token in q for token in ["저작권", "지식재산", "소유권", "귀속", "부담", "책임"]):
+            if re.search(
+                r"(저작권|지식재산|소유권|귀속|라이선스).{0,48}(부담|책임|주체|사업자|주사업자|제안사|발주기관)",
+                t,
+            ):
+                score += 3.2
+
+        if any(token in q for token in ["복구", "장애", "복원", "기한"]):
+            if re.search(r"(복구|복원|장애).{0,24}\d+\s*(시간|일|주|개월)\s*(이내|이상|이하)?", t):
+                score += 3.0
+
+        if any(token in q for token in ["추진 목표", "추진목표", "목표", "목적"]):
+            if any(marker in t for marker in ["추진 목표", "추진목표", "목표", "목적", "기대효과"]):
+                score += 2.4
+
+        if any(token in q for token in ["가이드", "guideline", "guide"]):
+            if any(marker in t for marker in ["adb", "european commission", "guideline", "guide to", "guidelines for"]):
+                score += 3.0
+
+        if any(token in q for token in ["소프트웨어", "현황", "개선사항", "개선방안"]):
+            if any(marker in t for marker in ["소프트웨어", "현황", "개선", "문제점", "개선방안"]):
+                score += 2.0
+
+        if any(token in q for token in ["참여율", "경력", "증빙", "배점", "실적", "pm", "핵심투입인력"]):
+            for marker in ["참여율", "경력", "증빙", "배점", "실적", "사업관리자", "pm", "핵심투입인력"]:
+                if marker in t:
+                    score += 0.5
+
+        if any(token in q for token in ["치수", "규격", "가로", "세로", "도면", "mm"]):
+            if re.search(r"\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*mm", t):
+                score += 3.0
+
+        focus_terms = self._extract_focus_terms_for_fact(query, max_terms=6)
+        if focus_terms:
+            hit_count = sum(1 for term in focus_terms if term and term in t)
+            score += min(1.8, hit_count * 0.4)
 
         return score
 
