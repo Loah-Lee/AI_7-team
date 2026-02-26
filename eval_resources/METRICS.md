@@ -104,13 +104,6 @@ LLM-as-Judge 기반 End-to-End 평가 체계.
 - 계산: `mean(1/rank)` (정답 없으면 0)
 - **multi_doc/comparison**: rank = 마지막으로 발견된 source의 위치 (모든 source를 포함하기 위한 최소 rank). 하나라도 미발견이면 0
 
-### Recall@K (per-query) | 질문별 검색 재현율
-
-> 개별 질문에서 top-K에 정답이 포함되면 1.0, 아니면 0.0
-
-- **single_doc**: 해당 source가 top-K에 있으면 1.0
-- **multi_doc/comparison (Strict Match)**: `sources` 리스트의 **모든** source가 top-K 안에 있어야 1.0. 하나라도 누락이면 0.0
-
 ---
 
 ---
