@@ -518,8 +518,11 @@ def process_file(file_path: Path) -> List[Dict]:
     # Step 6: 섹션 맵 + RecursiveCharacterTextSplitter (헤더 단독 분리 방지)
     split_results = step6_section_split(body)
     print(f"   Step 6 (section split): {len(split_results)} chunks")
-    source = doc_meta.get('source_file', 'Unknown')
-    name = source.rsplit('.', 1)[0] if '.' in source else source
+    source = str(doc_meta.get('source_file', 'Unknown') or 'Unknown').strip()
+    source_path = Path(source)
+    source_ext = source_path.suffix.lower().lstrip('.')
+    source_stem = source_path.stem if source_path.suffix else source
+    name = source_stem
     institution = 'N/A'
     project_name = 'N/A'
     if '_' in name:
@@ -535,7 +538,9 @@ def process_file(file_path: Path) -> List[Dict]:
             'page_content': content,
             'metadata': {
                 'document_title': doc_meta.get('document_title', 'Unknown'),
-                'source': source,
+                'source': source_stem,
+                'source_file': source,
+                'source_ext': source_ext,
                 'section_level1': meta['section_level1'],
                 'section_level2': meta['section_level2'],
                 'page_start': meta['page_start'],

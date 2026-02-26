@@ -59,6 +59,17 @@ def _normalize_metadata(metadata: Dict) -> Dict:
         if v is None: continue
         elif isinstance(v, (list, dict)): normalized[k] = json.dumps(v, ensure_ascii=False)
         else: normalized[k] = v
+
+    source_raw = str(metadata.get("source", "") or "").strip()
+    if source_raw:
+        source_name = Path(source_raw).name or source_raw
+        source_suffix = Path(source_name).suffix.lower().lstrip(".")
+        if source_suffix in {"pdf", "hwp", "hwpx", "csv"}:
+            normalized["source"] = Path(source_name).stem
+            if not normalized.get("source_ext"):
+                normalized["source_ext"] = source_suffix
+        else:
+            normalized["source"] = source_name
     return normalized
 
 def _generate_section_summary(title: str, level: int, relevant_chunks: List[Dict]) -> str:

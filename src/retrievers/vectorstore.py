@@ -97,10 +97,30 @@ class VectorStore:
 
         texts = [c["text"] for c in chunks]
         ids = [f"chunk_{i}_{hash(c['text']) % CHUNK_HASH_MOD}" for i, c in enumerate(chunks)]
-        metadatas = [
-            {"source": c.get("source", ""), "org": c.get("org", ""), "type": c.get("type", "unknown")}
-            for c in chunks
-        ]
+        metadatas: list[dict[str, Any]] = []
+        for chunk in chunks:
+            raw_source = str(chunk.get("source", "") or "")
+            source = self._normalize_source_value(raw_source)
+            source_ext = self._extract_source_ext(raw_source)
+            doc_type = str(chunk.get("type", "unknown") or "unknown").strip().lower()
+
+            metadata: dict[str, Any] = {
+                "source": source,
+                "org": chunk.get("org", ""),
+                "type": doc_type,
+            }
+            if source_ext and "source_ext" not in metadata:
+                metadata["source_ext"] = source_ext
+
+            page_raw = chunk.get("page")
+            try:
+                page = int(page_raw) if page_raw is not None else None
+            except Exception:
+                page = None
+            if page is not None and page > 0:
+                metadata["page"] = page
+
+            metadatas.append(metadata)
 
         if self._sentence_transformer_ef is not None:
             self.collection.add(documents=texts, ids=ids, metadatas=metadatas)
@@ -172,6 +192,28 @@ class VectorStore:
             value = metadata.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
+        return ""
+
+    @staticmethod
+    def _normalize_source_value(value: str | None) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        parsed = Path(raw)
+        base_name = parsed.name or raw
+        suffix = Path(base_name).suffix.lower()
+        if suffix in {".pdf", ".hwp", ".hwpx", ".csv"}:
+            return Path(base_name).stem.strip()
+        return base_name.strip()
+
+    @staticmethod
+    def _extract_source_ext(value: str | None) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        suffix = Path(raw).suffix.lower().lstrip(".")
+        if suffix in {"pdf", "hwp", "hwpx", "csv"}:
+            return suffix
         return ""
 
     @staticmethod

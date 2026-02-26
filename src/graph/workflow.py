@@ -132,10 +132,18 @@ class RAGChatbotV17:
         self.conversation = ConversationContext(max_history=5)
         self.csv_metadata_by_filename: dict[str, dict[str, Any]] = {}
         self.csv_metadata_by_stem: dict[str, dict[str, Any]] = {}
+        self.csv_metadata_by_stem_key: dict[str, dict[str, Any]] = {}
         self.csv_metadata_by_org: dict[str, list[dict[str, Any]]] = {}
         self.csv_metadata_by_org_key: dict[str, list[dict[str, Any]]] = {}
         self.csv_metadata_by_notice_num: dict[str, dict[str, Any]] = {}
         self.csv_metadata_rows: list[dict[str, Any]] = []
+        self.asset_sidecar_dir = (script_dir / "notebooks" / "data_chunks_rich_asset_v1").resolve()
+        self._asset_sidecar_enabled = str(
+            os.environ.get("RETRIEVER_ASSET_SIDECAR_ENABLED", "false")
+        ).strip().lower() not in {"0", "false", "no", "off"}
+        self._asset_sidecar_loaded = False
+        self._asset_sidecar_by_source_key: dict[str, list[dict[str, Any]]] = {}
+        self._asset_sidecar_by_org_key: dict[str, list[dict[str, Any]]] = {}
         self.csv_question_field_map: dict[str, tuple[str, ...]] = {
             "amount": ("사업비", "예산", "사업 금액", "사 업 비", "사 업 금 액"),
             "notice_num": ("공고번호", "공고 번호", "notice"),
@@ -235,6 +243,7 @@ class RAGChatbotV17:
         """CSV 메타데이터 매칭 인덱스를 구성합니다."""
         self.csv_metadata_by_filename = {}
         self.csv_metadata_by_stem = {}
+        self.csv_metadata_by_stem_key = {}
         self.csv_metadata_by_org = {}
         self.csv_metadata_by_org_key = {}
         self.csv_metadata_by_notice_num = {}
@@ -356,6 +365,7 @@ class RAGChatbotV17:
                 **meta,
                 "filename": filename,
                 "file_stem": stem,
+                "file_stem_key": self._normalize_text_for_match(stem) if stem else "",
                 "org_name": org_name,
                 "project_name": project_name,
                 "amount": amount_value,
@@ -374,6 +384,9 @@ class RAGChatbotV17:
                 self.csv_metadata_by_filename[filename.lower()] = normalized
             if stem:
                 self.csv_metadata_by_stem[stem] = normalized
+                stem_key = self._normalize_text_for_match(stem)
+                if stem_key and stem_key not in self.csv_metadata_by_stem_key:
+                    self.csv_metadata_by_stem_key[stem_key] = normalized
             if org_name:
                 self.csv_metadata_by_org.setdefault(org_name, []).append(normalized)
             if org_key:
@@ -502,6 +515,33 @@ class RAGChatbotV17:
         return ""
 
     @staticmethod
+    def _source_to_stem(source: str | None) -> str:
+        raw = str(source or "").strip()
+        if not raw:
+            return ""
+        normalized = unicodedata.normalize("NFC", raw)
+        base_name = Path(normalized).name or normalized
+        suffix = Path(base_name).suffix.lower()
+        if suffix in {".pdf", ".hwp", ".hwpx", ".csv"}:
+            return Path(base_name).stem.strip()
+        return base_name.strip()
+
+    def _build_source_candidate_keys(self, file_path: Path) -> set[str]:
+        values = {
+            unicodedata.normalize("NFC", file_path.name).strip(),
+            unicodedata.normalize("NFC", file_path.stem).strip(),
+        }
+        keys: set[str] = set()
+        for value in values:
+            if not value:
+                continue
+            keys.add(value)
+            normalized = self._normalize_text_for_match(value)
+            if normalized:
+                keys.add(normalized)
+        return keys
+
+    @staticmethod
     def _extract_metadata_page(metadata: dict[str, Any]) -> int | None:
         for key in ("page", "page_start", "page_no"):
             value = metadata.get(key)
@@ -535,6 +575,24 @@ class RAGChatbotV17:
         raw_type = str(metadata.get("type", "") or "").strip().lower()
         if raw_type in {"pdf", "hwp", "csv"}:
             return raw_type
+
+        # source가 확장자 없이 저장되는 경우를 대비해 확장자 관련 메타를 우선 사용한다.
+        ext_candidates = [
+            metadata.get("source_ext"),
+            metadata.get("original_ext"),
+            metadata.get("file_ext"),
+            metadata.get("ext"),
+            metadata.get("format"),
+            metadata.get("file_format"),
+        ]
+        for value in ext_candidates:
+            ext = str(value or "").strip().lower().lstrip(".")
+            if ext == "pdf":
+                return "pdf"
+            if ext in {"hwp", "hwpx"}:
+                return "hwp"
+            if ext == "csv":
+                return "csv"
 
         source = cls._extract_metadata_source(metadata)
         suffix = Path(source).suffix.lower()
@@ -619,6 +677,308 @@ class RAGChatbotV17:
                     continue
             filtered.append(item)
         return filtered
+
+    def _lookup_csv_row_by_stem(self, stem: str) -> dict[str, Any]:
+        """문서 stem으로 CSV 메타데이터 행을 조회합니다."""
+        if not stem:
+            return {}
+        normalized_stem = unicodedata.normalize("NFC", stem)
+        row = self.csv_metadata_by_stem.get(normalized_stem.lower())
+        if row:
+            return row
+        stem_key = self._normalize_text_for_match(normalized_stem)
+        if stem_key:
+            return self.csv_metadata_by_stem_key.get(stem_key, {})
+        return {}
+
+    def _resolve_asset_sidecar_source_info(
+        self,
+        source_path: str,
+    ) -> tuple[str, str, str, str]:
+        """asset sidecar source_path(.md)를 평가/검색용 source(stem)로 변환합니다."""
+        stem = unicodedata.normalize("NFC", Path(source_path).stem)
+        csv_row = self._lookup_csv_row_by_stem(stem)
+
+        source_name = str(csv_row.get("filename", "") or "").strip()
+        org_name = str(csv_row.get("org_name", "") or "").strip()
+        project_name = str(csv_row.get("project_name", "") or "").strip()
+        source_stem = Path(source_name).stem if source_name else stem
+        source_stem = unicodedata.normalize("NFC", source_stem).strip()
+        if not source_stem:
+            source_stem = stem
+
+        suffix = Path(source_name).suffix.lower() if source_name else ""
+        if suffix in {".hwp", ".hwpx"}:
+            doc_type = "hwp"
+        elif suffix == ".csv":
+            doc_type = "csv"
+        else:
+            doc_type = "pdf"
+
+        if not org_name and "_" in stem:
+            org_name = stem.split("_", 1)[0].strip()
+        if not project_name and "_" in stem:
+            project_name = stem.split("_", 1)[1].strip()
+        return source_stem, org_name, project_name, doc_type
+
+    def _load_asset_sidecar_index(self) -> None:
+        """asset 캡션 청크 JSONL을 검색 가능한 인메모리 인덱스로 로드합니다."""
+        if self._asset_sidecar_loaded:
+            return
+
+        self._asset_sidecar_loaded = True
+        self._asset_sidecar_by_source_key = {}
+        self._asset_sidecar_by_org_key = {}
+
+        if not self._asset_sidecar_enabled:
+            return
+        if not self.asset_sidecar_dir.exists():
+            return
+
+        loaded = 0
+        failed = 0
+        for path in sorted(self.asset_sidecar_dir.glob("*.jsonl")):
+            try:
+                with path.open("r", encoding="utf-8") as handle:
+                    for raw_line in handle:
+                        line = raw_line.strip()
+                        if not line:
+                            continue
+                        try:
+                            row = json.loads(line)
+                        except Exception:
+                            failed += 1
+                            continue
+                        if not isinstance(row, dict):
+                            continue
+
+                        text = str(row.get("text", "") or "").strip()
+                        if not text:
+                            continue
+                        source_path = str(row.get("source_path", "") or "").strip()
+                        if not source_path:
+                            source_path = f"{path.stem}.md"
+
+                        source_name, org_name, project_name, doc_type = self._resolve_asset_sidecar_source_info(
+                            source_path
+                        )
+                        source_key = self._normalize_text_for_match(source_name)
+                        if not source_key:
+                            continue
+
+                        row_meta = row.get("metadata", {})
+                        if not isinstance(row_meta, dict):
+                            row_meta = {}
+                        page = self._extract_metadata_page(row_meta)
+                        page_refs = row_meta.get("page_refs")
+                        if not isinstance(page_refs, list):
+                            page_refs = []
+                        normalized_page_refs: list[int] = []
+                        for value in page_refs:
+                            try:
+                                page_val = int(str(value).strip())
+                            except Exception:
+                                continue
+                            if page_val > 0:
+                                normalized_page_refs.append(page_val)
+                        page_refs = normalized_page_refs
+                        if page is None and page_refs:
+                            page = page_refs[0]
+                        assets = row_meta.get("assets")
+                        if not isinstance(assets, list):
+                            assets = []
+                        section = str(row_meta.get("section_title", "") or "").strip()
+                        chunk_index_raw = row.get("chunk_index")
+                        try:
+                            chunk_index = int(chunk_index_raw)
+                        except Exception:
+                            chunk_index = -1
+
+                        metadata: dict[str, Any] = {
+                            "source": source_name,
+                            "org": org_name,
+                            "type": doc_type,
+                            "project_name": project_name,
+                            "section": section,
+                            "source_origin": "asset_sidecar",
+                            "source_path": source_path,
+                            "chunk_index": chunk_index,
+                        }
+                        if page is not None:
+                            metadata["page"] = page
+                        if page_refs:
+                            metadata["page_refs"] = page_refs
+                        if assets:
+                            metadata["assets"] = assets
+
+                        record = {
+                            "text": text,
+                            "metadata": metadata,
+                            "source": source_name,
+                            "page": page,
+                            "score": 0.0,
+                        }
+                        self._asset_sidecar_by_source_key.setdefault(source_key, []).append(record)
+                        org_key = self._normalize_text_for_match(org_name)
+                        if org_key:
+                            self._asset_sidecar_by_org_key.setdefault(org_key, []).append(record)
+                        loaded += 1
+            except Exception:
+                failed += 1
+
+        if loaded > 0:
+            print(
+                f"ℹ️ Asset sidecar 로드: {loaded} chunks / "
+                f"{len(self._asset_sidecar_by_source_key)} sources"
+            )
+        if failed > 0:
+            print(f"⚠️ Asset sidecar 파싱 실패: {failed}")
+
+    def _collect_asset_source_hints(
+        self,
+        query: str,
+        results: list[dict[str, Any]],
+        max_hints: int = 12,
+    ) -> list[str]:
+        """기존 검색 결과와 질의에서 asset sidecar source 후보를 수집합니다."""
+        hints: list[str] = []
+        seen: set[str] = set()
+
+        for item in results[: max(8, max_hints)]:
+            md = item.get("metadata", {}) or {}
+            source = str(md.get("source") or item.get("source") or "").strip()
+            if not source:
+                continue
+            key = self._normalize_text_for_match(source)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            hints.append(source)
+            if len(hints) >= max_hints:
+                return hints
+
+        for hint in self._extract_project_hints_from_query(query):
+            key = self._normalize_text_for_match(hint)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            hints.append(hint)
+            if len(hints) >= max_hints:
+                break
+        return hints
+
+    def _search_asset_sidecar(
+        self,
+        query: str,
+        *,
+        source_hints: list[str],
+        org_name: str | None,
+        top_k: int,
+    ) -> list[dict[str, Any]]:
+        """정밀 질의에서 source 제한 기반 asset sidecar 청크를 검색합니다."""
+        self._load_asset_sidecar_index()
+        if not self._asset_sidecar_by_source_key:
+            return []
+
+        hint_keys = [self._normalize_text_for_match(h) for h in source_hints if h]
+        hint_keys = [k for k in hint_keys if k]
+        candidate_source_keys: list[str] = []
+        seen_source_keys: set[str] = set()
+
+        for hint_key in hint_keys:
+            if hint_key in self._asset_sidecar_by_source_key and hint_key not in seen_source_keys:
+                candidate_source_keys.append(hint_key)
+                seen_source_keys.add(hint_key)
+        if not candidate_source_keys and hint_keys:
+            for source_key in self._asset_sidecar_by_source_key.keys():
+                if any(
+                    len(hint_key) >= 4 and (hint_key in source_key or source_key in hint_key)
+                    for hint_key in hint_keys
+                ):
+                    if source_key in seen_source_keys:
+                        continue
+                    candidate_source_keys.append(source_key)
+                    seen_source_keys.add(source_key)
+                    if len(candidate_source_keys) >= 12:
+                        break
+
+        candidates: list[dict[str, Any]] = []
+        if candidate_source_keys:
+            for source_key in candidate_source_keys:
+                candidates.extend(self._asset_sidecar_by_source_key.get(source_key, []))
+        elif org_name:
+            org_key = self._normalize_text_for_match(org_name)
+            candidates = list(self._asset_sidecar_by_org_key.get(org_key, []))
+        else:
+            return []
+
+        if not candidates:
+            return []
+
+        keywords = self._extract_query_keywords(query, max_keywords=12)
+        focus_terms = self._extract_focus_terms_for_fact(query, max_terms=8)
+        ranked: list[dict[str, Any]] = []
+        candidate_source_set = set(candidate_source_keys)
+        for item in candidates:
+            text = str(item.get("text", "") or "")
+            if not text:
+                continue
+            md = item.get("metadata", {}) or {}
+            source = str(md.get("source", "") or item.get("source", "") or "")
+            source_key = self._normalize_text_for_match(source)
+            text_key = self._normalize_text_for_match(text[:6000])
+
+            keyword_hits = sum(1 for kw in keywords if kw and (kw in text_key or kw in source_key))
+            focus_hits = sum(1 for term in focus_terms if term and term in text.lower())
+            anchor_score = self._anchor_match_score(query, text)
+
+            if anchor_score <= 0 and keyword_hits < 2 and focus_hits <= 0:
+                continue
+
+            score = anchor_score
+            score += min(2.5, keyword_hits * 0.55)
+            score += min(1.2, focus_hits * 0.35)
+            if candidate_source_set and source_key in candidate_source_set:
+                score += 1.0
+            if md.get("page") is not None:
+                score += 0.15
+            if re.search(r"\d", text):
+                score += 0.15
+
+            ranked.append(
+                {
+                    "text": text,
+                    "metadata": md,
+                    "source": source,
+                    "page": md.get("page"),
+                    "score": float(score),
+                    "dense_score": 0.0,
+                    "lexical_score": float(score),
+                }
+            )
+
+        if not ranked:
+            return []
+
+        ranked.sort(key=lambda x: float(x.get("score", 0.0)), reverse=True)
+        unique: list[dict[str, Any]] = []
+        seen_items: set[tuple[str, int | None, int]] = set()
+        for row in ranked:
+            meta = row.get("metadata", {}) or {}
+            row_source = str(meta.get("source", "") or row.get("source", "") or "")
+            row_page = row.get("page")
+            try:
+                chunk_index = int(meta.get("chunk_index", -1))
+            except Exception:
+                chunk_index = -1
+            key = (row_source, row_page if isinstance(row_page, int) else None, chunk_index)
+            if key in seen_items:
+                continue
+            seen_items.add(key)
+            unique.append(row)
+            if len(unique) >= max(1, top_k):
+                break
+        return unique
 
     def _count_chunks_by_type_compat(self) -> dict[str, int]:
         method = getattr(self.vector_store, "count_chunks_by_type", None)
@@ -1713,6 +2073,7 @@ class RAGChatbotV17:
             source = self._extract_metadata_source(md) or "Unknown"
             page = self._extract_metadata_page(md)
             project_name = str(md.get("project_name") or md.get("document_title") or "").strip()
+            doc_type = self._infer_metadata_doc_type(md)
 
             best_amount = 0
             best_line = ""
@@ -1742,6 +2103,7 @@ class RAGChatbotV17:
                 "page": page,
                 "line": best_line or f"사업비 {best_amount:,}원",
                 "project_name": project_name,
+                "doc_type": doc_type,
             }
 
         self._chunk_budget_cache = cache
@@ -1802,7 +2164,9 @@ class RAGChatbotV17:
         page_suffix = f" p.{page}" if page else ""
         evidence_line = str(matched.get("line", "")).strip() or f"사업비: {amount_numeric:,}원"
         org_label = str(matched.get("org_name", org_name)).strip() or org_name
-        source_type = "pdf" if source.lower().endswith(".pdf") else "hwp"
+        source_type = str(matched.get("doc_type", "") or "").strip().lower()
+        if source_type not in {"pdf", "hwp", "csv"}:
+            source_type = "unknown"
 
         answer = (
             f"{org_label} 문서 기준 사업비는 {amount_numeric:,}원입니다.\n\n"
@@ -2060,17 +2424,24 @@ class RAGChatbotV17:
 
             sections = self.vector_store.csv_converter.split_markdown_sections(md_data.markdown)
             valid_sections = self.vector_store.csv_converter.filter_valid_sections(sections)
+            source_full = str(md_data.filename or "csv").strip() or "csv"
+            source_stem = self._source_to_stem(source_full) or "csv"
+            source_ext = Path(source_full).suffix.lower().lstrip(".")
+            if source_ext not in {"pdf", "hwp", "hwpx", "csv"}:
+                source_ext = "csv"
 
             for section in valid_sections:
                 section_text = f"## {section}"
                 base_meta = dict(md_data.metadata or {})
                 base_meta["source_origin"] = "csv"
+                base_meta.setdefault("source_file", source_full)
+                base_meta.setdefault("source_ext", source_ext)
                 if section.strip().startswith("원본 문서 내용"):
                     sub_chunks = self._split_text_for_retrieval(section_text, max_chars=1600, overlap=180)
                     for idx, sub in enumerate(sub_chunks, 1):
                         chunks.append({
                             "text": sub,
-                            "source": md_data.filename or 'csv',
+                            "source": source_stem,
                             "org": md_data.org_name,
                             "type": "csv",
                             "section": f"원본 문서 내용-{idx}",
@@ -2080,7 +2451,7 @@ class RAGChatbotV17:
 
                 chunks.append({
                     "text": section_text,
-                    "source": md_data.filename or 'csv',
+                    "source": source_stem,
                     "org": md_data.org_name,
                     "type": "csv",
                     "section": section.split("\n", 1)[0].strip(),
@@ -2334,8 +2705,17 @@ class RAGChatbotV17:
         if not all_files:
             return False
         indexed_sources = self._get_indexed_sources_compat(doc_types=["pdf", "hwp"])
+        indexed_source_keys: set[str] = set()
+        for source in indexed_sources:
+            source_text = str(source or "").strip()
+            if not source_text:
+                continue
+            indexed_source_keys.add(source_text)
+            source_key = self._normalize_text_for_match(source_text)
+            if source_key:
+                indexed_source_keys.add(source_key)
         for path in all_files:
-            if path.name in indexed_sources:
+            if self._build_source_candidate_keys(path) & indexed_source_keys:
                 continue
             if self._is_source_in_failed_registry(path):
                 continue
@@ -2356,8 +2736,17 @@ class RAGChatbotV17:
         from src.parsers.hwp_loader import HWPMarkdownConverter
 
         indexed_sources = set()
+        indexed_source_keys: set[str] = set()
         if not force_reload:
             indexed_sources = self._get_indexed_sources_compat(doc_types=["pdf", "hwp"])
+            for source in indexed_sources:
+                source_text = str(source or "").strip()
+                if not source_text:
+                    continue
+                indexed_source_keys.add(source_text)
+                source_key = self._normalize_text_for_match(source_text)
+                if source_key:
+                    indexed_source_keys.add(source_key)
 
         added_chunk_count = 0
         skipped_count = 0
@@ -2385,7 +2774,7 @@ class RAGChatbotV17:
                     org_info.amount_numeric = csv_amount
                 self.vector_store.register_org(org_info)
 
-                if not force_reload and file_path.name in indexed_sources:
+                if not force_reload and (self._build_source_candidate_keys(file_path) & indexed_source_keys):
                     print(f"  ℹ️ {file_path.name}: {org_name} (이미 인덱싱됨)")
                     skipped_count += 1
                     continue
@@ -2449,7 +2838,7 @@ class RAGChatbotV17:
                     table_count = int(chunk.get("table_count", 0) or 0)
                     file_chunks.append({
                         "text": f"## 페이지 {page_num}\n{chunk_text}",
-                        "source": file_path.name,
+                        "source": unicodedata.normalize("NFC", file_path.stem),
                         "org": org_name,
                         "type": "pdf" if is_pdf else "hwp",
                         "page": int(page_num) if page_num is not None else None,
@@ -2466,6 +2855,8 @@ class RAGChatbotV17:
                 if file_chunks:
                     self.vector_store.add_documents(file_chunks)
                     indexed_sources.add(file_path.name)
+                    indexed_sources.add(file_path.stem)
+                    indexed_source_keys.update(self._build_source_candidate_keys(file_path))
                     added_chunk_count += len(file_chunks)
                     self._clear_source_failed(file_path)
 
@@ -5894,6 +6285,31 @@ class RAGChatbotV17:
                 print(
                     f"[RETRIEVE] fallback pass types={fallback_types} "
                     f"k={fallback_k} elapsed={elapsed:.3f}s merged={len(merged)}"
+                )
+
+        if (
+            precision_fact_query
+            and single_doc_focus
+            and not doc_types
+            and not comparison_like
+            and not early_stopped
+            and not self._has_precision_anchor_evidence(query, merged, top_n=max(top_k, 14))
+        ):
+            asset_started = time.perf_counter()
+            asset_hints = self._collect_asset_source_hints(query, merged, max_hints=max(8, top_k))
+            asset_results = self._search_asset_sidecar(
+                query,
+                source_hints=asset_hints,
+                org_name=org_name,
+                top_k=max(6, min(18, top_k + 6)),
+            )
+            if asset_results:
+                merged = self._merge_results(merged, asset_results, top_k=top_k * 3)
+            if debug_timing:
+                elapsed = time.perf_counter() - asset_started
+                print(
+                    f"[RETRIEVE] asset-sidecar pass hints={len(asset_hints)} "
+                    f"hits={len(asset_results)} elapsed={elapsed:.3f}s merged={len(merged)}"
                 )
 
         reranked = self._rerank_results(query, merged, org_name=org_name, prefer_original=prefer_original)
