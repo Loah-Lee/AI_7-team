@@ -34,8 +34,8 @@ from .text_cleaner import (
 # Parameters
 # ---------------------------------------------------------------------------
 
-CHUNK_SIZE = 500
-CHUNK_OVERLAP = 100
+CHUNK_SIZE = 1000
+CHUNK_OVERLAP = 200
 
 # ---------------------------------------------------------------------------
 # Regex patterns
@@ -518,11 +518,8 @@ def process_file(file_path: Path) -> List[Dict]:
     # Step 6: 섹션 맵 + RecursiveCharacterTextSplitter (헤더 단독 분리 방지)
     split_results = step6_section_split(body)
     print(f"   Step 6 (section split): {len(split_results)} chunks")
-    source = str(doc_meta.get('source_file', 'Unknown') or 'Unknown').strip()
-    source_path = Path(source)
-    source_ext = source_path.suffix.lower().lstrip('.')
-    source_stem = source_path.stem if source_path.suffix else source
-    name = source_stem
+    source = doc_meta.get('document_title', 'Unknown')
+    name = source.rsplit('.', 1)[0] if '.' in source else source
     institution = 'N/A'
     project_name = 'N/A'
     if '_' in name:
@@ -538,14 +535,12 @@ def process_file(file_path: Path) -> List[Dict]:
             'page_content': content,
             'metadata': {
                 'document_title': doc_meta.get('document_title', 'Unknown'),
-                'source': source_stem,
-                'source_file': source,
-                'source_ext': source_ext,
+                'source': source,
                 'section_level1': meta['section_level1'],
                 'section_level2': meta['section_level2'],
                 'page_start': meta['page_start'],
                 'page_end': meta['page_end'],
-                'institution': institution,
+                'org': institution,
                 'project_name': project_name,
                 'chunk_size': len(content),
                 'created_at': datetime.now().isoformat(),
