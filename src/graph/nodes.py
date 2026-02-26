@@ -18,7 +18,13 @@ from langchain_core.messages import SystemMessage, HumanMessage
 # 설정
 sys.path.insert(0, 'src')
 from src.utils.config import DEFAULT_MODEL, INTENT_REGEX_FIRST, REASONING_MODEL, OPENAI_API_KEY
-from src.prompts.templates import INTENT_ANALYSIS_PROMPT, ANSWER_GENERATION_PROMPT, RFP_SYSTEM_PROMPT
+from src.prompts.templates import (
+    INTENT_ANALYSIS_PROMPT,
+    ANSWER_GENERATION_PROMPT,
+    ANSWER_GENERATION_FROM_EVIDENCE_PROMPT,
+    EVIDENCE_REFINEMENT_PROMPT,
+    RFP_SYSTEM_PROMPT,
+)
 from src.graph.state import QueryIntent, QuestionPlan
 
 
@@ -227,8 +233,12 @@ class QuestionPlanner:
     def build(query: str, target_org: str = "") -> QuestionPlan:
         q = (query or "").lower()
         normalized = re.sub(r"\s+", " ", q)
+        # "비교과시스템"처럼 단어 내부의 "비교"는 비교 질의로 보지 않는다.
+        has_compare_token = bool(re.search(r"비교(?!과)", normalized))
 
-        is_comparison = any(k in normalized for k in ["비교", "차이", "공통", "모두 고려", "동시에", "두 문서"])
+        is_comparison = has_compare_token or any(
+            k in normalized for k in ["차이", "공통", "모두 고려", "동시에", "두 문서"]
+        )
         if not is_comparison and "각각" in normalized:
             is_comparison = any(marker in normalized for marker in ["두 문서", "각 문서", "기관별", "a 문서", "b 문서"])
         if is_comparison:
@@ -292,10 +302,12 @@ class RFPAnswerGenerator:
     def __init__(self, llm: ChatOpenAI | None) -> None:
         self.llm = llm
         self.last_generation_elapsed = 0.0
+        self.last_generation_llm_calls = 0
 
     def generate(self, query: str, context: str, history: str = "", extractive_draft: str = "") -> str:
         """간결한 RFP 답변을 생성합니다."""
         started = time.perf_counter()
+        llm_calls = 0
         try:
             if not self.llm:
                 return "LLM 클라이언트가 없습니다."
@@ -308,31 +320,69 @@ class RFPAnswerGenerator:
                     else f"## 추출 초안 (문서 근거를 유지한 채 정제)\n{extractive_draft}"
                 )
 
-            # history가 있으면 프롬프트에 포함
-            if prompt_history:
-                prompt = ANSWER_GENERATION_PROMPT.format(
+            try:
+                # 1) 근거를 먼저 추려서 압축한다.
+                evidence_prompt = EVIDENCE_REFINEMENT_PROMPT.format(
                     query=query,
                     context=context,
-                    history=f"## 이전 대화 기록\n{prompt_history}",
+                    extractive_draft=extractive_draft or "없음",
                 )
-            else:
-                # history 없으면 빈 문자열로 처리
-                prompt = ANSWER_GENERATION_PROMPT.format(query=query, context=context, history="")
+                evidence_messages = [
+                    SystemMessage(content=RFP_SYSTEM_PROMPT),
+                    HumanMessage(content=evidence_prompt),
+                ]
+                llm_calls += 1
+                evidence_resp = self.llm.invoke(evidence_messages)
+                refined_evidence = str(getattr(evidence_resp, "content", "") or "").strip()
+                if not refined_evidence:
+                    refined_evidence = extractive_draft or "관련 근거 없음"
 
-            try:
+                # 2) 추려진 근거를 바탕으로 최종 답변을 생성한다.
+                if prompt_history:
+                    prompt = ANSWER_GENERATION_FROM_EVIDENCE_PROMPT.format(
+                        query=query,
+                        context=context,
+                        evidence=refined_evidence,
+                        history=f"## 이전 대화 기록\n{prompt_history}",
+                    )
+                else:
+                    prompt = ANSWER_GENERATION_FROM_EVIDENCE_PROMPT.format(
+                        query=query,
+                        context=context,
+                        evidence=refined_evidence,
+                        history="",
+                    )
+
                 messages = [
                     SystemMessage(content=RFP_SYSTEM_PROMPT),
                     HumanMessage(content=prompt)
                 ]
 
+                llm_calls += 1
                 response = self.llm.invoke(messages)
                 answer = response.content
                 return self._clean_final_answer(answer)
 
             except Exception as e:
-                return f"오류: {str(e)}"
+                # 2단계 생성이 실패하면 기존 단일 생성 경로로 fallback
+                try:
+                    fallback_prompt = ANSWER_GENERATION_PROMPT.format(
+                        query=query,
+                        context=context,
+                        history=f"## 이전 대화 기록\n{prompt_history}" if prompt_history else "",
+                    )
+                    fallback_messages = [
+                        SystemMessage(content=RFP_SYSTEM_PROMPT),
+                        HumanMessage(content=fallback_prompt),
+                    ]
+                    llm_calls += 1
+                    fallback_resp = self.llm.invoke(fallback_messages)
+                    return self._clean_final_answer(str(getattr(fallback_resp, "content", "") or ""))
+                except Exception:
+                    return f"오류: {str(e)}"
         finally:
             self.last_generation_elapsed = time.perf_counter() - started
+            self.last_generation_llm_calls = llm_calls
 
     @staticmethod
     def _clean_final_answer(answer: str) -> str:

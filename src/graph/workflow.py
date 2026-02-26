@@ -1286,25 +1286,62 @@ class RAGChatbotV17:
                 org_key = self._normalize_text_for_match(org_scope)
                 rows = list(self.csv_metadata_by_org_key.get(org_key, [])) if org_key else []
             if rows:
-                def _estimate_duration_days(row: dict[str, Any]) -> float:
-                    start = str(row.get("start_date", "")).strip()
-                    end = str(row.get("end_date", "")).strip()
-                    if start and end:
-                        try:
-                            start_dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
-                            end_dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
-                            delta = (end_dt - start_dt).total_seconds() / 86400.0
-                            if delta > 0:
-                                return delta
-                        except Exception:
-                            pass
-                    summary_text = str(row.get("summary", "") or "")
-                    day_match = re.search(r"(\d{2,4})\s*일", summary_text)
+                def _extract_duration_days_from_text(raw_text: str) -> float:
+                    normalized_text = unicodedata.normalize("NFKC", str(raw_text or ""))
+                    day_match = re.search(
+                        r"(?:사업기간|과업기간|용역기간|계약체결일(?:로부터)?)\D{0,24}(\d{2,4})\s*일(?:\s*이내)?",
+                        normalized_text,
+                    )
+                    if not day_match:
+                        day_match = re.search(
+                            r"계약체결일(?:로부터)?\D{0,20}(\d{2,4})\s*일",
+                            normalized_text,
+                        )
+                    if not day_match:
+                        day_match = re.search(r"(\d{2,4})\s*일(?:\s*\(\s*\d+\s*개월\s*\))?", normalized_text)
                     if day_match:
                         return float(day_match.group(1))
-                    month_match = re.search(r"(\d{1,2})\s*개월", summary_text)
+                    month_match = re.search(
+                        r"(?:사업기간|과업기간|용역기간|계약체결일(?:로부터)?)\D{0,24}(\d{1,2})\s*개월",
+                        normalized_text,
+                    )
+                    if not month_match:
+                        month_match = re.search(r"(\d{1,2})\s*개월", normalized_text)
                     if month_match:
                         return float(month_match.group(1)) * 30.0
+                    return float("inf")
+
+                def _estimate_duration_days(row: dict[str, Any]) -> float:
+                    merged_text = " ".join(
+                        [
+                            str(row.get("summary", "") or ""),
+                            str(row.get("text", "") or ""),
+                        ]
+                    )
+                    estimated = _extract_duration_days_from_text(merged_text)
+                    if estimated != float("inf"):
+                        return estimated
+                    # CSV 요약에 기간이 없으면 해당 원본 문서(source) 전 청크에서 기간 근거를 보강 탐색한다.
+                    source = str(row.get("filename", "")).strip()
+                    if not source:
+                        return float("inf")
+                    try:
+                        payload = self.vector_store.collection.get(
+                            where={"source": source},
+                            include=["documents"],
+                        )
+                    except Exception:
+                        payload = {"documents": []}
+                    best = float("inf")
+                    for doc_text in payload.get("documents", []) or []:
+                        candidate = _extract_duration_days_from_text(str(doc_text or ""))
+                        if candidate == float("inf"):
+                            continue
+                        # 문서 내 다수 기간 표현이 있어도 대표 기간은 가장 큰 값(일반적으로 총 사업기간) 우선.
+                        if best == float("inf") or candidate > best:
+                            best = candidate
+                    if best != float("inf"):
+                        return best
                     return float("inf")
 
                 normalized_rows = []
@@ -1315,7 +1352,10 @@ class RAGChatbotV17:
 
                 candidate_rows = [item for item in normalized_rows if "기능개선" in item[1]]
                 target_pool = candidate_rows or normalized_rows
-                target_pool = [item for item in target_pool if item[0] != float("inf")] or target_pool
+                target_pool = [item for item in target_pool if item[0] != float("inf")]
+                if not target_pool:
+                    # 사업기간 근거를 확보하지 못하면 단축 응답하지 않고 일반 검색 경로로 진행.
+                    target_pool = []
                 target_pool.sort(key=lambda item: item[0])
                 selected = target_pool[0] if target_pool else None
                 if selected:
@@ -1325,11 +1365,7 @@ class RAGChatbotV17:
                         if item[1] != selected_name:
                             compare_row = item
                             break
-                    duration_text = (
-                        f"{int(selected_days)}일"
-                        if selected_days not in {float('inf'), float('-inf')}
-                        else "기간 정보 없음"
-                    )
+                    duration_text = f"{int(selected_days)}일"
                     answer_lines = [
                         f"조건에 부합하는 사업은 `{selected_name}`입니다.",
                         "",
@@ -2933,7 +2969,9 @@ class RAGChatbotV17:
             perf_stats["generation_elapsed"] = perf_stats.get("generation_elapsed", 0.0) + (
                 time.perf_counter() - generation_started
             )
-            perf_stats["llm_calls"] = int(perf_stats.get("llm_calls", 0)) + 1
+            perf_stats["llm_calls"] = int(perf_stats.get("llm_calls", 0)) + int(
+                getattr(self.answer_generator, "last_generation_llm_calls", 1) or 1
+            )
         if question_plan.is_comparison and query_is_comparison_like:
             answer = self._enforce_comparison_template(query, answer, results)
         answer_mode = "generative"
@@ -3451,10 +3489,7 @@ class RAGChatbotV17:
             core_items = ["요청하신 항목에 대해 문서에서 확정 가능한 근거를 찾지 못했습니다."]
 
         rendered: list[str] = ["### 핵심 답변"]
-        if len(core_items) == 1:
-            rendered.append(core_items[0])
-        else:
-            rendered.extend([f"- {item}" for item in core_items])
+        rendered.extend([f"- {item}" for item in core_items])
 
         rendered.append("")
         rendered.append("### 근거 요약")
@@ -3804,24 +3839,33 @@ class RAGChatbotV17:
             "입찰 마감",
             "과업명",
             "용역명",
+            "파일명",
+            "파일 형식",
+            "사업 요약",
+            "사업 개요",
+            "추진배경",
+            "기대효과",
         ]
         compact = stripped.replace(" ", "")
         if any(compact.startswith(marker.replace(" ", "")) for marker in metadata_markers):
             return True
         noise_prefixes = [
-            "- **파일명**",
-            "- **사업명**",
-            "- **공고 번호**",
-            "- **공개 일자**",
-            "## 기본 정보",
-            "## 원본 문서 정보",
-            "### 페이지",
+            "파일명",
+            "사업명",
+            "공고 번호",
+            "공개 일자",
+            "기본 정보",
+            "원본 문서 정보",
+            "파일 정보",
+            "페이지",
             "□ 사업명",
             "○ 사업명",
             "가. 사업명",
             "나. 사업명",
         ]
         if any(stripped.startswith(prefix) for prefix in noise_prefixes):
+            return True
+        if re.match(r"^(파일명|파일 형식|사업 요약|사업 개요|추진배경|기대효과)\s*[:：]", stripped):
             return True
         lowered = stripped.lower()
         if lowered.startswith("source:") or "logical page" in lowered:
@@ -4055,6 +4099,22 @@ class RAGChatbotV17:
             tail = max_len - head - 5
             return f"{line[:head]} ... {line[-tail:]}"
 
+        precision_query = self._is_precision_fact_query(query)
+        metadata_summary_markers = [
+            "파일명",
+            "파일 형식",
+            "사업 요약",
+            "사업 개요",
+            "기본 정보",
+            "원본 문서 정보",
+            "공고 번호",
+            "공개 일자",
+            "입찰 시작일",
+            "입찰 마감일",
+            "추진배경",
+            "기대효과",
+        ]
+
         candidates: list[tuple[float, str, str]] = []
         fallback_lines: list[tuple[str, str]] = []
         scan_limit = 30 if (wants_text_value or wants_requirement) else 18
@@ -4085,6 +4145,7 @@ class RAGChatbotV17:
                 has_budget_value = bool(budget_value_pattern.search(line))
                 line_lower = unicodedata.normalize("NFKC", line.lower())
                 has_cpu_marker = any(marker in line_lower for marker in ["cpu", "xeon", "intel", "ghz", "core"])
+                is_metadata_summary = any(marker in line for marker in metadata_summary_markers)
                 has_dimension_marker = any(marker in line_lower for marker in ["최소규격", "최대규격", "가로", "세로", "치수", "도면", "mm"])
                 has_dimension_value = bool(
                     re.search(r"\d{1,2},?\d{3}\s*/\s*\d{1,2},?\d{3}\s*/\s*\d{1,2},?\d{3}", line)
@@ -4101,6 +4162,9 @@ class RAGChatbotV17:
                     if code_key and code_key in line_key:
                         has_req_code = True
                         break
+                if precision_query and is_metadata_summary and not (wants_budget and has_budget_value):
+                    # 정밀 사실 질의에서 파일/사업 개요 메타 라인 오탐을 방지한다.
+                    continue
                 if wants_budget:
                     # 사업비 질의는 금액/예산 라인을 강하게 우선하고 시간값(예: 60분) 과매칭을 배제한다.
                     if not (has_budget_marker or has_budget_value):
@@ -4124,8 +4188,15 @@ class RAGChatbotV17:
                     continue
                 if wants_charset and not charset_pattern.search(line):
                     continue
-                if wants_cpu_spec and not has_cpu_marker and score < 2:
-                    continue
+                if wants_cpu_spec:
+                    if not has_cpu_marker:
+                        continue
+                    if not (
+                        has_number
+                        or re.search(r"\d+\s*[x×]\s*\d+", line, re.IGNORECASE)
+                        or re.search(r"\d+\s*core", line, re.IGNORECASE)
+                    ):
+                        continue
                 if wants_dimension and not (has_dimension_marker or has_dimension_value) and score < 2:
                     continue
                 if wants_capacity:
@@ -4217,9 +4288,6 @@ class RAGChatbotV17:
             candidates.sort(key=lambda x: (x[0], len(x[1])), reverse=True)
             ranked = [(line, src) for _, line, src in candidates]
         else:
-            if self._is_precision_fact_query(query) and not (wants_guide or wants_key_personnel):
-                # 정밀 사실 질의는 저신뢰 fallback 라인으로 임의 답변하지 않는다.
-                return None
             seen_pair: set[tuple[str, str]] = set()
             ranked = []
             for line, src in fallback_lines:
@@ -4759,7 +4827,7 @@ class RAGChatbotV17:
             list_markers = ["제출", "서류", "증빙", "증명", "준수", "절차", "제재", "위약", "하도급", "공동도급", "사본", "비밀정보"]
             list_lines: list[str] = []
             seen_list: set[str] = set()
-            for line, _src in ranked:
+            for line, _src in [*ranked, *fallback_lines, *_ensure_source_wide_lines(max_sources=3, max_lines_per_source=2200)]:
                 if not any(marker in line for marker in list_markers):
                     continue
                 if line in seen_list:
@@ -4768,6 +4836,21 @@ class RAGChatbotV17:
                 list_lines.append(line)
                 if len(list_lines) >= 4:
                     break
+            submission_lines = [
+                line
+                for line in list_lines
+                if any(marker in line for marker in ["완료보고서", "검사조서", "납품"])
+            ]
+            if submission_lines:
+                has_completion = any("완료보고서" in line for line in submission_lines)
+                has_inspection = any("검사조서" in line for line in submission_lines)
+                has_delivery = any("납품" in line for line in submission_lines)
+                if has_completion and (has_inspection or has_delivery):
+                    return (
+                        "문서 기준 제출서류는 `완료보고서, 납품 및 검사조서`입니다.",
+                        submission_lines[:3],
+                        best_source,
+                    )
             if len(list_lines) >= 2:
                 answer = f"문서 기준 주요 제출서류/준수사항은 다음 {len(list_lines)}개 항목입니다."
                 return (answer, list_lines, best_source)
@@ -4984,6 +5067,28 @@ class RAGChatbotV17:
             )
             if not capacity_line:
                 capacity_line = next((line for line, _src in ranked if re.search(r"\d+\s*(MB|GB|KB)", line, re.IGNORECASE)), "")
+            if not capacity_line:
+                capacity_line = next(
+                    (
+                        line
+                        for line, _src in _ensure_source_wide_lines(max_sources=3, max_lines_per_source=2400)
+                        if re.search(r"\d+\s*(MB|GB|KB)", line, re.IGNORECASE)
+                        and (
+                            any(token in line.lower() for token in focus_tokens)
+                            or any(marker in line for marker in ["용량", "페이지"])
+                        )
+                    ),
+                    "",
+                )
+            if not capacity_line:
+                capacity_line = next(
+                    (
+                        line
+                        for line, _src in _ensure_source_wide_lines(max_sources=3, max_lines_per_source=2400)
+                        if re.search(r"\d+\s*(MB|GB|KB)", line, re.IGNORECASE)
+                    ),
+                    "",
+                )
             if capacity_line:
                 match = re.search(r"\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(MB|GB|KB)", capacity_line, re.IGNORECASE)
                 value = match.group(0).replace(" ", "") if match else ""
@@ -4996,11 +5101,16 @@ class RAGChatbotV17:
             return None
 
         if wants_unit_quantity:
+            quantity_lines = [
+                *[(line, src) for line, src in ranked],
+                *[(line, src) for line, src in fallback_lines],
+                *[(line, src) for line, src in _ensure_source_wide_lines(max_sources=3, max_lines_per_source=2600)],
+            ]
             if "직무교육" in normalized_query:
                 job_line = next(
                     (
                         line
-                        for line, _src in ranked
+                        for line, _src in quantity_lines
                         if "직무교육" in line and re.search(r"\d{1,3}(?:,\d{3})*\s*명", line)
                     ),
                     "",
@@ -5021,14 +5131,14 @@ class RAGChatbotV17:
             table_line = next(
                 (
                     line
-                    for line, _src in ranked
+                    for line, _src in quantity_lines
                     if line.count("|") >= 2 and pair_pattern.search(line)
                     and (not focus_tokens or any(token in line.lower() for token in focus_tokens))
                 ),
                 "",
             )
             if not table_line:
-                table_line = next((line for line, _src in ranked if pair_pattern.search(line)), "")
+                table_line = next((line for line, _src in quantity_lines if pair_pattern.search(line)), "")
             if table_line:
                 pair = pair_pattern.search(table_line)
                 value = f"{pair.group(1)}{pair.group(2)}" if pair else ""
@@ -5050,6 +5160,16 @@ class RAGChatbotV17:
                 ),
                 "",
             )
+            if not freq_line:
+                freq_line = next(
+                    (
+                        line
+                        for line, _src in _ensure_source_wide_lines(max_sources=3, max_lines_per_source=2600)
+                        if any(marker in line for marker in ["정보보안교육", "보안교육", "교육"])
+                        and re.search(r"(월|주|일)\s*\d+\s*회|\d+\s*회", line)
+                    ),
+                    "",
+                )
             if freq_line:
                 freq_match = re.search(r"(월|주|일)\s*\d+\s*회|\d+\s*회", freq_line)
                 value = re.sub(r"\s+", "", freq_match.group(0)) if freq_match else ""
@@ -5307,6 +5427,10 @@ class RAGChatbotV17:
                 evidence = numeric_evidence[:3]
             return (answer, evidence, best_source)
 
+        if precision_query:
+            # 정밀 사실 질의는 모호한 메타/파일명 답변으로 종료하지 않는다.
+            return None
+
         return (f"문서의 직접 근거 문구는 `{best_line}`입니다.", evidence, best_source)
 
     @staticmethod
@@ -5322,6 +5446,10 @@ class RAGChatbotV17:
             "단정할 수 없",
             "직접 명시한 조항을 찾지 못",
             "명시적 언급이 없",
+            "본문 미제공",
+            "첨부된 hwp",
+            "파일 본문 텍스트가 전달되지",
+            "원문(또는 해당 조항 텍스트)을 붙여",
         ]
         return any(sig in lowered for sig in signals)
 
@@ -6267,8 +6395,10 @@ class RAGChatbotV17:
     def _is_comparison_query(query: str) -> bool:
         """다문서 비교형 질의 여부를 판별합니다."""
         q = unicodedata.normalize("NFKC", query.lower())
-        strong_markers = ["비교", "차이", "공통", "모두 고려", "동시에", "두 문서", "서로 다른", "어떻게 다른", "a 문서", "b 문서"]
-        if any(marker in q for marker in strong_markers):
+        # "비교과시스템"처럼 단어 내부의 "비교"는 비교 질의로 보지 않는다.
+        has_compare_token = bool(re.search(r"비교(?!과)", q))
+        strong_markers = ["차이", "공통", "모두 고려", "동시에", "두 문서", "서로 다른", "어떻게 다른", "a 문서", "b 문서"]
+        if has_compare_token or any(marker in q for marker in strong_markers):
             return True
         if "각각" in q and any(marker in q for marker in ["각 문서", "기관별", "두 문서", "a 문서", "b 문서"]):
             return True
