@@ -526,10 +526,28 @@ function cleanAnswerForDisplay(text) {{
   if (!raw.trim()) return raw;
 
   const lines = [];
+  let inStructuredSection = false;
   for (const original of raw.split('\\n')) {{
-    let line = original
+    const trimmed = (original || '').trim();
+    if (!trimmed) continue;
+
+    const headingMatch = trimmed.match(
+      /^(?:#{1,6}\\s*)?\\[?\\s*(핵심 답변|근거 요약|출처)\\s*\\]?\\s*:?\\s*(.*)$/i
+    );
+    if (headingMatch) {{
+      const heading = headingMatch[1];
+      const trailing = (headingMatch[2] || '').trim();
+      lines.push(heading);
+      inStructuredSection = true;
+      if (trailing) {{
+        lines.push(`- ${{trailing}}`);
+      }}
+      continue;
+    }}
+
+    const hadBullet = /^\\s*[-*•]\\s+/.test(original || '');
+    let line = trimmed
       .replace(/^\\s*[-*•]\\s*/, '')
-      .replace(/^#+\\s*/, '')
       .replace(/\\s+/g, ' ')
       .trim();
 
@@ -554,13 +572,19 @@ function cleanAnswerForDisplay(text) {{
       line = `${{line.slice(0, 120)}} ...`;
     }}
 
+    if (hadBullet || inStructuredSection) {{
+      line = `- ${{line}}`;
+    }}
+
     lines.push(line);
   }}
 
   const deduped = [];
   const seen = new Set();
   for (const line of lines) {{
-    const key = line.toLowerCase();
+    const key = line
+      .replace(/^\\s*[-*•]\\s*/, '')
+      .toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(line);
