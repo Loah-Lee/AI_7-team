@@ -3432,8 +3432,24 @@ class RAGChatbotV17:
                         slot_fill_rate=slot_fill_rate,
                         confidence=confidence,
                         evidence_spans=evidence_spans,
-                    ))
+                ))
                 extractive_draft = extractive_answer
+
+        # 추출 초안이 확보되면 LLM 재생성을 건너뛰고 그대로 정리해서 반환한다.
+        # (생성 모델은 "보기 좋게 정리" 용도로만 제한)
+        if extractive_draft:
+            self.conversation.add_exchange(query, extractive_draft, intent)
+            slot_fill_rate = self._estimate_slot_fill_rate(question_plan, extractive_draft, evidence_spans)
+            confidence = self._estimate_confidence(slot_fill_rate, evidence_spans, answer_mode="extractive")
+            return _attach_retrieved_docs(self._build_answer_payload(
+                answer=extractive_draft,
+                found=True,
+                source_type=source_type,
+                answer_mode="extractive",
+                slot_fill_rate=slot_fill_rate,
+                confidence=confidence,
+                evidence_spans=evidence_spans,
+            ))
 
         if not self.llm:
             # LLM이 없으면 규칙 기반 응답 후 요약 fallback
