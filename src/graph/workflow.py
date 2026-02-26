@@ -5607,6 +5607,10 @@ class RAGChatbotV17:
             org_name is None
             and (self._is_comparison_query(query) or len(resolved_targets) >= 2)
         )
+        single_doc_focus = self._is_single_doc_focus_query(
+            query,
+            target_org_count=len(resolved_targets),
+        )
         if self._is_accuracy_mode_enabled() and (precision_fact_query or comparison_like):
             pass_limit = max(pass_limit, 2)
         pass_limit = min(pass_limit, 3)
@@ -5623,7 +5627,7 @@ class RAGChatbotV17:
                     request_k = max(request_k, int(request_k * (1 + (0.35 * pass_idx))))
 
                 call_types = list(primary_types)
-                if pass_idx > 0 and not doc_types and precision_fact_query:
+                if pass_idx > 0 and not doc_types and precision_fact_query and not single_doc_focus:
                     call_types = ["pdf", "hwp", "csv"]
 
                 step_started = time.perf_counter()
@@ -5702,18 +5706,22 @@ class RAGChatbotV17:
             else:
                 fallback_boost = 1.2
             fallback_k = max(top_k, int(top_k * max(multiplier, fallback_boost)))
+            fallback_types = ["pdf", "hwp", "csv"]
+            if single_doc_focus:
+                fallback_types = ["pdf", "hwp"]
+                fallback_k = min(fallback_k, max(top_k + 10, 24))
             fallback_results = self._run_retrieval_call(
                 query,
                 request_k=fallback_k,
                 org_name=org_name,
-                types=["pdf", "hwp", "csv"],
+                types=fallback_types,
                 perf_stats=perf_stats,
             )
             merged = self._merge_results(merged, fallback_results, top_k=top_k * 2)
             if debug_timing:
                 elapsed = time.perf_counter() - fallback_started
                 print(
-                    f"[RETRIEVE] fallback pass types=['pdf', 'hwp', 'csv'] "
+                    f"[RETRIEVE] fallback pass types={fallback_types} "
                     f"k={fallback_k} elapsed={elapsed:.3f}s merged={len(merged)}"
                 )
 
@@ -5788,13 +5796,79 @@ class RAGChatbotV17:
         if not results:
             return []
 
+        query_profile = self._build_query_rerank_profile(query, org_name=org_name)
         scored: list[tuple[float, int, dict[str, Any]]] = []
         for idx, item in enumerate(results):
-            score = self._score_result(query, item, org_name=org_name, prefer_original=prefer_original)
+            score = self._score_result(
+                query,
+                item,
+                org_name=org_name,
+                prefer_original=prefer_original,
+                query_profile=query_profile,
+            )
             scored.append((score, idx, item))
 
         scored.sort(key=lambda x: (x[0], -x[1]), reverse=True)
         return [item for _, _, item in scored]
+
+    def _build_query_rerank_profile(
+        self,
+        query: str,
+        org_name: str | None,
+    ) -> dict[str, Any]:
+        """재랭킹에 사용할 질의 프로필(단일문서 여부/소스 힌트)을 구성합니다."""
+        resolved_orgs = self._resolve_query_target_orgs(
+            query,
+            explicit_orgs=[org_name] if org_name else [],
+            min_targets=1,
+        )
+        single_doc_focus = self._is_single_doc_focus_query(
+            query,
+            target_org_count=len(resolved_orgs),
+        )
+
+        source_hints: list[str] = []
+        seen_hints: set[str] = set()
+        for hint in self._extract_project_hints_from_query(query):
+            hint_key = self._normalize_text_for_match(hint)
+            if len(hint_key) < 4 or hint_key in seen_hints:
+                continue
+            seen_hints.add(hint_key)
+            source_hints.append(hint_key)
+
+            # 긴 프로젝트명은 핵심 토큰도 함께 사용해 source/title 매칭 민감도를 높인다.
+            for token in re.findall(r"[0-9a-zA-Z가-힣]{3,}", unicodedata.normalize("NFKC", hint.lower())):
+                token_key = self._normalize_text_for_match(token)
+                if len(token_key) < 3 or token_key in seen_hints:
+                    continue
+                seen_hints.add(token_key)
+                source_hints.append(token_key)
+                if len(source_hints) >= 12:
+                    break
+            if len(source_hints) >= 12:
+                break
+
+        org_hint_keys: list[str] = []
+        seen_org_keys: set[str] = set()
+        for candidate in resolved_orgs[:3]:
+            normalized = self._normalize_legal_name_tokens(candidate)
+            relaxed = re.sub(
+                r"^(사단법인|재단법인|주식회사|\(주\)|\(사\)|\(재\)|유한회사|합자회사|\s)+",
+                "",
+                normalized,
+            ).strip()
+            for token in (normalized, relaxed):
+                key = self._normalize_text_for_match(token)
+                if len(key) < 3 or key in seen_org_keys:
+                    continue
+                seen_org_keys.add(key)
+                org_hint_keys.append(key)
+
+        return {
+            "single_doc_focus": single_doc_focus,
+            "source_hints": source_hints,
+            "org_hint_keys": org_hint_keys,
+        }
 
     def _score_result(
         self,
@@ -5802,19 +5876,33 @@ class RAGChatbotV17:
         item: dict[str, Any],
         org_name: str | None,
         prefer_original: bool,
+        query_profile: dict[str, Any] | None = None,
     ) -> float:
         md = item.get("metadata", {}) or {}
         text = str(item.get("text", "") or "")
         source = str(md.get("source", "") or "")
         doc_type = str(md.get("type", "") or "")
         org = str(md.get("org", "") or "")
+        project_title = str(
+            md.get("project_name")
+            or md.get("document_title")
+            or md.get("title")
+            or md.get("사업명")
+            or ""
+        )
 
         text_key = self._normalize_text_for_match(text)
         source_key = self._normalize_text_for_match(source)
         org_key = self._normalize_text_for_match(org)
+        title_key = self._normalize_text_for_match(project_title)
         org_query_key = self._normalize_text_for_match(org_name or "")
         query_key = self._normalize_text_for_match(query)
         keywords = self._extract_query_keywords(query)
+        profile = query_profile or {}
+        single_doc_focus = bool(profile.get("single_doc_focus"))
+        source_hints = [str(h) for h in (profile.get("source_hints") or []) if h]
+        org_hint_keys = [str(h) for h in (profile.get("org_hint_keys") or []) if h]
+        source_or_title_hit = False
 
         score = 0.0
         if prefer_original:
@@ -5829,6 +5917,23 @@ class RAGChatbotV17:
                 score += 1.4
             if keyword in source_key:
                 score += 0.8
+
+        for hint in source_hints:
+            if hint and hint in source_key:
+                score += 2.4 if single_doc_focus else 1.0
+                source_or_title_hit = True
+            if hint and hint in title_key:
+                score += 2.8 if single_doc_focus else 1.3
+                source_or_title_hit = True
+        for hint in org_hint_keys:
+            if hint and (hint in source_key or (org_key and hint in org_key)):
+                score += 1.4 if single_doc_focus else 0.6
+                source_or_title_hit = True
+        if single_doc_focus and source_hints:
+            if source_or_title_hit:
+                score += 1.0
+            elif len(source_hints) >= 2:
+                score -= 0.9
 
         q_norm = unicodedata.normalize("NFKC", query.lower())
         req_codes = re.findall(r"[a-z]{2,5}\s*[-_ ]?\s*\d{2,3}", q_norm, flags=re.IGNORECASE)
@@ -6125,6 +6230,32 @@ class RAGChatbotV17:
         if "각각" in q and any(marker in q for marker in ["각 문서", "기관별", "두 문서", "a 문서", "b 문서"]):
             return True
         return False
+
+    @staticmethod
+    def _is_single_doc_focus_query(query: str, target_org_count: int = 0) -> bool:
+        """단일 문서 중심 질의인지 판별합니다."""
+        q = unicodedata.normalize("NFKC", (query or "").lower())
+        if not q:
+            return False
+        if RAGChatbotV17._is_comparison_query(q):
+            return False
+        if target_org_count >= 2:
+            return False
+        multi_doc_markers = [
+            "사업들과",
+            "사업들",
+            "각 사업",
+            "각각",
+            "동시에",
+            "모두",
+            "목록",
+            "식별",
+            "종합",
+            "추진하는 사업 중",
+        ]
+        if any(marker in q for marker in multi_doc_markers):
+            return False
+        return True
 
     @staticmethod
     def _is_implicit_follow_up_query(query: str) -> bool:
