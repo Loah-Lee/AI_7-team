@@ -255,6 +255,60 @@ def calculate_recall_at_k_summary(
     return sum(1 for r in query_recalls if r > 0) / len(query_recalls)
 
 
+def _normalize_chunk_label(value: str | int | None) -> str:
+    """청크 식별자를 비교 가능한 문자열로 정규화한다."""
+    if value is None:
+        return ""
+    return unicodedata.normalize("NFKC", str(value)).strip().lower()
+
+
+def calculate_recall_at_k_chunk(
+    retrieved_docs: list[dict],
+    ground_truth_chunks: str | int | list[str] | list[int] | tuple[str | int, ...] | set[str | int],
+    k: int = 5,
+) -> float | None:
+    """Recall@K (chunk) — top-K 내 정답 청크 커버리지.
+
+    반환값:
+    - GT chunk 라벨이 없으면 None
+    - 있으면 [0,1] 범위 비율 (matched / total_gt_chunks)
+    """
+    if isinstance(ground_truth_chunks, (str, int)):
+        values = [ground_truth_chunks]
+    else:
+        values = list(ground_truth_chunks or [])
+
+    gt_chunks = [_normalize_chunk_label(v) for v in values if _normalize_chunk_label(v)]
+    if not gt_chunks:
+        return None
+
+    top_k_docs = retrieved_docs[:k]
+    retrieved_chunk_keys: set[str] = set()
+    for doc in top_k_docs:
+        if not isinstance(doc, dict):
+            continue
+        for key in ("chunk_id", "chunk_index"):
+            normalized = _normalize_chunk_label(doc.get(key))
+            if normalized:
+                retrieved_chunk_keys.add(normalized)
+
+    if not retrieved_chunk_keys:
+        return 0.0
+
+    matched = sum(1 for gt in gt_chunks if gt in retrieved_chunk_keys)
+    return matched / len(gt_chunks)
+
+
+def calculate_recall_at_k_chunk_summary(
+    query_chunk_recalls: list[float | None],
+) -> float | None:
+    """Recall@K (chunk) 평균. 청크 라벨이 있는 질의만 평균한다."""
+    valid = [r for r in query_chunk_recalls if r is not None]
+    if not valid:
+        return None
+    return sum(valid) / len(valid)
+
+
 def calculate_mrr(
     hit_positions: list[int | None],
 ) -> float:
