@@ -17,6 +17,7 @@
 6. 실험 6: chunk recall 개선(측정 정합 + 개선 시도 분리)
 7. 실험 7: #017 목적형 개선(표/이미지 수치 추출)
 8. 실험 8: evidence-bounded generation 확정
+9. 실험 9: 최종 운영 스냅샷(Full20, polish_all)
 
 ---
 
@@ -161,4 +162,58 @@
 | Context Relevance | 4.70 | 4.80 | +2.13% |
 | 매크로(C/AC/F/CR) | 4.1375 | 4.2250 | +2.11% |
 
-마무리: "측정 정합 -> 레이턴시 구조 개선 -> 데이터 영향 분리 -> chunk recall 관리 -> 목적형 개선 -> 생성 신뢰성 고정 순으로 체계를 완성."
+전환: "안정화된 정책 위에서 최종 운영 스냅샷을 고정."
+
+---
+
+## 9) 실험 9: 최종 운영 스냅샷(Full20, polish_all)
+핵심: "최종 리그레션 스냅샷에서 성능/신뢰성/검색 지표를 함께 고정."
+
+비교 기준: `full20_evidence_strict -> current_reval_full20_polish_all`
+
+| 지표 | A (full20_evidence_strict) | B (current_reval_full20_polish_all) | 변화율 |
+|---|---:|---:|---:|
+| Correctness | 3.95 | 4.15 | +5.06% |
+| Answer Coverage | 3.85 | 3.95 | +2.60% |
+| Faithfulness | 4.30 | 4.30 | +0.00% |
+| Context Relevance | 4.80 | 4.75 | -1.04% |
+| Recall@5 (source) | 1.00 | 1.00 | +0.00% |
+| Recall@5 (chunk) | 0.50 | 0.50 | +0.00% |
+| MRR (source) | 0.95 | 0.95 | +0.00% |
+| 매크로(C/AC/F/CR) | 4.2250 | 4.2875 | +1.48% |
+
+근거 파일:
+- `eval_resources/eval_results_current_full20_evidence_strict.json`
+- `eval_resources/eval_results_current_reval_full20_polish_all.json`
+
+---
+
+## 보강 근거 A: 멀티독(#019~#020) Source Hit 개선
+핵심: "복수 정답 source 질의에서 miss -> hit 전환을 별도 검증."
+
+| 문항 | A (p2_full20_recheck) | B (current_019_020_r1) | 변화 |
+|---|---:|---:|---:|
+| eval_019 hit_position | None | 2 | Miss -> Hit@2 |
+| eval_019 recall@k | 0.0 | 1.0 | +1.0p |
+| eval_020 hit_position | None | 2 | Miss -> Hit@2 |
+| eval_020 recall@k | 0.0 | 1.0 | +1.0p |
+
+근거 파일:
+- `eval_resources/eval_results_p2_full20_recheck.json`
+- `eval_resources/eval_results_current_019_020_r1.json`
+
+---
+
+## 보강 근거 B: Chunk Recall 미해결/부분해결 문항 근거
+핵심: "chunk 지표 상한의 원인을 수동 검증으로 분리."
+
+- `eval_014`: Unresolved (source 내부에서 기대 핵심 문구 미확인)
+- `eval_017`: Unresolved (표/이미지 수치 근거 chunk 본문 미확인)
+- `eval_019`: Partial (2개 source 중 1개 source 핵심문구 미확인)
+
+근거 파일:
+- `eval_resources/chunk_gt_manual_review.md`
+
+---
+
+마무리: "측정 정합 -> 레이턴시 구조 개선 -> 데이터 영향 분리 -> chunk recall 관리 -> 목적형 개선 -> 생성 신뢰성 고정 -> 최종 운영 스냅샷 확정 순으로 체계를 완성."
