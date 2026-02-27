@@ -1637,6 +1637,12 @@ class RAGChatbotV17:
             return None
         org_scope = self._resolve_csv_org_scope(query, intent, org_name)
 
+        # "사업개요/요약" 계열 질문은 CSV summary가 비면 RAG 본문 검색으로 넘긴다.
+        asks_summary_like = any(
+            token in normalized
+            for token in ["사업개요", "사업 개요", "사업요약", "사업 요약", "개요", "요약"]
+        )
+
         asks_budget_schedule_summary = (
             "요약" in normalized
             and any(token in normalized for token in ["예산", "사업비", "금액"])
@@ -1659,7 +1665,9 @@ class RAGChatbotV17:
                     amount_value = f"{amount_value} ({vat_note})"
                 start_value = self._format_csv_datetime_for_answer(row.get("start_date", ""), query)
                 end_value = self._format_csv_datetime_for_answer(row.get("end_date", ""), query)
-                summary_value = self._summarize_with_limit(row.get("summary", ""), 320) or "요약 정보 없음"
+                summary_value = self._summarize_with_limit(row.get("summary", ""), 320)
+                if not summary_value:
+                    return None
 
                 answer = (
                     f"{org_label} 문서 기준 요약입니다.\n\n"
@@ -1677,7 +1685,7 @@ class RAGChatbotV17:
                         "score": 1.0,
                     }
                 ]
-                if summary_value and summary_value != "요약 정보 없음":
+                if summary_value:
                     evidence.append(
                         {
                             "source": source,
@@ -1991,6 +1999,11 @@ class RAGChatbotV17:
         if not row:
             return None
 
+        if field == "summary" and asks_summary_like:
+            summary_value = self._summarize_with_limit(row.get("summary", ""), 260)
+            if not summary_value:
+                return None
+
         # "시작일과 마감일 각각" 같이 복수 필드를 묻는 경우 두 값을 한 번에 응답
         asks_start = any(token in normalized for token in ["시작", "개시", "참여 시작"])
         asks_end = any(token in normalized for token in ["마감", "종료", "기한"])
@@ -2135,8 +2148,30 @@ class RAGChatbotV17:
         if not row and not org_info:
             return None
 
+        normalized = unicodedata.normalize("NFKC", (query or "").lower()).strip()
+        asks_summary_content = any(
+            token in normalized
+            for token in [
+                "사업개요",
+                "사업 개요",
+                "사업요약",
+                "사업 요약",
+                "추진배경",
+                "추진 배경",
+                "사업목적",
+                "사업 목적",
+                "사업범위",
+                "사업 범위",
+                "기대효과",
+                "기대 효과",
+            ]
+        )
+
         project_name = str((row or {}).get("project_name", "")).strip() or str(getattr(org_info, "project_name", "") or "").strip()
         summary = str((row or {}).get("summary", "")).strip() or str(getattr(org_info, "summary", "") or "").strip()
+        if asks_summary_content and not summary:
+            # 기관 메타만으로는 개요를 만들 수 없으므로 본문 RAG 검색으로 이관한다.
+            return None
         open_date = str((row or {}).get("open_date", "")).strip()
         start_date = str((row or {}).get("start_date", "")).strip()
         end_date = str((row or {}).get("end_date", "")).strip()
