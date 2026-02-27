@@ -173,7 +173,23 @@
 ## 4) 실험 4: chunk recall 개선(측정/개선 분리 보고)
 핵심: "chunk recall은 별도 지표로 관리하고, 품질 트레이드오프를 함께 본다."
 
-### 5-1) 측정 정합(라벨 보정)
+실험 배경/가설:
+- 문제의식: 프롬프트 구성 과정에서 상위 청크 중심으로 컨텍스트가 압축되며, 뒤쪽 청크 정보가 답변에 반영되지 않을 수 있다고 가정.
+- 가설: "source hit는 맞는데 chunk hit가 낮은" 케이스는 retrieval 자체보다, 컨텍스트/근거 구성 단계의 예산 제한 영향이 크다.
+
+재점검(코드 + 결과 로그):
+- 코드 관찰:
+  - `src/graph/workflow.py`의 `_build_context`는 상위 결과만(`CONTEXT_TOP_RESULTS`, 기본 6) 사용하고 각 청크를 `CONTEXT_MAX_CHARS`(기본 700자)로 절단.
+  - `_build_evidence_spans(..., max_items=5)`와 `_extract_evidence_lines(..., max_lines=3)`로 근거 반영량을 추가 제한.
+- 결과 관찰:
+  - 최신 full20 기준 source recall은 `1.0`인데 chunk recall은 `0.5`로 격차 존재.
+  - per-query에서도 source `hit_position=1`이 많지만 chunk recall 0인 항목이 다수 관찰됨.
+
+재점검 결론:
+- 가설은 "부분적으로 타당". 즉, 뒤쪽 청크 절단/탈락 현상은 실제로 존재.
+- 다만 chunk recall만 밀어 올리는 재정렬은 품질 지표(C/AC/F) 하락을 유발할 수 있어, 운영 기본값으로는 보수적으로 적용해야 함.
+
+### 4-1) 측정 정합(라벨 보정)
 
 | 지표 | A (chunk_labeled_fix) | B (chunk_manual_gt) | 변화율 |
 |---|---:|---:|---:|
@@ -184,7 +200,11 @@
 | Context Relevance | 4.65 | 4.70 | +1.08% |
 | 매크로(C/AC/F/CR) | 4.1250 | 4.1875 | +1.52% |
 
-### 5-2) 개선 시도(subset 재정렬)
+해석:
+- 이 단계는 "성능 개선"보다 "측정 신뢰성 확보" 목적.
+- 라벨 정합화로 chunk recall의 해석 가능성이 확보되어, 이후 개선 실험의 유효성 판단 기준이 생김.
+
+### 4-2) 개선 시도(subset 재정렬)
 
 | 지표 | A (p1_dedupe_subset) | B (p4_clean_subset) | 변화율 |
 |---|---:|---:|---:|
@@ -193,6 +213,10 @@
 | Answer Coverage | 2.75 | 2.62 | -4.73% |
 | Faithfulness | 4.62 | 4.12 | -10.82% |
 | Context Relevance | 4.75 | 4.75 | +0.00% |
+
+해석:
+- chunk recall은 상승(+0.25p)했지만, C/AC/F는 동반 하락.
+- 결론적으로 "뒤쪽 청크 노출 확대"만으로는 정답 품질을 보장하지 못하며, 노이즈 제어(질문 초점-청크 정합)가 같이 필요.
 
 전환: "평균 점수 외에 목적형 단건 개선을 별도로 검증."
 

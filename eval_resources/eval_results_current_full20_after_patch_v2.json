@@ -1,0 +1,871 @@
+{
+  "summary": {
+    "num_queries": 20,
+    "num_evaluated": 20,
+    "top_k": 5,
+    "avg_correctness": 3.95,
+    "avg_answer_coverage": 3.85,
+    "avg_faithfulness": 4.05,
+    "avg_context_relevance": 4.7,
+    "recall_at_k_source": 1.0,
+    "recall_at_k_chunk": 0.5,
+    "num_chunk_labeled_queries": 14,
+    "mrr_source": 0.95
+  },
+  "per_query": [
+    {
+      "id": "eval_001",
+      "question": "강릉어선안전조업국 상황관제시스템 구축 사업의 총 사업 예산(부가가치세 포함)은 얼마입니까?",
+      "query_type": "csv_match",
+      "memo": "단순 금액 노출",
+      "expected_answer": "사업 금액은 210,000,000원(금 이억일천만원, VAT 포함)입니다.",
+      "generated_answer": "수협중앙회 사업비은(는) `약 2.1억 원 (210,000,000원) (부가가치세 포함)`입니다.",
+      "correctness": {
+        "score": 5,
+        "reason": "응답이 기대 답변과 일치하며 총액(210,000,000원, VAT 포함)을 정확히 제시함."
+      },
+      "answer_coverage": {
+        "score": 5,
+        "reason": "총 사업비(210,000,000원, 부가세 포함)를 누락 없이 포함하고 있음."
+      },
+      "faithfulness": {
+        "score": 5,
+        "reason": "답변 내용이 제공된 context에 직접 근거하고 있으며 환각이 없음."
+      },
+      "context_relevance": {
+        "score": 5,
+        "reason": "검색된 context가 질문과 정확히 관련되어 필요한 정보를 충분히 제공하고 있음."
+      },
+      "hit_position": 1,
+      "recall_at_k": 1.0,
+      "recall_at_k_chunk": null,
+      "num_retrieved": 1,
+      "csv_short_circuit": true,
+      "source_type": "csv",
+      "ground_truth_sources": [
+        "data_list.csv"
+      ],
+      "retrieved_sources": [
+        "data_list.csv",
+        "수협중앙회_강릉어선안전조업국 상황관제시스템 구축.hwp"
+      ],
+      "latencies": {
+        "analyze_query": 0.0259,
+        "retrieve": 0.0,
+        "extract_evidence": 0.0,
+        "generate": 0.0
+      }
+    },
+    {
+      "id": "eval_002",
+      "question": "한국수자원공사에서 진행하는 사업은 총 몇 개이며, 각각의 사업명은 무엇입니까?",
+      "query_type": "csv_match",
+      "memo": "단일 기관 기준 다수 사업명 노출",
+      "expected_answer": "총 3개의 사업이 진행 중이며, 사업명은 다음과 같습니다. 1.수도사업장 통합 사고분석솔루션 시범구축 용역, 2.용인 첨단 시스템반도체 국가산단 용수공급사업 타당성조사 및 기본계획 수립 용역, 3.건설통합시스템(CMS) 고도화",
+      "generated_answer": "한국수자원공사에서 진행 중인 사업은 총 3개입니다.\n- 1. 건설통합시스템(CMS) 고도화\n- 2. 용인 첨단 시스템반도체 국가산단 용수공급사업 타당성조사 및 기본계획 수립 용역\n- 3. 수도사업장 통합 사고분석솔루션 시범구축 용역",
+      "correctness": {
+        "score": 5,
+        "reason": "제시된 세 개의 사업명이 기대 답변과 정확히 일치하므로 정확성이 높습니다."
+      },
+      "answer_coverage": {
+        "score": 5,
+        "reason": "기대 답변의 모든 핵심 사업명을 빠짐없이 포함하고 있어 답변 커버리지가 완전합니다."
+      },
+      "faithfulness": {
+        "score": 2,
+        "reason": "검색된 context에는 '사업 개수: 3'만 있어 구체적 사업명들은 context에서 확인되지 않아 환각 가능성이 있으므로 충실성이 낮습니다."
+      },
+      "context_relevance": {
+        "score": 3,
+        "reason": "검색된 context는 사업 수(3)를 제공해 질문과 부분적으로 관련되지만 사업명은 포함하지 않아 핵심 정보가 부족합니다."
+      },
+      "hit_position": 1,
+      "recall_at_k": 1.0,
+      "recall_at_k_chunk": null,
+      "num_retrieved": 1,
+      "csv_short_circuit": true,
+      "source_type": "csv",
+      "ground_truth_sources": [
+        "data_list.csv"
+      ],
+      "retrieved_sources": [
+        "data_list.csv",
+        "한국수자원공사_건설통합시스템(CMS) 고도화.hwp"
+      ],
+      "latencies": {
+        "analyze_query": 0.0111,
+        "retrieve": 0.0,
+        "extract_evidence": 0.0,
+        "generate": 0.0
+      }
+    },
+    {
+      "id": "eval_003",
+      "question": "2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선 사업의 입찰 참여 시작일과 마감 시간은 각각 언제입니까?",
+      "query_type": "csv_match",
+      "memo": "단일 사업 기준 날짜 정보 노출",
+      "expected_answer": "입찰 참여 시작일은 2024년 10월 14일 오전 10시이며, 마감일은 2024년 10월 16일 오후 2시입니다.",
+      "generated_answer": "한국연구재단 입찰 참여 시작일은 `2024-10-14 오전 10시`이고, 마감일은 `2024-10-16 오후 2시`입니다.",
+      "correctness": {
+        "score": 5,
+        "reason": "입찰 시작일과 마감일을 기대 답변과 정확히 일치하게 제시했습니다."
+      },
+      "answer_coverage": {
+        "score": 5,
+        "reason": "시작일(2024-10-14 오전 10시)과 마감일(2024-10-16 오후 2시)이라는 핵심 정보를 모두 포함하고 있습니다."
+      },
+      "faithfulness": {
+        "score": 5,
+        "reason": "답변의 모든 내용이 제공된 context(start_date, end_date)에 직접 근거하고 있습니다."
+      },
+      "context_relevance": {
+        "score": 5,
+        "reason": "검색된 context는 질문에 완벽히 관련된 입찰 시작 및 마감 시간을 포함하고 있습니다."
+      },
+      "hit_position": 1,
+      "recall_at_k": 1.0,
+      "recall_at_k_chunk": null,
+      "num_retrieved": 1,
+      "csv_short_circuit": true,
+      "source_type": "csv",
+      "ground_truth_sources": [
+        "data_list.csv"
+      ],
+      "retrieved_sources": [
+        "data_list.csv",
+        "한국연구재단_2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선.hwp"
+      ],
+      "latencies": {
+        "analyze_query": 0.0119,
+        "retrieve": 0.0,
+        "extract_evidence": 0.0,
+        "generate": 0.0
+      }
+    },
+    {
+      "id": "eval_004",
+      "question": "국가과학기술지식정보서비스(NTIS)에서 실시하는 통합정보시스템 고도화 용역의 예산, 입찰 일정 및 주요 사업 범위를 요약해 주세요.",
+      "query_type": "csv_match",
+      "memo": "단일 질의를 통한 CSV 내 다중 컬럼(금액, 날짜, 요약) 추출 및 내용 요약 능력 검증",
+      "expected_answer": "본 사업의 추정 사업비는 140,000,000원이며, 입찰 참여는 2024년 5월 30일부터 2024년 6월 11일까지 가능합니다. 사업의 주요 범위는 기관생명윤리 및 동물실험윤리 관리, 국가연구개발사업 연구비 사용기준 준수, 연구계획 관리, 전자결재서식 연동, 그리고 연구노트 관리 기능개선을 포함합니다.",
+      "generated_answer": "국가과학기술지식정보서비스 요약입니다.\n- 예산: `약 1.4억 원 (140,000,000원) (부가가치세 포함)`\n- 입찰 일정: `2024-05-30` ~ `2024-06-11`\n- 주요 사업 범위: - 사업 개요: 통합정보시스템 고도화 용역, 사업기간 5개월 이내, 추정가격 140,000,000원 이내, 협상에 의한 계약\n- 사업추진 방안: 기존 시스템과의 연계를 고려한 신규 시스템 설계, 자료 표준화 및 체계화, 사용자 편의성 고려한 UI/UX 시스템 구현, 기존 시스템 및 인프라 활용한 운영환경 구성",
+      "correctness": {
+        "score": 3,
+        "reason": "예산(140,000,000원)과 입찰일정(2024-05-30~2024-06-11)은 정확하지만 주요 사업 범위는 기대 답변의 구체적 항목(생명윤리·동물실험윤리 관리 등)을 누락하고 일반적 시스템 개선으로 대체되어 핵심 내용이 일부 불일치함."
+      },
+      "answer_coverage": {
+        "score": 2,
+        "reason": "예산과 일정은 포함되었으나 기대 답변의 핵심 사업 범위(기관생명윤리·동물실험윤리 관리, 연구비 사용기준 준수, 연구계획 관리, 전자결재서식 연동, 연구노트 기능개선 등)를 대부분 누락함."
+      },
+      "faithfulness": {
+        "score": 3,
+        "reason": "예산과 일정은 제공된 context에서 직접 확인되나 주요 범위 설명은 context에 없거나 추론된 내용이 포함되어 일부 환각 가능성이 있음."
+      },
+      "context_relevance": {
+        "score": 3,
+        "reason": "검색된 context는 예산과 입찰일정 등 질문의 일부에 정확히 관련되지만 사업의 상세 범위를 담고 있지는 않아 전체적으로는 부분적 관련성만 가짐."
+      },
+      "hit_position": 1,
+      "recall_at_k": 1.0,
+      "recall_at_k_chunk": null,
+      "num_retrieved": 1,
+      "csv_short_circuit": true,
+      "source_type": "csv",
+      "ground_truth_sources": [
+        "data_list.csv"
+      ],
+      "retrieved_sources": [
+        "data_list.csv",
+        "국가과학기술지식정보서비스_통합정보시스템 고도화 용역.hwp"
+      ],
+      "latencies": {
+        "analyze_query": 0.0117,
+        "retrieve": 0.0,
+        "extract_evidence": 0.0,
+        "generate": 0.0
+      }
+    },
+    {
+      "id": "eval_005",
+      "question": "사단법인 보험개발원 '실손보험 청구 전산화 시스템 구축 사업' RFP 기준으로 HCI-Type-1 서버의 최소 CPU 사양은 무엇입니까?",
+      "query_type": "single_doc",
+      "memo": "단일 문서 내 특정 요구사항(QUR)의 세부 사양(CPU) 추출, 정규화 소실 발생 유무 등 파악",
+      "expected_answer": "CPU는 2 x 2.90GHz Intel Xeon Gold5415+이며 8Core 이상이어야 합니다.",
+      "generated_answer": "HCI-Type-1 서버의 최소 CPU 사양은 2 x 2.90GHz Intel Xeon Gold5415+, 8Core 이상입니다.",
+      "correctness": {
+        "score": 5,
+        "reason": "답변이 기대 답변과 일치하며 CPU 모델과 클럭, 코어 수를 정확히 명시함."
+      },
+      "answer_coverage": {
+        "score": 5,
+        "reason": "CPU 모델(2 x 2.90GHz Intel Xeon Gold5415+)과 '8Core 이상' 요건을 모두 포함함."
+      },
+      "faithfulness": {
+        "score": 5,
+        "reason": "명시된 사양이 검색된 컨텍스트(납품확인서, 제품설명서)에 직접 기재되어 있어 컨텍스트 기반임."
+      },
+      "context_relevance": {
+        "score": 5,
+        "reason": "검색된 컨텍스트에 HCI-Type-1의 CPU 사양이 명확히 포함되어 있어 질문과 완전히 관련됨."
+      },
+      "hit_position": 1,
+      "recall_at_k": 1.0,
+      "recall_at_k_chunk": 0.0,
+      "num_retrieved": 40,
+      "csv_short_circuit": false,
+      "source_type": "hwp",
+      "ground_truth_sources": [
+        "사단법인 보험개발원_실손보험 청구 전산화 시스템 구축 사업.pdf"
+      ],
+      "retrieved_sources": [
+        "사단법인 보험개발원_실손보험 청구 전산화 시스템 구축 사업"
+      ],
+      "latencies": {
+        "analyze_query": 15.7703,
+        "retrieve": 0.0,
+        "extract_evidence": 0.0,
+        "generate": 9.1946
+      }
+    },
+    {
+      "id": "eval_006",
+      "question": "고려대학교 차세대 포털·학사 정보시스템 구축사업에서 개발에 사용된 이미지·글꼴 등 인프라의 저작권 비용은 누가 부담해야 합니까?",
+      "query_type": "single_doc",
+      "memo": "pdf 원본 문서의 텍스트 추출 검증",
+      "expected_answer": "저작권에 문제가 없어야 하며, 비용이 발생할 경우 주사업자가 부담해야 합니다.",
+      "generated_answer": "책임 주체는 사업자(제안사/주사업자)이며, 저작권에 문제가 없어야 하고 비용이 발생하면 주사업자가 부담합니다.",
+      "correctness": {
+        "score": 5,
+        "reason": "생성 답변이 기대 답변과 의미적으로 일치하며 '저작권 문제 없어야 함'과 '비용은 주사업자 부담'을 정확히 포함하고 있습니다."
+      },
+      "answer_coverage": {
+        "score": 5,
+        "reason": "기대 답변의 핵심 포인트인 저작권 무결성 요구와 비용 부담 주체(주사업자)를 모두 누락 없이 포함하고 있습니다."
+      },
+      "faithfulness": {
+        "score": 5,
+        "reason": "답변의 모든 내용이 제공된 검색된 context에서 직접 확인 가능하며 환각 요소가 없습니다."
+      },
+      "context_relevance": {
+        "score": 5,
+        "reason": "검색된 context가 질문과 직접 관련되어 답변에 필요한 정보를 충분히 제공하고 있습니다."
+      },
+      "hit_position": 1,
+      "recall_at_k": 1.0,
+      "recall_at_k_chunk": 1.0,
+      "num_retrieved": 40,
+      "csv_short_circuit": false,
+      "source_type": "hwp",
+      "ground_truth_sources": [
+        "고려대학교_차세대 포털·학사 정보시스템 구축사업.pdf"
+      ],
+      "retrieved_sources": [
+        "고려대학교_차세대 포털·학사 정보시스템 구축사업"
+      ],
+      "latencies": {
+        "analyze_query": 5.1875,
+        "retrieve": 0.0,
+        "extract_evidence": 0.0,
+        "generate": 5.0112
+      }
+    },
+    {
+      "id": "eval_007",
+      "question": "사업장 사회보험료 지원 고시 개정에 따른 정보시스템 보완 개발사업에서 사업기간은 얼마입니까?",
+      "query_type": "single_doc",
+      "memo": "단일 문서 내 사업기간 추출, 계약체결 기준 추가 명시, 180일 이내를 6개월로 정규화",
+      "expected_answer": "계약체결일로부터 180일 이내 (6개월)입니다.",
+      "generated_answer": "사업기간은 계약체결일부터 180일(6개월)입니다.",
+      "correctness": {
+        "score": 5,
+        "reason": "답변이 문서와 기대 답변에서 제시한 '계약체결일부터 180일(6개월)'과 정확히 일치합니다."
+      },
+      "answer_coverage": {
+        "score": 5,
+        "reason": "사업기간의 핵심 정보인 '계약체결일부터 180일(6개월)'을 누락 없이 포함하고 있습니다."
+      },
+      "faithfulness": {
+        "score": 5,
+        "reason": "답변은 제공된 문서의 명시적 문구인 '계약체결일부터 180일'에 근거하고 있어 환각이 없습니다."
+      },
+      "context_relevance": {
+        "score": 5,
+        "reason": "검색된 컨텍스트 문서가 동일 사업의 사업기간을 명확히 제시하고 있어 질문에 완벽히 관련됩니다."
+      },
+      "hit_position": 1,
+      "recall_at_k": 1.0,
+      "recall_at_k_chunk": 1.0,
+      "num_retrieved": 17,
+      "csv_short_circuit": false,
+      "source_type": "hwp",
+      "ground_truth_sources": [
+        "국민연금공단_사업장 사회보험료 지원 고시 개정에 따른 정보시스템 보.pdf"
+      ],
+      "retrieved_sources": [
+        "국민연금공단_사업장 사회보험료 지원 고시 개정에 따른 정보시스템 보"
+      ],
+      "latencies": {
+        "analyze_query": 0.008,
+        "retrieve": 0.9724,
+        "extract_evidence": 0.0194,
+        "generate": 3.2309
+      }
+    },
+    {
+      "id": "eval_008",
+      "question": "국민연금공단_2024년 이러닝시스템 운영 용역 세부산출내역서에 따르면 '직무교육'은 몇명에게 제공되는가?",
+      "query_type": "single_doc",
+      "memo": "표 내부 텍스트 유실 검증, 구체적 키워드로 질문 시 매칭되는 숫자 추출 검증",
+      "expected_answer": "11,000명에게 제공됩니다.",
+      "generated_answer": "국민연금공단 2024년 이러닝시스템 운영 용역 세부산출내역서에 따르면 '직무교육' 대상 인원은 11,000명입니다.",
+      "correctness": {
+        "score": 5,
+        "reason": "생성된 답변의 수치(11,000명)가 기대 답변과 일치하여 핵심 정보가 정확합니다."
+      },
+      "answer_coverage": {
+        "score": 5,
+        "reason": "질문이 요구한 핵심 정보인 '직무교육 대상 인원'을 정확히 제시하여 누락이 없습니다."
+      },
+      "faithfulness": {
+        "score": 2,
+        "reason": "제공된 검색된 컨텍스트 발췌에는 '직무교육'이 11,000명이라는 수치가 명시적으로 보이지 않아 답변 근거가 컨텍스트에서 직접 확인되지 않습니다."
+      },
+      "context_relevance": {
+        "score": 5,
+        "reason": "검색된 문서는 질문의 대상 문서(국민연금공단 이러닝시스템 운영 용역)로서 질문과 매우 관련성이 높습니다."
+      },
+      "hit_position": 1,
+      "recall_at_k": 1.0,
+      "recall_at_k_chunk": 0.0,
+      "num_retrieved": 22,
+      "csv_short_circuit": false,
+      "source_type": "hwp",
+      "ground_truth_sources": [
+        "국민연금공단_2024년 이러닝시스템 운영 용역.pdf"
+      ],
+      "retrieved_sources": [
+        "국민연금공단_2024년 이러닝시스템 운영 용역"
+      ],
+      "latencies": {
+        "analyze_query": 0.0078,
+        "retrieve": 1.7878,
+        "extract_evidence": 0.2771,
+        "generate": 5.5719
+      }
+    },
+    {
+      "id": "eval_009",
+      "question": "을지대학교 비교과시스템 개발 사업에서 계약상대자는 사업 완료 후 검사 승인을 받기 위해 어떤 서류를 을지대학교에 제출해야 합니까?",
+      "query_type": "single_doc",
+      "memo": "단일 문서 내 텍스트 검색 검증",
+      "expected_answer": "완료보고서, 납품 및 검사조서를 제출하여 감독관에게 검사 승인을 받아야 한다.",
+      "generated_answer": "을지대학교 주요 제출서류/준수사항은 다음 4개 항목입니다.\n4. 제출서류",
+      "correctness": {
+        "score": 1,
+        "reason": "생성된 답변은 제출해야 할 구체적 서류(완료보고서, 납품 및 검사조서)를 전혀 포함하지 않아 정확하지 않습니다."
+      },
+      "answer_coverage": {
+        "score": 1,
+        "reason": "기대 답변의 핵심 항목들이 누락되어 제출서류에 대한 커버리지가 거의 없습니다."
+      },
+      "faithfulness": {
+        "score": 1,
+        "reason": "답변 내용이 제공된 문서에서 확인 가능한 구체적 근거를 제시하지 못해 문서에 충실하지 않습니다."
+      },
+      "context_relevance": {
+        "score": 5,
+        "reason": "제공된 문서는 을지대학교 비교과시스템 개발 사업 제안서로 질문에 필요한 정보를 포함할 가능성이 높아 매우 관련성이 큽니다."
+      },
+      "hit_position": 1,
+      "recall_at_k": 1.0,
+      "recall_at_k_chunk": 0.0,
+      "num_retrieved": 5,
+      "csv_short_circuit": false,
+      "source_type": "hwp",
+      "ground_truth_sources": [
+        "을지대학교_을지대학교 비교과시스템 개발.pdf"
+      ],
+      "retrieved_sources": [
+        "을지대학교_을지대학교 비교과시스템 개발"
+      ],
+      "latencies": {
+        "analyze_query": 0.0076,
+        "retrieve": 0.1561,
+        "extract_evidence": 0.2404,
+        "generate": 10.8103
+      }
+    },
+    {
+      "id": "eval_010",
+      "question": "국가과학기술지식정보서비스 통합정보시스템 고도화 용역에서 기술능력 평가점수로 협상적격자를 선정할 때 기준은 무엇인가요?",
+      "query_type": "single_doc",
+      "memo": "단일 문서 내 텍스트 검색 검증",
+      "expected_answer": "기술능력 평가분야 배점한도의 85% 이상인 제안사를 협상적격자로 선정합니다.",
+      "generated_answer": "국가과학기술지식정보서비스 통합정보시스템 고도화 용역의 협상적격자는 기술능력 평가점수가 배점한도의 85% 이상인 자로 선정됩니다.",
+      "correctness": {
+        "score": 5,
+        "reason": "생성된 답변은 기대 답변과 의미적으로 동일하게 기술능력 평가점수가 배점한도의 85% 이상인 자를 협상적격자로 선정한다고 정확히 서술하고 있습니다."
+      },
+      "answer_coverage": {
+        "score": 5,
+        "reason": "핵심 기준인 '배점한도의 85% 이상'을 빠짐없이 포함하고 있습니다."
+      },
+      "faithfulness": {
+        "score": 2,
+        "reason": "제공된 검색 context에는 평가기준으로서의 '85%'가 명시되어 있지 않아 해당 수치가 context에서 직접 확인되지는 않습니다."
+      },
+      "context_relevance": {
+        "score": 4,
+        "reason": "문서들은 기술능력평가의 비중(90%)과 종합평가 방식을 담고 있어 관련성이 높으나 85% 기준 자체는 누락되어 있습니다."
+      },
+      "hit_position": 1,
+      "recall_at_k": 1.0,
+      "recall_at_k_chunk": 0.0,
+      "num_retrieved": 40,
+      "csv_short_circuit": false,
+      "source_type": "hwp",
+      "ground_truth_sources": [
+        "국가과학기술지식정보서비스_통합정보시스템 고도화 용역.pdf"
+      ],
+      "retrieved_sources": [
+        "국가과학기술지식정보서비스_통합정보시스템 고도화 용역"
+      ],
+      "latencies": {
+        "analyze_query": 13.4703,
+        "retrieve": 0.0,
+        "extract_evidence": 0.0,
+        "generate": 3.6853
+      }
+    },
+    {
+      "id": "eval_011",
+      "question": "BioIN_의료기기산업 종합정보시스템(정보관리기관) 기능개선 사업(2차)에서 웹페이지의 용량은 얼마 이내로 개발해야 하나요?",
+      "query_type": "single_doc",
+      "memo": "단일 문서, 표 내부의 요구사항 텍스트 추출 검증",
+      "expected_answer": "웹페이지의 용량은 3MB 이내로 개발해야 하며 단, 홍보 등 특성에 따라 3MB를 초과할 수 있습니다.",
+      "generated_answer": "웹페이지 용량은 3MB 이내로 개발해야 합니다.\n- PER-002: 페이지 용량 감축 등 최적화를 고려하여 구축해야 하며, 홍보 등 특성에 따라 3MB를 초과할 수 있음\n- 웹페이지별 용량과 HTTP 요청 횟수를 최소화하여 응답 속도 향상\n- 웹페이지의 응답(디스플레이) 시간은 사용자가 요청한 시점부터 3초 이내에 완전히 표시되도록 권장",
+      "correctness": {
+        "score": 4,
+        "reason": "핵심 문장인 '웹페이지 3MB 이내 및 홍보 등 특성으로 초과 가능'을 정확히 포함했으나 '3초 이내' 응답시간 권장은 문서에 명시되지 않아 사소한 부정확성이 있음."
+      },
+      "answer_coverage": {
+        "score": 5,
+        "reason": "기대 답변의 핵심인 '3MB 이내'와 예외사항인 '홍보 등으로 3MB 초과 가능'을 모두 포함하고 있음."
+      },
+      "faithfulness": {
+        "score": 4,
+        "reason": "대부분 내용은 제공된 문서(PER-002)에 근거하나 '3초 이내' 응답시간 권장은 문서에서 확인되지 않아 일부 환각이 포함됨."
+      },
+      "context_relevance": {
+        "score": 5,
+        "reason": "검색된 문서는 해당 사업의 성능요구사항(PER-002)을 직접 포함하고 있어 질문에 완벽히 관련됨."
+      },
+      "hit_position": 1,
+      "recall_at_k": 1.0,
+      "recall_at_k_chunk": 1.0,
+      "num_retrieved": 3,
+      "csv_short_circuit": false,
+      "source_type": "hwp",
+      "ground_truth_sources": [
+        "BioIN_의료기기산업 종합정보시스템(정보관리기관) 기능개선 사업(2차).pdf"
+      ],
+      "retrieved_sources": [
+        "BioIN_의료기기산업 종합정보시스템(정보관리기관) 기능개선 사업(2차)"
+      ],
+      "latencies": {
+        "analyze_query": 0.0071,
+        "retrieve": 0.5604,
+        "extract_evidence": 0.0081,
+        "generate": 13.4507
+      }
+    },
+    {
+      "id": "eval_012",
+      "question": "한국농수산식품유통공사 농산물가격안정기금 정부예산회계연계시스템에서 시스템 장애 발생 시 데이터 복구 기한은 무엇인가요?",
+      "query_type": "single_doc",
+      "memo": "단일 문서 내 텍스트 검색 검증, 조건 재약 및 숫자 추출",
+      "expected_answer": "시스템은 장애가 발생하면 12시간 이내에 데이터를 복구해야 합니다.",
+      "generated_answer": "농산물가격안정기금 정부예산회계연계시스템에서 장애 발생 시 데이터 복구 기한은 한국농수산식품유통공사의 복구기한인 12시간이내입니다.",
+      "correctness": {
+        "score": 5,
+        "reason": "답변은 기대 답변의 핵심인 '장애 발생 시 12시간 이내에 데이터 복구'를 정확히 제시하고 있습니다."
+      },
+      "answer_coverage": {
+        "score": 5,
+        "reason": "기대 답변의 유일한 핵심 포인트인 복구 기한(12시간 이내)을 빠짐없이 포함하고 있습니다."
+      },
+      "faithfulness": {
+        "score": 5,
+        "reason": "답변 내용은 제공된 컨텍스트 문서에 명확히 명시된 '시스템은 장애가 발생하면 12시간 이내에 데이터를 복구'라는 문구에 근거하고 있습니다."
+      },
+      "context_relevance": {
+        "score": 5,
+        "reason": "검색된 컨텍스트에 직접적으로 해당 복구 기한 조항이 포함되어 있어 질문과 완벽히 관련됩니다."
+      },
+      "hit_position": 1,
+      "recall_at_k": 1.0,
+      "recall_at_k_chunk": 1.0,
+      "num_retrieved": 40,
+      "csv_short_circuit": false,
+      "source_type": "hwp",
+      "ground_truth_sources": [
+        "한국농수산식품유통공사_농산물가격안정기금 정부예산회계연계시스템 .pdf"
+      ],
+      "retrieved_sources": [
+        "한국농수산식품유통공사_농산물가격안정기금 정부예산회계연계시스템"
+      ],
+      "latencies": {
+        "analyze_query": 13.5179,
+        "retrieve": 0.0,
+        "extract_evidence": 0.0,
+        "generate": 13.3582
+      }
+    },
+    {
+      "id": "eval_013",
+      "question": "수문자료정보관리시스템(HDIMS) 재구축사업(3단계)의 추진 목표는 무엇입니까?",
+      "query_type": "single_doc",
+      "memo": "단일 문서 내 추진목표 계층 구조 및 다항목 추출 검증",
+      "expected_answer": "수문자료정보관리시스템(HDIMS) 재구축사업(3단계)의 추진 목표는 다음과 같습니다.\n1) 데이터구조 재설계를 통해 표준화된 자료 생산·가공·유통 체계를 구축하고, 기술원 내 수문자료 분석 및 활용 기능을 강화한다.\n2) 1단계 전자야장시스템 신설 및 2단계 수문자료정보관리시스템 재구축에 따른 이용 불편 사항을 개선하고, 수자원조사 자료의 품질관리 기능을 고도화한다. \n   이를 위해 현장 조사 업무에 대한 일원화된 자료 연계를 통해 원시자료, DB, 분석 전반에 대한 체계적 품질관리와 사용자·관리자 기능을 강화한다.\n",
+      "generated_answer": "한국수자원조사기술원의 추진 목표는 고도화를 통한 자료의 정확도 향상과 데이터 구조 재설계를 통한 표준화된 자료 생산입니다.",
+      "correctness": {
+        "score": 3,
+        "reason": "응답은 '자료 정확도 향상'과 '데이터 구조 재설계 통한 표준화'를 정확히 제시했으나 수문자료 분석 기능 강화·품질관리 고도화·이용 불편 개선 등 핵심 목표를 누락했다."
+      },
+      "answer_coverage": {
+        "score": 2,
+        "reason": "핵심 목표 중 표준화와 정확도 향상만 언급되어 3단계의 이용 불편 개선, 수자원조사 품질관리 고도화 및 원시자료 연계 등 주요 항목들이 빠져 있다."
+      },
+      "faithfulness": {
+        "score": 5,
+        "reason": "응답 내용은 검색된 컨텍스트의 문구(고도화로 자료의 정확도 향상, 데이터구조재설계를 통한 표준화된 자료 생산)를 직접 반영하고 있어 컨텍스트에 충실하다."
+      },
+      "context_relevance": {
+        "score": 5,
+        "reason": "검색된 컨텍스트는 3단계 사업의 목표와 직접 관련된 문구를 포함하고 있어 질문에 매우 관련성이 높다."
+      },
+      "hit_position": 1,
+      "recall_at_k": 1.0,
+      "recall_at_k_chunk": 1.0,
+      "num_retrieved": 40,
+      "csv_short_circuit": false,
+      "source_type": "hwp",
+      "ground_truth_sources": [
+        "한국수자원조사기술원_수문자료정보관리시스템(HDIMS) 재구축 용역(3단계.pdf"
+      ],
+      "retrieved_sources": [
+        "한국수자원조사기술원_수문자료정보관리시스템(HDIMS) 재구축 용역(3단계"
+      ],
+      "latencies": {
+        "analyze_query": 4.9407,
+        "retrieve": 0.0,
+        "extract_evidence": 0.0,
+        "generate": 4.7586
+      }
+    },
+    {
+      "id": "eval_014",
+      "question": "한국수출입은행의 모잠비크 마푸토 지능형교통시스템(ITS) 구축사업 RFP 텍스트에 따르면 경제적 타당성 분석 시 참고해야 할 가이드는 무엇인가?",
+      "query_type": "single_doc",
+      "memo": "영어 텍스트 추출 검증",
+      "expected_answer": "Guidelines for the Economic Analysis of Projects(ADB) 및 Guide to Cost-Benefit Analysis of Investment Project(European Commission).",
+      "generated_answer": "경제적 타당성 분석 시 (EDCF Feasibility Study Guideline)을 참고하세요.\n- (EDCF Feasibility Study Guideline)\n- 한국수출입은행 참고 가이드\n- 경제적 타당성 분석",
+      "correctness": {
+        "score": 2,
+        "reason": "생성 답변은 EDCF 가이드라인만 언급하고 기대 답변의 두 가지 권고(ADB 및 유럽위원회 가이드)를 누락하여 핵심 정보와 불일치함."
+      },
+      "answer_coverage": {
+        "score": 1,
+        "reason": "기대 답변에 제시된 두 가지 가이드(ADB 및 유럽위원회)가 모두 누락되어 핵심 포인트 대부분이 빠져 있음."
+      },
+      "faithfulness": {
+        "score": 5,
+        "reason": "답변에 언급된 EDCF Feasibility Study Guideline은 제공된 검색 컨텍스트에 실제로 포함되어 있어 내용이 컨텍스트에 근거함."
+      },
+      "context_relevance": {
+        "score": 4,
+        "reason": "검색된 컨텍스트(EDCF Feasibility Study Guideline)는 질문과 관련 있으나 기대 답변에서 요구한 ADB 및 유럽위원회 가이드는 포함하고 있지 않아 완전한 관련성은 아님."
+      },
+      "hit_position": 1,
+      "recall_at_k": 1.0,
+      "recall_at_k_chunk": null,
+      "num_retrieved": 40,
+      "csv_short_circuit": false,
+      "source_type": "hwp",
+      "ground_truth_sources": [
+        "한국수출입은행_(긴급) 모잠비크 마푸토 지능형교통시스템(ITS) 구축사업.pdf"
+      ],
+      "retrieved_sources": [
+        "한국수출입은행_(긴급) 모잠비크 마푸토 지능형교통시스템(ITS) 구축사업"
+      ],
+      "latencies": {
+        "analyze_query": 22.83,
+        "retrieve": 0.0,
+        "extract_evidence": 0.0,
+        "generate": 12.4875
+      }
+    },
+    {
+      "id": "eval_015",
+      "question": "남서울대학교 스마트 정보시스템 활성화(학사) 사업 수행 시 참여인원에 대한 정보보안교육은 얼마나 자주 실시해야 합니까?",
+      "query_type": "single_doc",
+      "memo": "표 내부에 유사 오답이 존재함, 단순 텍스트 변환으로 계층구조 없을 시 착각할 수 있음",
+      "expected_answer": "참여인원에 대해 월 1회 정보보안교육을 수행하고, 교육결과는 발주기관의 확인을 받아야 합니다.",
+      "generated_answer": "참여인원에 대한 정보보안교육은 월 1회 실시해야 합니다.",
+      "correctness": {
+        "score": 4,
+        "reason": "월 1회 교육이라는 핵심 정보는 정확하지만 교육결과를 발주기관이 확인해야 한다는 요구사항을 누락했습니다."
+      },
+      "answer_coverage": {
+        "score": 4,
+        "reason": "교육의 빈도는 포함했으나 교육결과에 대한 발주기관 확인 의무가 빠져 있어 일부 핵심 포인트가 누락되었습니다."
+      },
+      "faithfulness": {
+        "score": 4,
+        "reason": "월 1회 교육이라는 내용은 검색된 문서에서 확인되나 교육결과 확인 의무를 언급하지 않아 문서 근거를 완전히 반영하지 않았습니다."
+      },
+      "context_relevance": {
+        "score": 5,
+        "reason": "검색된 문서는 참여인원 보안책임자 지정, 보안서약서 제출, 월 1회 보안교육 및 교육결과 관련 지침을 직접 다루고 있어 매우 관련성이 높습니다."
+      },
+      "hit_position": 1,
+      "recall_at_k": 1.0,
+      "recall_at_k_chunk": 1.0,
+      "num_retrieved": 40,
+      "csv_short_circuit": false,
+      "source_type": "hwp",
+      "ground_truth_sources": [
+        "남서울대학교_[혁신-국고] 남서울대학교 스마트 정보시스템 활성화(학사.pdf"
+      ],
+      "retrieved_sources": [
+        "남서울대학교_[혁신-국고] 남서울대학교 스마트 정보시스템 활성화(학사"
+      ],
+      "latencies": {
+        "analyze_query": 9.9291,
+        "retrieve": 0.0,
+        "extract_evidence": 0.0,
+        "generate": 9.8008
+      }
+    },
+    {
+      "id": "eval_016",
+      "question": "세종테크노파크 인사정보 전산시스템 구축 사업에서 관련 소프트웨어 현황 및 개선사항을 정리해줘",
+      "query_type": "single_doc",
+      "memo": "계층 구조 및 내용이 긴 텍스트 추출, 문서 내 거리는 가까우나 비공개 내용(할루시네이션 검증), 계층 구조 유지 여부 함께 추출",
+      "expected_answer": "세종테크노파크 인사정보 전산시스템 구축 사업의 관련 소프트웨어 현황 및 개선사항은 다음과 같다.\n\n1. 정보시스템 현황\n가. 시스템 및 네트워크 구성 현황\n- 행정기관 및 공공기관 정보시스템 구축·운영 지침(행정안전부 고시 제2019-69호) 제17조에 따라 상세 전산자원 구성은 보안상 비공개이다.\n- 입찰참가 업체가 필요할 경우 발주기관을 방문하여 보안각서를 제출한 후 열람 가능하다.\n\n나. 관련 소프트웨어(S/W) 현황\n- 기존 인사정보 전산시스템에서 사용 중인 주요 소프트웨어 구성과 운영 환경을 기준으로 현황을 제시하고 있다.\n- 인사관리, 급여관리, 근태관리 등 인사행정 관련 기능을 지원하는 시스템 구조로 구성되어 있다.\n- 운영 중인 소프트웨어의 버전, 유지관리 상태 및 시스템 연계 현황이 포함된다.\n\n2. 문제점 및 개선방안\n- 기존 시스템의 기능 분산 및 관리 비효율 문제를 개선할 필요가 있다.\n- 데이터 연계 및 통합 관리 체계 고도화가 요구된다.\n- 사용자 편의성 및 업무 효율성 향상을 위한 시스템 개선이 필요하다.\n- 보안 및 접근통제 체계를 강화하고 안정적인 운영 환경을 구축해야 한다.\n",
+      "generated_answer": "세종테크노파크 문서에서 관련 조항을 확인했으며, '인사정보시스템구축방안도출' 항목이 기재되어 있습니다.\n- 인사정보시스템구축방안도출\n- 확인 문서: 세종테크노파크 문서",
+      "correctness": {
+        "score": 1,
+        "reason": "생성된 답변은 기대 답변의 핵심 내용을 제시하지 않고 단순히 항목의 존재만 언급하여 실제 요구사항을 충족하지 못함."
+      },
+      "answer_coverage": {
+        "score": 1,
+        "reason": "정보시스템 현황의 세부 항목과 관련 소프트웨어 현황, 문제점 및 개선방안 등 주요 포인트가 거의 모두 누락되어 있음."
+      },
+      "faithfulness": {
+        "score": 5,
+        "reason": "응답은 제공된 컨텍스트에 명시된 '인사정보시스템구축방안도출' 항목을 그대로 언급하여 컨텍스트 기반임이 확인됨."
+      },
+      "context_relevance": {
+        "score": 5,
+        "reason": "검색된 컨텍스트는 인사정보시스템 구축 관련 표준화·프로세스 정의·데이터 접근권한 등 질문에 직접 관련된 내용을 포함함."
+      },
+      "hit_position": 1,
+      "recall_at_k": 1.0,
+      "recall_at_k_chunk": 0.0,
+      "num_retrieved": 1,
+      "csv_short_circuit": false,
+      "source_type": "hwp",
+      "ground_truth_sources": [
+        "세종테크노파크_세종테크노파크 인사정보 전산시스템 구축 용역 입찰공.pdf"
+      ],
+      "retrieved_sources": [
+        "세종테크노파크_세종테크노파크 인사정보 전산시스템 구축 용역 입찰공"
+      ],
+      "latencies": {
+        "analyze_query": 7.8123,
+        "retrieve": 0.2588,
+        "extract_evidence": 0.0057,
+        "generate": 122.2963
+      }
+    },
+    {
+      "id": "eval_017",
+      "question": "우즈베키스탄 열린 의정활동 상하원 사업의 '지역의회 회의실' 도면 예시에서  최소규격과 최대규격의 가로(가운데 문 포함) 세부 치수는 각각 어떻게 됩니까?",
+      "query_type": "single_doc",
+      "memo": "도면 이미지 내 최소/최대 규격별 가로 세부 치수 확인, 국내외 설계 도면의 기본 단위(mm) 및 도면의 문 위치 파악 능력 검증",
+      "expected_answer": "최소규격의 가로 총 길이는 10,000mm이며, 세부 분할 치수는 4,000 / 2,000(문) / 4,000입니다.  최대규격의 가로 총 길이는 20,000mm이며, 세부 분할 치수는 8,000 / 2,000(문) / 10,000입니다.  (단위: mm)",
+      "generated_answer": "도면 예시의 가로 치수는 최소 10000(도면 표기값, 단위 미표기·분할 4000 | 2000 | 4000, 가운데 문 2000)이고 최대 20000(도면 표기값, 단위 미표기·분할 8000 | 2000 | 10000, 가운데 문 2000)입니다.\n- 최소 가로: 10000 — 분할 4000 | 2000 | 4000, 가운데 문 2000\n- 최대 가로: 20000 — 분할 8000 | 2000 | 10000, 가운데 문 2000\n- 왼쪽(소형실) 도면: 전체 가로 10000, 상단 분할 4000 | 2000 | 4000, 중앙 출입구 폭 2000",
+      "correctness": {
+        "score": 5,
+        "reason": "최소·최대 총 가로와 각 분할치수(최소 10000: 4000/2000/4000, 최대 20000: 8000/2000/10000)를 정확히 제시하고 있어 기대 답변과 일치합니다."
+      },
+      "answer_coverage": {
+        "score": 5,
+        "reason": "총 길이, 세부 분할치수 및 가운데 문 폭 등 기대 답변의 모든 핵심 항목을 빠짐없이 포함하고 있습니다."
+      },
+      "faithfulness": {
+        "score": 5,
+        "reason": "제시된 수치들이 검색된 도면과 표의 내용과 직접 일치하여 답변이 제공된 context에 근거하고 있습니다."
+      },
+      "context_relevance": {
+        "score": 5,
+        "reason": "검색된 도면 및 표가 질문의 가로 치수 정보를 직접 제공하므로 context가 질문에 완벽히 관련되어 있습니다."
+      },
+      "hit_position": 1,
+      "recall_at_k": 1.0,
+      "recall_at_k_chunk": null,
+      "num_retrieved": 5,
+      "csv_short_circuit": false,
+      "source_type": "hwp",
+      "ground_truth_sources": [
+        "KOICA 전자조달_[긴급] [지문] [국제] 우즈베키스탄 열린 의정활동 상하원 .pdf"
+      ],
+      "retrieved_sources": [
+        "KOICA 전자조달_[긴급] [지문] [국제] 우즈베키스탄 열린 의정활동 상하원"
+      ],
+      "latencies": {
+        "analyze_query": 9.2266,
+        "retrieve": 0.3866,
+        "extract_evidence": 0.0042,
+        "generate": 93.0175
+      }
+    },
+    {
+      "id": "eval_018",
+      "question": "사단법인 아시아물위원회 사무국의 ‘우즈벡-키르기즈스탄 기후변화대응 사업’ 제안요청서에 따르면 사업책임자(PM)의 유사사업 수행실적 및 투입인력 자격 산정 기준은 어떻게 적용되나요? 특히 참여율 적용 방식, 경력 합산 규칙, 실적 인정 범위, 증빙요건, 해외·국내 점수 배점 구조를 포함하여 설명하세요.",
+      "query_type": "single_doc",
+      "memo": "단순 키워드 추출이 아니라 규칙 체계 이해 능력 검증, 100% / 80% 참여율 구분 → 모델이 숫자 조건을 정확히 읽는지 확인, 위·자격 경력 합산 규칙 → 수치 기반 정확성 검증",
+      "expected_answer": "본 사업의 사업책임자(PM)는 제안사 소속 1명(공동도급 시 대표사 소속)으로 지정해야 한다.\n\n1. 유사사업 수행실적 인정 기준\n- 기한 제한은 없으며, 수자원개발 관련 사업에 PM 또는 관리·감독으로 직접 참여한 수행기간을 인정한다.\n- 단, 연수사업, 평가용역, 연구용역, 타당성조사는 실적으로 인정되지 않는다.\n- 참여 유형에 따라 참여율을 차등 적용한다:\n  1. 사업수행기관 소속으로 직접 참여한 경우 참여기간의 100% 인정\n  2. 감독 또는 사업관리자로 참여한 경우 참여기간의 80% 인정\n- 점수 배점은 해외 수행기간 2점, 국내 수행기간 2점으로 구분한다.\n\n2. 투입인력 자격 및 경력 합산 규칙\n- 석사 학위는 2년, 박사 학위는 5년을 경력으로 합산한다.\n- 관련 기능사·산업기사·기사는 2년, 관련 기술사는 5년을 경력으로 합산한다.\n- 실적인정 범위는 참여 분야 종사기간, 학위, 자격 등을 증빙자료로 입증해야 한다.\n\n3. 증빙요건\n- 관련 분야 학위증명서, 자격증, 경력증명서, 연금납부서 또는 의료보험가입확인서(4대 사회보험 사업장 가입자 명부)를 첨부해야 하며, 미첨부 시 인정되지 않는다.\n- 모든 경력증빙 자료는 날짜 또는 기간이 명시된 원본 또는 원문대조필 문서여야 한다.\n",
+      "generated_answer": "사단법인아시아물위원회사무국 PM 산정 기준은 `참여율은 직접 참여 100%, 감독/사업관리 80%로 적용; 학위 경력은 석사 2년, 박사 5년 합산; 연수·평가·연구·타당성조사 성격 사업은 실적으로 불인정; 해외·국내 수행실적을 구분해 배점`입니다.\n- 1 사업수행기관에소속되어유사사업에직접참여 : 참여기간의 100% 적용",
+      "correctness": {
+        "score": 3,
+        "reason": "답변은 직접참여 100%·감독/관리 80% 및 석사·박사 경력 합산(2년·5년) 등 핵심 항목은 정확하나 PM 지정(1명 규정), 자격증별 경력 합산(기능사·기사·기술사 등)과 증빙서류·해외·국내 점수의 구체 배점 등 여러 세부는 누락되어 완전하지 않습니다."
+      },
+      "answer_coverage": {
+        "score": 3,
+        "reason": "참여율, 학위별 경력환산, 일부 실적 불인정 항목을 포함해 핵심 일부를 다루었으나 PM 지명 규정, 자격증 관련 경력 합산 규칙, 증빙서류 종류 및 원본 요건, 해외/국내 점수(각 2점 등) 등 주요 항목이 빠졌습니다."
+      },
+      "faithfulness": {
+        "score": 3,
+        "reason": "참여율과 학위별 경력합산은 검색된 컨텍스트와 일치하나 실적 불인정 항목·증빙요건·점수 배점 등의 상세 내용은 제시된 컨텍스트에서 직접 확인되지 않아 일부 추론이 포함되어 있습니다."
+      },
+      "context_relevance": {
+        "score": 5,
+        "reason": "검색된 컨텍스트는 참여기간 인정비율(100%/80%)과 석사·박사 경력 합산(2년·5년)을 명시해 질문에 매우 직접적으로 관련 있습니다."
+      },
+      "hit_position": 1,
+      "recall_at_k": 1.0,
+      "recall_at_k_chunk": 1.0,
+      "num_retrieved": 40,
+      "csv_short_circuit": false,
+      "source_type": "hwp",
+      "ground_truth_sources": [
+        "사단법인아시아물위원회사무국_우즈벡-키르기즈스탄 기후변화대응 스.pdf"
+      ],
+      "retrieved_sources": [
+        "사단법인아시아물위원회사무국_우즈벡-키르기즈스탄 기후변화대응 스"
+      ],
+      "latencies": {
+        "analyze_query": 50.8921,
+        "retrieve": 0.0,
+        "extract_evidence": 0.0,
+        "generate": 50.519
+      }
+    },
+    {
+      "id": "eval_019",
+      "question": "축산물품질평가원에서 주관하는 사업들과 각 사업의 추진 배경과 목적을 알려줘",
+      "query_type": "multi_doc",
+      "memo": "기관명 기준 여러 문서의 정보를 종합해야 하는 질문, 한쪽에는 추진배경 및 목적, 다른 쪽에는 추진배경 및 필요성으로 다르게 적혀있는 맥락 파악도 필요",
+      "expected_answer": "축산물품질평가원에서 주관하는 주요 사업과 각 사업의 추진 배경 및 목적은 다음과 같다.\n\n1. 축산물이력관리시스템 개선(정보화 사업)\n- 추진 배경:\n  쇠고기 이력제(2008년), 돼지(2014년), 닭·오리·계란(2020년) 이력제가 단계적으로 시행되면서 제도 운영을 지원하기 위한 전산시스템이 구축·운영되어 왔다.\n  해당 전산시스템에는 이력제 누리집, 이력관리시스템(PC), 이력번호 조회 앱, 이력제 모바일 웹 등이 포함된다.\n- 추진 목적:\n  누리집 및 시스템의 사용자 편의성 향상을 위해 디자인, 메뉴, 기능 개선 등 전산시스템 고도화를 추진한다.\n\n2. 꿀 품질평가 전산시스템 기능개선 사업\n- 추진 배경 및 필요성:\n  2023년 12월 27일 관련 법령 및 시행 지침 개정에 따른 변경사항을 시스템에 반영할 필요가 있으며,\n  제도 참여자의 개선 의견을 수렴하여 업무 효율성과 사용자 편의성을 제고할 필요가 있다.\n- 추진 목적:\n  기존 구축 시스템에 사용자별 추가 기능을 개발하거나 개선하고,\n  전산시스템의 기능 보완을 통해 업무 효율성과 운영 안정성을 향상시키는 것을 목표로 한다.\n",
+      "generated_answer": "축산물품질평가원 주요 사업의 추진 배경/목적 요약입니다.\n- 1. 축산물이력관리시스템 개선(정보화 사업): 사업개요: 축산물이력관리시스템 개선을 통해 이력제 누리집, 이력관리시스템, 이력번호 조회 앱, 이력제 모바일 웹을 개선하고 사용자 편의성을 향상시킴 / 추진배경: 쇠고기, 돼지, 닭-오리-계란 이력제의 시행으로 전산시스템이 개발되어 제도 운영에 활용되고 있으며, 이를 개선하여 사용자 편의성을 높이고자 함\n- 2. 꿀 품질평가 전산시스템 기능개선 사업: 사업개요: 꿀 품질평가 전산시스템 기능개선 사업 / 추진배경: 법령 개정 및 업무 효율화 필요",
+      "correctness": {
+        "score": 4,
+        "reason": "주요 사업과 추진 배경·목적을 정확히 기술했으나 꿀 시스템의 목적 세부(사용자별 기능 추가 등)와 이력제 시행 연도 같은 일부 세부가 누락되어 완전하진 않습니다."
+      },
+      "answer_coverage": {
+        "score": 3,
+        "reason": "핵심 사업과 배경은 포함했지만 이력제 시행 연도(2008/2014/2020), 꿀 법령 개정일(2023-12-27) 및 목적의 구체적 항목 일부가 빠져 있어 전체 포인트를 완전히 커버하지 못했습니다."
+      },
+      "faithfulness": {
+        "score": 5,
+        "reason": "생성된 답변은 검색된 context의 내용에 근거하고 있으며 환각 없이 문서의 정보를 요약하고 있습니다."
+      },
+      "context_relevance": {
+        "score": 5,
+        "reason": "제공된 context는 질문에 직접 관련된 사업 개요와 추진 배경 정보를 포함하고 있어 답변 작성에 적합합니다."
+      },
+      "hit_position": 2,
+      "recall_at_k": 1.0,
+      "recall_at_k_chunk": 0.0,
+      "num_retrieved": 2,
+      "csv_short_circuit": true,
+      "source_type": "csv",
+      "ground_truth_sources": [
+        "축산물품질평가원_축산물이력관리시스템 개선(정보화 사업).pdf",
+        "축산물품질평가원_꿀 품질평가 전산시스템 기능개선 사업.pdf"
+      ],
+      "retrieved_sources": [
+        "축산물품질평가원_축산물이력관리시스템 개선(정보화 사업).hwp",
+        "축산물품질평가원_꿀 품질평가 전산시스템 기능개선 사업.hwp"
+      ],
+      "latencies": {
+        "analyze_query": 5.8399,
+        "retrieve": 0.0,
+        "extract_evidence": 0.0,
+        "generate": 0.0
+      }
+    },
+    {
+      "id": "eval_020",
+      "question": "한국연구재단이 추진하는 사업 중, 사업기간이 상대적으로 짧고 신규 구축이 아닌 기존 시스템 기능개선을 목적으로 하는 사업을 식별하고 그 근거를 설명하시오.",
+      "query_type": "multi_doc",
+      "memo": "조건 기반 선택형, 질문자의 상황에 더 적합한 사업을 추천해주고 관련 내용을 표기해야함.",
+      "expected_answer": "조건에 부합하는 사업은 '2024년 대학 산학협력활동 실태조사 시스템(UICC) 기능개선 사업'입니다.\n\n1) 사업기간 비교\n- UICC 기능개선 사업: 계약일로부터 210일\n- 기초학문자료센터 시스템 운영 및 연구성과물 DB구축 사업: 계약일로부터 365일\n→ UICC 기능개선 사업의 사업기간이 더 짧다.\n\n2) 사업 성격 비교\n- UICC 사업은 기존 시스템의 기능개선 및 관리자 활용도 제고, 시스템 운영 지원이 주된 내용으로,\n  신규 시스템을 맨바닥부터 구축하는 사업이 아니다.\n- 반면 기초학문자료센터 사업은 연구성과물 DB 구축 및 e-R&D 시스템 연계 등\n  데이터 구축 및 시스템 확장 성격이 포함되어 있다.\n\n따라서 사업기간이 더 짧고, 기존 시스템의 기능개선을 수행하는 사업은\n「2024년 대학 산학협력활동 실태조사 시스템(UICC) 기능개선 사업」이다.\n",
+      "generated_answer": "조건에 부합하는 사업은 `2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선`입니다.\n- 선택 근거: 기능개선 성격 + 상대적으로 짧은 사업기간(`3일`)\n- 비교 근거: `2024년 기초학문자료센터 시스템 운영 및 연구성과물 DB구축 사업`는 약 `5일`로 더 긴 편입니다.",
+      "correctness": {
+        "score": 4,
+        "reason": "정확하게 정답 사업(UICC 기능개선)을 식별하고 근거를 제시했으나 기대 답변의 사업기간(210일 vs 365일)에 비해 생성 답변은 '3일'/'5일'로 기간 수치를 잘못 표기한 점이 있어 사소한 부정확성이 있습니다."
+      },
+      "answer_coverage": {
+        "score": 5,
+        "reason": "사업기간 비교와 사업 성격(기능개선 vs 데이터구축·확장)이라는 기대 답변의 핵심 포인트를 모두 포함하고 있습니다."
+      },
+      "faithfulness": {
+        "score": 5,
+        "reason": "답변 내용(사업명·기능개선 성격·제공된 기간 수치)은 제공된 검색 컨텍스트(타이틀과 duration=3일/5일)에 직접 근거하고 있습니다."
+      },
+      "context_relevance": {
+        "score": 5,
+        "reason": "검색된 두 문서가 질문의 비교 대상인 해당 사업들을 직접 다루고 있어 답변에 필요한 정보를 충분히 제공합니다."
+      },
+      "hit_position": 2,
+      "recall_at_k": 1.0,
+      "recall_at_k_chunk": 0.0,
+      "num_retrieved": 2,
+      "csv_short_circuit": true,
+      "source_type": "csv",
+      "ground_truth_sources": [
+        "한국연구재단_2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선.pdf",
+        "한국연구재단_2024년 기초학문자료센터 시스템 운영 및 연구성과물 DB구.pdf"
+      ],
+      "retrieved_sources": [
+        "한국연구재단_2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선.hwp",
+        "한국연구재단_2024년 기초학문자료센터 시스템 운영 및 연구성과물 DB구.hwp"
+      ],
+      "latencies": {
+        "analyze_query": 0.0122,
+        "retrieve": 0.0,
+        "extract_evidence": 0.0,
+        "generate": 0.0
+      }
+    }
+  ],
+  "meta": {
+    "label": "current_full20_after_patch_v2",
+    "dataset_path": "eval_resources/eval_dataset.yaml",
+    "elapsed_seconds": 665.8,
+    "judge_model": null
+  }
+}
