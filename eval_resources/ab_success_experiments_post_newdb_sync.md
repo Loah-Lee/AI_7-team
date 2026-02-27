@@ -64,9 +64,35 @@
 
 ---
 
+## 실험 3 (성공, 최종 생성 파트)
+### 커밋(시간순)
+1. `3863ef6` (2026-02-27) feat(eval): enforce evidence-bounded generation and add post-sync A/B report
+
+### 실험 이유
+- 생성 답변에서 문맥 밖 문장이 섞이면서 Faithfulness가 흔들려,  
+  **생성 후단을 근거 한정(evidence-bounded)** 으로 강제해 환각성 문장을 제거하려고 함.
+
+### A/B
+- A: `eval_results_current_full20_after_patch_v2.json`
+- B: `eval_results_current_full20_evidence_strict.json`
+
+### 결과 (변화율 중심)
+- Correctness: **+0.0%** (3.95 -> 3.95)
+- Answer Coverage: **+0.0%** (3.85 -> 3.85)
+- Faithfulness: **+6.2%** (4.05 -> 4.30)
+- Context Relevance: **+2.1%** (4.70 -> 4.80)
+- 매크로(4지표 평균): **+2.1%** (4.14 -> 4.23)
+
+### 판단
+- **성공**: C/AC를 유지한 채 F와 CR을 동시 개선.
+
+---
+
 ## 메모
 - 본 문서는 **커밋 단위 패치**만 포함했으며, 미커밋(worktree) 실험은 제외함.
 - 참조 리포트/결과:
   - `eval_resources/eval_results_p2_full20_recheck.json`
   - `eval_resources/eval_results_current_reval_dev_latest.json`
   - `eval_resources/eval_results_current_reval_full20_after_rebase.json`
+  - `eval_resources/eval_results_current_full20_after_patch_v2.json`
+  - `eval_resources/eval_results_current_full20_evidence_strict.json`
