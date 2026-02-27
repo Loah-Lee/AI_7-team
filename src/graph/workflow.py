@@ -176,6 +176,94 @@ class RAGChatbotV17:
             return False
         return any(base_dir.glob("data_list*.csv")) or any(base_dir.glob("*data*.csv"))
 
+    @staticmethod
+    def _summarize_with_limit(text: Any, max_chars: int) -> str:
+        """최대 길이 안에서 문장 단위로 완결형 요약을 생성한다."""
+        normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+        if not normalized:
+            return ""
+
+        limit = max(20, int(max_chars))
+        if len(normalized) <= limit:
+            return normalized
+
+        chunks = [
+            seg.strip(" -•\t")
+            for seg in re.split(r"(?<=[.!?。？！])\s+|[;；]\s+|\s+\|\s+|\s+·\s+", normalized)
+            if seg and seg.strip(" -•\t")
+        ]
+        if not chunks:
+            chunks = [normalized]
+
+        keyword_pat = re.compile(
+            r"(사업|구축|개선|개발|운영|지원|도입|연계|고도화|평가|분석|시스템|플랫폼|데이터|보안|일정|성과|목표|범위)"
+        )
+
+        def _score(chunk: str) -> int:
+            score = 0
+            if re.search(r"\d", chunk):
+                score += 3
+            score += len(keyword_pat.findall(chunk))
+            if 20 <= len(chunk) <= 110:
+                score += 1
+            return score
+
+        selected_idx: set[int] = {0}
+        candidate_order = sorted(
+            range(1, len(chunks)),
+            key=lambda i: (_score(chunks[i]), -i),
+            reverse=True,
+        )
+
+        def _render(indices: set[int]) -> str:
+            ordered = [chunks[i] for i in range(len(chunks)) if i in indices]
+            text_out = " ".join(ordered).strip()
+            if text_out and text_out[-1] not in ".!?。？！":
+                text_out += "."
+            return text_out
+
+        current = _render(selected_idx)
+        if len(current) > limit:
+            current = ""
+
+        for idx in candidate_order:
+            trial = set(selected_idx)
+            trial.add(idx)
+            rendered = _render(trial)
+            if len(rendered) <= limit:
+                selected_idx = trial
+                current = rendered
+
+        if current:
+            return current
+
+        clauses = [
+            c.strip()
+            for c in re.split(r",\s*|\s+및\s+|\s+그리고\s+|\s*/\s*", chunks[0])
+            if c and c.strip()
+        ]
+        compact_parts: list[str] = []
+        for clause in clauses:
+            trial = " ".join(compact_parts + [clause]).strip()
+            if trial and trial[-1] not in ".!?。？！":
+                trial += "."
+            if len(trial) <= limit:
+                compact_parts.append(clause)
+            else:
+                break
+        if compact_parts:
+            compact = " ".join(compact_parts).strip()
+            if compact[-1] not in ".!?。？！":
+                compact += "."
+            return compact
+
+        fallback = normalized[:limit].rsplit(" ", 1)[0].strip()
+        if not fallback:
+            fallback = normalized[:limit].strip()
+        if fallback and fallback[-1] not in ".!?。？！":
+            fallback += "."
+        return fallback
+
     def _load_documents(self) -> None:
         """모든 문서를 로드하고 변환합니다."""
         if self.vector_store.count > 0:
@@ -1457,9 +1545,7 @@ class RAGChatbotV17:
         source = str(row.get("filename", "")).strip() or "csv"
         amount_numeric = parse_amount(str(row.get("amount", "")))
         vat_note = self._resolve_csv_vat_note(row)
-        summary_text = str(row.get("summary", "")).strip()
-        if summary_text and len(summary_text) > 260:
-            summary_text = summary_text[:260].rstrip() + "..."
+        summary_text = self._summarize_with_limit(row.get("summary", ""), 260)
 
         amount_value = (
             format_amount(amount_numeric)
@@ -1573,9 +1659,7 @@ class RAGChatbotV17:
                     amount_value = f"{amount_value} ({vat_note})"
                 start_value = self._format_csv_datetime_for_answer(row.get("start_date", ""), query)
                 end_value = self._format_csv_datetime_for_answer(row.get("end_date", ""), query)
-                summary_value = str(row.get("summary", "")).strip() or "요약 정보 없음"
-                if len(summary_value) > 320:
-                    summary_value = summary_value[:320].rstrip() + "..."
+                summary_value = self._summarize_with_limit(row.get("summary", ""), 320) or "요약 정보 없음"
 
                 answer = (
                     f"{org_label} 문서 기준 요약입니다.\n\n"

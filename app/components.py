@@ -41,6 +41,97 @@ CARD_META: dict[str, dict[str, str]] = {
 }
 
 
+def _summarize_with_limit(text: Any, max_chars: int) -> str:
+    """최대 길이 안에서 문장 단위로 완결형 요약을 생성한다."""
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not normalized:
+        return ""
+
+    limit = max(20, int(max_chars))
+    if len(normalized) <= limit:
+        return normalized
+
+    chunks = [
+        seg.strip(" -•\t")
+        for seg in re.split(r"(?<=[.!?。？！])\s+|[;；]\s+|\s+\|\s+|\s+·\s+", normalized)
+        if seg and seg.strip(" -•\t")
+    ]
+    if not chunks:
+        chunks = [normalized]
+
+    keyword_pat = re.compile(
+        r"(사업|구축|개선|개발|운영|지원|도입|연계|고도화|평가|분석|시스템|플랫폼|데이터|보안|일정|성과|목표|범위)"
+    )
+
+    def _score(chunk: str) -> int:
+        score = 0
+        if re.search(r"\d", chunk):
+            score += 3
+        score += len(keyword_pat.findall(chunk))
+        if 20 <= len(chunk) <= 110:
+            score += 1
+        return score
+
+    # 1) 첫 문장은 항상 포함 (맥락 유지)
+    selected_idx: set[int] = {0}
+    candidate_order = sorted(
+        range(1, len(chunks)),
+        key=lambda i: (_score(chunks[i]), -i),
+        reverse=True,
+    )
+
+    def _render(indices: set[int]) -> str:
+        ordered = [chunks[i] for i in range(len(chunks)) if i in indices]
+        text_out = " ".join(ordered).strip()
+        if text_out and text_out[-1] not in ".!?。？！":
+            text_out += "."
+        return text_out
+
+    current = _render(selected_idx)
+    if len(current) > limit:
+        current = ""
+
+    for idx in candidate_order:
+        trial = set(selected_idx)
+        trial.add(idx)
+        rendered = _render(trial)
+        if len(rendered) <= limit:
+            selected_idx = trial
+            current = rendered
+
+    if current:
+        return current
+
+    # 2) 첫 문장이 너무 길면 구(,) 단위로 압축
+    clauses = [
+        c.strip()
+        for c in re.split(r",\s*|\s+및\s+|\s+그리고\s+|\s*/\s*", chunks[0])
+        if c and c.strip()
+    ]
+    compact_parts: list[str] = []
+    for clause in clauses:
+        trial = " ".join(compact_parts + [clause]).strip()
+        if trial and trial[-1] not in ".!?。？！":
+            trial += "."
+        if len(trial) <= limit:
+            compact_parts.append(clause)
+        else:
+            break
+    if compact_parts:
+        compact = " ".join(compact_parts).strip()
+        if compact[-1] not in ".!?。？！":
+            compact += "."
+        return compact
+
+    # 3) 최후 fallback: 단어 경계까지만 사용 후 마침표 부여
+    fallback = normalized[:limit].rsplit(" ", 1)[0].strip()
+    if not fallback:
+        fallback = normalized[:limit].strip()
+    if fallback and fallback[-1] not in ".!?。？！":
+        fallback += "."
+    return fallback
+
+
 def _build_csv_answer(df: pd.DataFrame, answer_type: str) -> str:
     """CSV 데이터프레임에서 answer_type에 맞는 답변 텍스트를 생성합니다."""
     def _fmt_amount(val: Any) -> str:
@@ -93,7 +184,7 @@ def _build_csv_answer(df: pd.DataFrame, answer_type: str) -> str:
     if end:
         parts.append(f"- 입찰 참여 마감일: {end}")
     if summary_text:
-        short = summary_text[:400] + ("…" if len(summary_text) > 400 else "")
+        short = _summarize_with_limit(summary_text, 400)
         parts.append(f"\n**사업 요약:**\n{short}")
     return "\n".join(parts)
 
