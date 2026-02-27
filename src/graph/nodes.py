@@ -304,7 +304,60 @@ class RFPAnswerGenerator:
         self.last_generation_elapsed = 0.0
         self.last_generation_llm_calls = 0
 
-    def generate(self, query: str, context: str, history: str = "", extractive_draft: str = "") -> str:
+    @staticmethod
+    def _is_descriptive_query(query: str) -> bool:
+        q = (query or "").strip().lower()
+        descriptive_keywords = [
+            "요약", "정리", "설명", "배경", "목적", "개선", "현황",
+            "분석", "절차", "항목", "포함", "비교하여", "비교해서", "어떻게 적용",
+        ]
+        concise_keywords = ["얼마", "몇", "언제", "누가", "마감", "기한", "시간", "주기", "용량", "단위", "비율"]
+        if any(k in q for k in descriptive_keywords):
+            return True
+        if any(k in q for k in concise_keywords):
+            return False
+        return False
+
+    @classmethod
+    def _resolve_answer_style(cls, query: str, answer_style_hint: str = "") -> str:
+        hinted = str(answer_style_hint or "").strip().lower()
+        if hinted in {"concise", "guide"}:
+            return hinted
+        if hinted == "descriptive":
+            return "guide"
+        return "guide" if cls._is_descriptive_query(query) else "concise"
+
+    @classmethod
+    def _answer_style_instruction(cls, query: str, answer_style_hint: str = "") -> str:
+        if cls._resolve_answer_style(query, answer_style_hint) == "guide":
+            return (
+                "- 설명형 질문입니다. 약술형 장문 대신 가이드/에이전트형으로 답하세요.\n"
+                "- 첫 줄은 결론 1문장으로 쓰고, 이어서 핵심 키워드가 보이도록 불릿 2~4개를 제시하세요.\n"
+                "- `결론:`/`요약:`/`근거:`/`출처:` 같은 라벨은 출력하지 마세요. 근거는 내부 검증에만 사용하세요.\n"
+                "- 문맥에 없는 추가 문장/해석/권고는 생성하지 말고, 근거 문장 범위 안에서만 재서술하세요.\n"
+                "- 질문의 필수 항목이 실제로 누락된 경우에만 `문서에서 확인되지 않습니다.`를 짧게 명시하세요."
+            )
+        return (
+            "- 단답형 질문입니다. 핵심 답을 1~2문장으로 짧게 제시하세요.\n"
+            "- 불필요한 배경 설명은 생략하고 값/조건/주체를 우선 제시하세요.\n"
+            "- 문맥에 없는 추가 문장/해석/권고는 생성하지 말고, 근거 문장 범위 안에서만 재서술하세요.\n"
+            "- `결론:`/`요약:`/`근거:`/`출처:` 라벨은 출력하지 마세요. 필수 값이 실제로 없을 때만 `문서에서 확인되지 않습니다.`를 사용하세요."
+        )
+
+    @classmethod
+    def _evidence_style_instruction(cls, query: str, answer_style_hint: str = "") -> str:
+        if cls._resolve_answer_style(query, answer_style_hint) == "guide":
+            return "- 가이드형 답변을 위해 근거를 최대 8개까지 보존해 핵심 키워드 누락을 줄이세요."
+        return "- 단답형 질문이므로 근거는 핵심 3개 이내로 압축하세요."
+
+    def generate(
+        self,
+        query: str,
+        context: str,
+        history: str = "",
+        extractive_draft: str = "",
+        answer_style_hint: str = "",
+    ) -> str:
         """간결한 RFP 답변을 생성합니다."""
         started = time.perf_counter()
         llm_calls = 0
@@ -326,6 +379,10 @@ class RFPAnswerGenerator:
                     query=query,
                     context=context,
                     extractive_draft=extractive_draft or "없음",
+                )
+                evidence_prompt = (
+                    f"{evidence_prompt}\n\n"
+                    f"## 답변 스타일 힌트\n{self._evidence_style_instruction(query, answer_style_hint)}"
                 )
                 evidence_messages = [
                     SystemMessage(content=RFP_SYSTEM_PROMPT),
@@ -352,6 +409,7 @@ class RFPAnswerGenerator:
                         evidence=refined_evidence,
                         history="",
                     )
+                prompt = f"{prompt}\n\n## 답변 스타일 힌트\n{self._answer_style_instruction(query, answer_style_hint)}"
 
                 messages = [
                     SystemMessage(content=RFP_SYSTEM_PROMPT),
@@ -370,6 +428,10 @@ class RFPAnswerGenerator:
                         query=query,
                         context=context,
                         history=f"## 이전 대화 기록\n{prompt_history}" if prompt_history else "",
+                    )
+                    fallback_prompt = (
+                        f"{fallback_prompt}\n\n"
+                        f"## 답변 스타일 힌트\n{self._answer_style_instruction(query, answer_style_hint)}"
                     )
                     fallback_messages = [
                         SystemMessage(content=RFP_SYSTEM_PROMPT),

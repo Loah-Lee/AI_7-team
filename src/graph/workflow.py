@@ -108,10 +108,13 @@ class RAGChatbotV17:
                     break
 
         # LangChain ChatOpenAI 초기화 (LangSmith 트레이싱 자동)
+        # 주의: workflow 모듈 import 이후에 환경변수가 로드될 수 있으므로
+        # 상수(OPENAI_API_KEY)만 보지 말고 런타임 env도 다시 확인한다.
+        runtime_api_key = str(os.environ.get("OPENAI_API_KEY", "") or OPENAI_API_KEY or "").strip()
         self.llm = None
-        if OPENAI_API_KEY:
+        if runtime_api_key:
             self.llm = ChatOpenAI(
-                api_key=OPENAI_API_KEY,
+                api_key=runtime_api_key,
                 model=REASONING_MODEL,
                 temperature=0.0,
                 timeout=OPENAI_TIMEOUT_SEC,
@@ -1500,7 +1503,7 @@ class RAGChatbotV17:
             }
         ]
         return {
-            "answer": self._format_answer_for_readability(answer),
+            "answer": answer,
             "found": True,
             "source_type": "csv",
             "answer_mode": "extractive",
@@ -1508,6 +1511,7 @@ class RAGChatbotV17:
             "evidence_count": len(evidence),
             "confidence": 0.93,
             "evidence": evidence,
+            "answer_style_hint": "concise",
             "csv_short_circuit": True,
         }
 
@@ -1589,8 +1593,18 @@ class RAGChatbotV17:
                         "score": 1.0,
                     }
                 ]
+                if summary_value and summary_value != "요약 정보 없음":
+                    evidence.append(
+                        {
+                            "source": source,
+                            "page": None,
+                            "text": f"summary={summary_value}",
+                            "slot": "key_points",
+                            "score": 0.95,
+                        }
+                    )
                 payload = {
-                    "answer": self._format_answer_for_readability(answer),
+                    "answer": answer,
                     "found": True,
                     "source_type": "csv",
                     "answer_mode": "extractive",
@@ -1598,6 +1612,7 @@ class RAGChatbotV17:
                     "evidence_count": len(evidence),
                     "confidence": 0.95,
                     "evidence": evidence,
+                    "answer_style_hint": "guide",
                     "csv_short_circuit": True,
                 }
                 self.conversation.add_exchange(query, payload.get("answer", ""), intent)
@@ -1637,8 +1652,22 @@ class RAGChatbotV17:
                         "score": 1.0,
                     }
                 ]
+                for row in dedup[:12]:
+                    source_name = str(row.get("filename", "")).strip() or "data_list.csv"
+                    project_name = str(row.get("project_name", "")).strip()
+                    if not project_name:
+                        continue
+                    evidence.append(
+                        {
+                            "source": source_name,
+                            "page": None,
+                            "text": f"사업명: {project_name}",
+                            "slot": "key_points",
+                            "score": 0.95,
+                        }
+                    )
                 payload = {
-                    "answer": self._format_answer_for_readability(answer),
+                    "answer": answer,
                     "found": True,
                     "source_type": "csv",
                     "answer_mode": "extractive",
@@ -1646,6 +1675,7 @@ class RAGChatbotV17:
                     "evidence_count": len(evidence),
                     "confidence": 0.94,
                     "evidence": evidence,
+                    "answer_style_hint": "guide",
                     "csv_short_circuit": True,
                 }
                 self.conversation.add_exchange(query, payload.get("answer", ""), intent)
@@ -1695,7 +1725,7 @@ class RAGChatbotV17:
                 answer_lines.append("[출처]")
                 answer_lines.append("- data_list (CSV)")
                 payload = {
-                    "answer": self._format_answer_for_readability("\n".join(answer_lines)),
+                    "answer": "\n".join(answer_lines),
                     "found": True,
                     "source_type": "csv",
                     "answer_mode": "extractive",
@@ -1703,6 +1733,7 @@ class RAGChatbotV17:
                     "evidence_count": len(evidence),
                     "confidence": 0.93,
                     "evidence": evidence,
+                    "answer_style_hint": "guide",
                     "csv_short_circuit": True,
                 }
                 self.conversation.add_exchange(query, payload.get("answer", ""), intent)
@@ -1754,6 +1785,22 @@ class RAGChatbotV17:
                     estimated = _extract_duration_days_from_text(merged_text)
                     if estimated != float("inf"):
                         return estimated
+                    # CSV 시작/마감일이 모두 있으면 일정 차이로 사업기간을 추정한다.
+                    start_norm = self._normalize_csv_datetime_value(row.get("start_date", ""))
+                    end_norm = self._normalize_csv_datetime_value(row.get("end_date", ""))
+                    if start_norm and end_norm:
+                        def _parse_csv_dt(value: str) -> datetime | None:
+                            for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d"):
+                                try:
+                                    return datetime.strptime(value, fmt)
+                                except ValueError:
+                                    continue
+                            return None
+
+                        start_dt = _parse_csv_dt(start_norm)
+                        end_dt = _parse_csv_dt(end_norm)
+                        if start_dt and end_dt and end_dt >= start_dt:
+                            return float((end_dt - start_dt).days + 1)
                     # CSV 요약에 기간이 없으면 해당 원본 문서(source) 전 청크에서 기간 근거를 보강 탐색한다.
                     source = str(row.get("filename", "")).strip()
                     if not source:
@@ -1818,8 +1865,24 @@ class RAGChatbotV17:
                             "score": 1.0,
                         }
                     ]
+                    if compare_row:
+                        compare_days, compare_name, compare_row_meta = compare_row
+                        compare_source = str((compare_row_meta or {}).get("filename", "")).strip() or "data_list.csv"
+                        if (
+                            compare_source != evidence[0]["source"]
+                            and compare_days not in {float("inf"), float("-inf")}
+                        ):
+                            evidence.append(
+                                {
+                                    "source": compare_source,
+                                    "page": None,
+                                    "text": f"{compare_name} / duration={int(compare_days)}일",
+                                    "slot": "comparison_point",
+                                    "score": 0.9,
+                                }
+                            )
                     payload = {
-                        "answer": self._format_answer_for_readability("\n".join(answer_lines)),
+                        "answer": "\n".join(answer_lines),
                         "found": True,
                         "source_type": "csv",
                         "answer_mode": "extractive",
@@ -1827,6 +1890,7 @@ class RAGChatbotV17:
                         "evidence_count": len(evidence),
                         "confidence": 0.9,
                         "evidence": evidence,
+                        "answer_style_hint": "guide",
                         "csv_short_circuit": True,
                     }
                     self.conversation.add_exchange(query, payload.get("answer", ""), intent)
@@ -1866,7 +1930,7 @@ class RAGChatbotV17:
                     }
                 ]
                 payload = {
-                    "answer": self._format_answer_for_readability(answer),
+                    "answer": answer,
                     "found": True,
                     "source_type": "csv",
                     "answer_mode": "extractive",
@@ -1874,6 +1938,7 @@ class RAGChatbotV17:
                     "evidence_count": len(evidence),
                     "confidence": 0.94,
                     "evidence": evidence,
+                    "answer_style_hint": "concise",
                     "csv_short_circuit": True,
                 }
                 self.conversation.add_exchange(query, payload.get("answer", ""), intent)
@@ -1899,7 +1964,7 @@ class RAGChatbotV17:
                 f"[출처]\n- {source} (CSV)"
             )
             fallback_payload = {
-                "answer": self._format_answer_for_readability(answer),
+                "answer": answer,
                 "found": True,
                 "source_type": "csv",
                 "answer_mode": "extractive",
@@ -1915,6 +1980,7 @@ class RAGChatbotV17:
                         "score": 0.7,
                     }
                 ],
+                "answer_style_hint": "concise",
                 "csv_short_circuit": True,
             }
             self.conversation.add_exchange(query, fallback_payload.get("answer", ""), intent)
@@ -3038,8 +3104,62 @@ class RAGChatbotV17:
                 return 0.0
             return parsed if parsed > 0 else 0.0
 
+        def _merge_latency(existing_value: Any, fallback_value: float) -> float:
+            """기존 latency가 0 또는 비정상이면 계산된 fallback 값을 사용한다."""
+            return max(_safe_float(existing_value), _safe_float(fallback_value))
+
         def _finalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
             nonlocal analyze_elapsed
+
+            # 모든 응답 경로에 대해 마지막 문장/톤 후처리를 일관 적용한다.
+            # LLM이 없거나 후처리가 실패해도 최소 요약 포맷은 강제한다.
+            answer_text = str(payload.get("answer", "") or "").strip()
+            if answer_text:
+                style_hint = str(payload.get("answer_style_hint", "") or "").strip().lower()
+                if style_hint == "descriptive":
+                    style_hint = "guide"
+                if style_hint not in {"concise", "guide"}:
+                    style_hint = self._infer_answer_style(query)
+                is_csv_short = bool(payload.get("csv_short_circuit"))
+                formatted_answer = self._format_answer_for_readability(answer_text, style=style_hint)
+                polish_started = time.perf_counter()
+                if self.llm and query and not is_csv_short:
+                    polished_answer = self._polish_answer_with_llm(
+                        query,
+                        formatted_answer,
+                        style=style_hint,
+                    )
+                else:
+                    polished_answer = self._compact_answer_sections(
+                        formatted_answer,
+                        style=style_hint,
+                    )
+                if not polished_answer:
+                    polished_answer = self._compact_answer_sections(
+                        formatted_answer,
+                        style=style_hint,
+                    )
+                if (
+                    self._normalize_answer_for_compare(polished_answer)
+                    == self._normalize_answer_for_compare(answer_text)
+                ):
+                    polished_answer = self._compact_answer_sections(
+                        formatted_answer,
+                        style=style_hint,
+                    )
+                answer_mode = str(payload.get("answer_mode", "") or "").strip().lower()
+                if answer_mode in {"generative", "hybrid"}:
+                    polished_answer = self._restrict_answer_to_evidence(
+                        polished_answer,
+                        payload.get("evidence"),
+                    )
+                if polished_answer:
+                    payload["answer"] = polished_answer
+                if self.llm and query and not is_csv_short and perf_stats is not None:
+                    perf_stats["generation_elapsed"] = float(perf_stats.get("generation_elapsed", 0.0) or 0.0) + (
+                        time.perf_counter() - polish_started
+                    )
+                    perf_stats["llm_calls"] = int(perf_stats.get("llm_calls", 0) or 0) + 1
 
             total_elapsed = time.perf_counter() - answer_started
             if analyze_elapsed <= 0.0:
@@ -3052,10 +3172,10 @@ class RAGChatbotV17:
             existing = payload.get("latencies")
             latencies = existing if isinstance(existing, dict) else {}
             payload["latencies"] = {
-                "analyze_query": round(_safe_float(latencies.get("analyze_query", analyze_elapsed)), 4),
-                "retrieve": round(_safe_float(latencies.get("retrieve", retrieval_elapsed)), 4),
-                "extract_evidence": round(_safe_float(latencies.get("extract_evidence", extract_elapsed)), 4),
-                "generate": round(_safe_float(latencies.get("generate", generation_elapsed)), 4),
+                "analyze_query": round(_merge_latency(latencies.get("analyze_query"), analyze_elapsed), 4),
+                "retrieve": round(_merge_latency(latencies.get("retrieve"), retrieval_elapsed), 4),
+                "extract_evidence": round(_merge_latency(latencies.get("extract_evidence"), extract_elapsed), 4),
+                "generate": round(_merge_latency(latencies.get("generate"), generation_elapsed), 4),
             }
 
             # CSV short-circuit 응답은 실제 검색 호출이 없어 last_search_results가 비어도
@@ -3388,6 +3508,199 @@ class RAGChatbotV17:
             "retrieved_docs": [],
         })
 
+    def _polish_answer_with_llm(
+        self,
+        query: str,
+        answer: str,
+        style: str = "concise",
+    ) -> str:
+        """최종 답변을 사용자 친화적으로 간결하게 다듬습니다."""
+        raw_answer = str(answer or "").strip()
+        if not raw_answer or not self.llm:
+            return raw_answer
+
+        normalized_style = str(style).lower()
+        answer_style = "guide" if normalized_style in {"guide", "descriptive"} else "concise"
+        raw_formatted = self._format_answer_for_readability(raw_answer, style=answer_style)
+        if answer_style == "guide":
+            style_guide = (
+                "- 설명형 질의는 가이드/에이전트형으로 작성할 것.\n"
+                "- 첫 줄은 결론 1문장, 이후 핵심 키워드가 보이는 불릿 2~4개를 유지할 것.\n"
+                "- `결론:`/`요약:`/`근거:`/`출처:` 라벨은 출력하지 말 것.\n"
+                "- 질문의 필수 항목이 실제로 누락된 경우에만 `문서에서 확인되지 않습니다.`를 짧게 명시할 것.\n"
+            )
+        else:
+            style_guide = (
+                "- 단답형 질의이므로 핵심 답을 1~2문장으로 짧게 제시할 것.\n"
+                "- `결론:`/`요약:`/`근거:`/`출처:` 라벨은 출력하지 말 것.\n"
+                "- 질문의 필수 항목이 실제로 누락된 경우에만 `문서에서 확인되지 않습니다.`를 짧게 명시할 것.\n"
+            )
+        prompt = (
+            "아래 '기존 답변'을 사용자에게 바로 전달할 수 있게 간결하고 자연스러운 한국어로 다듬어라.\n\n"
+            "[필수 규칙]\n"
+            "1) 사실/수치/단위/날짜/주체/출처를 절대 변경하거나 새로 만들지 말 것.\n"
+            "2) 중복/장황한 표현만 제거하고 핵심 정보 중심으로 요약할 것.\n"
+            "3) 문서에 없다는 취지의 문장은 의미를 유지할 것.\n"
+            "4) Markdown 제목/고정 템플릿을 강제하지 말고 자연문장으로 작성할 것.\n"
+            "5) `결론:`/`요약:`/`근거:`/`출처:` 같은 라벨 텍스트는 최종 출력에서 제거할 것.\n"
+            "6) 기존 답변의 값/항목/목록(번호 매김 포함)은 삭제하지 말 것. 중복 제거만 허용한다.\n"
+            "7) `문서에서 확인되지 않습니다.` 유형 문구를 임의로 추가하지 말고, 기존 답변에 해당 판단이 있을 때만 유지할 것.\n"
+            "8) 문맥(근거)에 없는 추가 문장/해석/권고를 새로 만들지 말 것.\n\n"
+            "[출력 가이드]\n"
+            f"{style_guide}\n"
+            f"[질문]\n{query}\n\n"
+            f"[기존 답변]\n{raw_answer}\n"
+        )
+        try:
+            from langchain_core.messages import HumanMessage, SystemMessage
+
+            response = self.llm.invoke(
+                [
+                    SystemMessage(
+                        content=(
+                            "너는 문서 기반 QA 응답을 최종 사용자용으로 다듬는 편집자다. "
+                            "사실을 바꾸지 말고 중복/장황함만 줄여라."
+                        )
+                    ),
+                    HumanMessage(content=prompt),
+                ]
+            )
+            polished_raw = str(getattr(response, "content", "") or "").strip()
+            polished_formatted = self._format_answer_for_readability(
+                polished_raw or raw_formatted,
+                style=answer_style,
+            )
+            compacted = self._compact_answer_sections(polished_formatted, style=answer_style)
+            # LLM 결과가 사실상 원문과 동일할 때도 최소한의 압축 요약을 강제 적용한다.
+            if self._normalize_answer_for_compare(compacted) == self._normalize_answer_for_compare(raw_formatted):
+                return self._compact_answer_sections(raw_formatted, style=answer_style)
+            return compacted
+        except Exception:
+            # 후처리 실패 시에도 길이/중복을 줄인 압축 요약 형태로 반환한다.
+            return self._compact_answer_sections(raw_formatted, style=answer_style)
+
+    @staticmethod
+    def _normalize_answer_for_compare(answer: str) -> str:
+        normalized = unicodedata.normalize("NFKC", str(answer or "").lower())
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        return normalized
+
+    @staticmethod
+    def _restrict_answer_to_evidence(
+        answer: str,
+        evidence_items: Any,
+    ) -> str:
+        """최종 답변에서 근거 텍스트와 정합성이 낮은 문장을 제거합니다."""
+        text = str(answer or "").strip()
+        if not text:
+            return text
+        if not isinstance(evidence_items, list):
+            return text
+
+        evidence_texts: list[str] = []
+        for item in evidence_items:
+            if not isinstance(item, dict):
+                continue
+            snippet = unicodedata.normalize("NFKC", str(item.get("text", "") or "")).strip().lower()
+            if snippet:
+                evidence_texts.append(snippet)
+        if not evidence_texts:
+            return text
+
+        evidence_join = " ".join(evidence_texts)
+        evidence_join_no_comma = evidence_join.replace(",", "")
+        evidence_tokens = {
+            tok
+            for tok in re.findall(r"[0-9a-zA-Z가-힣]{2,}", evidence_join)
+            if tok and not tok.isdigit()
+        }
+
+        kept_lines: list[str] = []
+        for idx, raw_line in enumerate(text.splitlines()):
+            line = str(raw_line or "").strip()
+            if not line:
+                continue
+            core = re.sub(r"^\s*[-*•]\s*", "", line).strip()
+            normalized = unicodedata.normalize("NFKC", core).lower()
+            if not normalized:
+                continue
+
+            if any(
+                marker in normalized
+                for marker in ["문서에서 확인되지 않습니다", "문서에 명시되어 있지", "찾지 못"]
+            ):
+                kept_lines.append(line)
+                continue
+
+            line_tokens = {
+                tok
+                for tok in re.findall(r"[0-9a-zA-Z가-힣]{2,}", normalized)
+                if tok and not tok.isdigit()
+            }
+            overlap = len(line_tokens & evidence_tokens)
+
+            numbers = re.findall(r"\d+(?:[.,]\d+)?", normalized)
+            if numbers:
+                nums_ok = all(num.replace(",", "") in evidence_join_no_comma for num in numbers)
+            else:
+                nums_ok = True
+
+            if (overlap >= 2 and nums_ok) or (idx == 0 and overlap >= 1 and nums_ok):
+                kept_lines.append(line)
+
+        if not kept_lines:
+            return "문서에서 확인되지 않습니다."
+        return "\n".join(kept_lines)
+
+    @staticmethod
+    def _compact_answer_sections(answer: str, style: str = "concise") -> str:
+        """답변을 자연문장 중심으로 1~3줄 요약 형태로 압축한다."""
+        normalized_style = str(style).lower()
+        answer_style = "guide" if normalized_style in {"guide", "descriptive"} else "concise"
+        text = RAGChatbotV17._format_answer_for_readability(answer, style=answer_style)
+        lines = [
+            unicodedata.normalize("NFKC", str(raw_line or "")).strip()
+            for raw_line in text.splitlines()
+        ]
+        lines = [
+            line
+            for line in lines
+            if line
+            and not re.match(
+                r"^(근거|출처|source|핵심\s*결론|결론|요약|핵심\s*답변|근거\s*요약|설명|핵심\s*포인트|가이드)\s*[:：]?$",
+                line,
+                flags=re.IGNORECASE,
+            )
+        ]
+        if not lines:
+            return ""
+
+        if answer_style == "guide":
+            trimmed = [re.sub(r"\s+", " ", line).strip() for line in lines if line.strip()]
+            deduped: list[str] = []
+            seen: set[str] = set()
+            for line in trimmed:
+                key = line.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                deduped.append(line)
+            if len(deduped) > 6:
+                deduped = deduped[:6]
+            return "\n".join(deduped).strip()
+
+        def _trim_line(value: str, max_chars: int) -> str:
+            value = re.sub(r"\s+", " ", value).strip()
+            if len(value) <= max_chars:
+                return value
+            return value[: max_chars - 1].rstrip() + "…"
+
+        core_line = _trim_line(lines[0], 180)
+        rendered = [core_line]
+        if len(lines) > 1:
+            rendered.append(_trim_line(lines[1], 220))
+        return "\n".join(rendered).strip()
+
     @staticmethod
     def _log_perf_stats(query: str, perf_stats: dict[str, float | int | bool], total_elapsed: float) -> None:
         """디버그 모드에서 응답 단계별 성능 지표를 출력합니다."""
@@ -3417,11 +3730,18 @@ class RAGChatbotV17:
     ) -> dict[str, Any]:
         """검색 결과를 기반으로 최종 답변을 생성합니다."""
         source_type = self._infer_source_type(results)
-        evidence_spans = self._build_evidence_spans(results, question_plan=question_plan, max_items=3)
+        evidence_spans = self._build_evidence_spans(
+            results,
+            question_plan=question_plan,
+            query=query,
+            max_items=5,
+        )
         retrieved_docs_payload = self._serialize_retrieved_docs(results)
+        answer_style_hint = self._infer_answer_style(query, question_plan=question_plan)
 
         def _attach_retrieved_docs(payload: dict[str, Any]) -> dict[str, Any]:
             payload["retrieved_docs"] = list(retrieved_docs_payload)
+            payload["answer_style_hint"] = answer_style_hint
             return payload
 
         query_is_comparison_like = (
@@ -3551,6 +3871,7 @@ class RAGChatbotV17:
             context,
             history,
             extractive_draft=extractive_draft,
+            answer_style_hint=answer_style_hint,
         )
         if perf_stats is not None:
             perf_stats["generation_elapsed"] = perf_stats.get("generation_elapsed", 0.0) + (
@@ -3603,7 +3924,23 @@ class RAGChatbotV17:
                 evidence_spans=evidence_spans,
             ))
 
-        # 예외적으로 생성 실패 시 fallback
+        # 예외적으로 생성 실패 시 규칙 기반 응답을 한 번 더 시도한다.
+        fallback_answer = self._build_non_llm_answer(query, results, intent)
+        if fallback_answer:
+            self.conversation.add_exchange(query, fallback_answer, intent)
+            slot_fill_rate = self._estimate_slot_fill_rate(question_plan, fallback_answer, evidence_spans)
+            confidence = self._estimate_confidence(slot_fill_rate, evidence_spans, answer_mode="extractive")
+            return _attach_retrieved_docs(self._build_answer_payload(
+                answer=fallback_answer,
+                found=True,
+                source_type=source_type,
+                answer_mode="extractive",
+                slot_fill_rate=slot_fill_rate,
+                confidence=confidence,
+                evidence_spans=evidence_spans,
+            ))
+
+        # 마지막 fallback: 최소 요약 응답
         summary = self._create_multi_org_summary(results, query)
         self.conversation.add_exchange(query, summary, intent)
         slot_fill_rate = self._estimate_slot_fill_rate(question_plan, summary, evidence_spans)
@@ -3744,11 +4081,13 @@ class RAGChatbotV17:
         self,
         results: list[dict[str, Any]],
         question_plan: QuestionPlan,
+        query: str = "",
         max_items: int = 3,
     ) -> list[EvidenceSpan]:
         spans: list[EvidenceSpan] = []
-        for item in results[:max_items]:
-            idx = len(spans)
+        seen: set[tuple[str, int | None, str]] = set()
+
+        def _to_span(item: dict[str, Any], text_override: str = "") -> EvidenceSpan | None:
             md = item.get("metadata", {}) or {}
             source = str(md.get("source", "Unknown"))
             page_raw = md.get("page")
@@ -3756,22 +4095,69 @@ class RAGChatbotV17:
                 page = int(page_raw) if page_raw is not None else None
             except (TypeError, ValueError):
                 page = None
-            text = str(item.get("text", "")).strip().replace("\r", "\n")
-            snippet = text[:240]
+            raw_text = text_override or str(item.get("text", "")).strip().replace("\r", "\n")
+            snippet = raw_text[:240].strip()
+            if not snippet:
+                return None
+            key = (source, page, snippet.lower())
+            if key in seen:
+                return None
+            seen.add(key)
             score_raw = item.get("score", md.get("score", 0.0))
             try:
                 score = float(score_raw) if score_raw is not None else 0.0
             except (TypeError, ValueError):
                 score = 0.0
-            spans.append(
-                EvidenceSpan(
-                    source=source,
-                    page=page,
-                    text=snippet,
-                    slot=self._pick_slot_for_evidence(question_plan, idx),
-                    score=score,
-                )
+            idx = len(spans)
+            return EvidenceSpan(
+                source=source,
+                page=page,
+                text=snippet,
+                slot=self._pick_slot_for_evidence(question_plan, idx),
+                score=score,
             )
+
+        # 1) 질의와 직접 매칭된 근거 라인을 우선 증거로 싣는다.
+        query_norm = unicodedata.normalize("NFKC", (query or "").strip())
+        if query_norm:
+            matched_lines = self._extract_evidence_lines(query_norm, results, max_lines=max(max_items * 3, 6))
+            for line in matched_lines:
+                line_norm = unicodedata.normalize("NFKC", str(line or "").strip())
+                if not line_norm:
+                    continue
+                best_item: dict[str, Any] | None = None
+                best_score = -1.0
+                for item in results[: max(40, max_items * 6)]:
+                    text = unicodedata.normalize("NFKC", str(item.get("text", "") or ""))
+                    if not text:
+                        continue
+                    if line_norm not in text:
+                        continue
+                    item_score_raw = item.get("score", (item.get("metadata", {}) or {}).get("score", 0.0))
+                    try:
+                        item_score = float(item_score_raw) if item_score_raw is not None else 0.0
+                    except (TypeError, ValueError):
+                        item_score = 0.0
+                    if item_score > best_score:
+                        best_item = item
+                        best_score = item_score
+                if best_item is None:
+                    continue
+                span = _to_span(best_item, text_override=line_norm)
+                if span is None:
+                    continue
+                spans.append(span)
+                if len(spans) >= max_items:
+                    return spans[:max_items]
+
+        # 2) 부족하면 검색 상위 청크를 채워 넣는다.
+        for item in results[:max_items]:
+            span = _to_span(item)
+            if span is None:
+                continue
+            spans.append(span)
+            if len(spans) >= max_items:
+                break
         return spans
 
     @staticmethod
@@ -3792,6 +4178,62 @@ class RAGChatbotV17:
                 "핵심투입인력", "사업관리자", "배점", "적격",
             ]
         )
+
+    @staticmethod
+    def _is_descriptive_query(query: str) -> bool:
+        """가이드형/설명형 질의 여부를 판정합니다."""
+        q = unicodedata.normalize("NFKC", (query or "").lower())
+        descriptive_keywords = [
+            "요약",
+            "정리",
+            "설명",
+            "배경",
+            "목적",
+            "개선",
+            "현황",
+            "분석",
+            "절차",
+            "항목",
+            "포함",
+            "비교해서",
+            "비교하여",
+            "어떻게 적용",
+            "근거를 설명",
+        ]
+        concise_keywords = [
+            "얼마",
+            "몇",
+            "언제",
+            "누가",
+            "마감",
+            "기한",
+            "시간",
+            "주기",
+            "용량",
+            "단위",
+            "비율",
+        ]
+        has_descriptive = any(k in q for k in descriptive_keywords)
+        has_concise = any(k in q for k in concise_keywords)
+        if has_descriptive:
+            return True
+        if has_concise:
+            return False
+        return False
+
+    def _infer_answer_style(
+        self,
+        query: str,
+        question_plan: QuestionPlan | None = None,
+    ) -> str:
+        """질의 성질에 따라 답변 스타일(concise/guide)을 선택합니다."""
+        if self._is_descriptive_query(query):
+            return "guide"
+        if question_plan and question_plan.query_kind in {"multi_doc", "comparison"}:
+            return "guide"
+        if question_plan and question_plan.query_kind in {"fact_numeric", "deadline", "owner"}:
+            return "concise"
+        return "concise"
 
     @staticmethod
     def _has_comparison_structure(answer: str) -> bool:
@@ -3982,11 +4424,13 @@ class RAGChatbotV17:
         return docs
 
     @staticmethod
-    def _format_answer_for_readability(answer: str) -> str:
-        """답변을 표준 3개 섹션(핵심/근거/출처)으로 정규화합니다."""
+    def _format_answer_for_readability(answer: str, style: str = "concise") -> str:
+        """답변을 읽기 쉬운 자연문장(최종 사용자용)으로 정규화합니다."""
         text = (answer or "").replace("\r\n", "\n").strip()
         if not text:
             return ""
+        normalized_style = str(style).lower()
+        answer_style = "guide" if normalized_style in {"guide", "descriptive"} else "concise"
 
         def _normalize_line(value: str) -> str:
             return unicodedata.normalize("NFKC", value or "").strip()
@@ -4069,6 +4513,13 @@ class RAGChatbotV17:
             if not softened:
                 return softened
 
+            # LLM이 종종 붙이는 라벨 접두어는 최종 사용자 답변에서 제거한다.
+            softened = re.sub(
+                r"^(?:핵심\s*결론|결론|요약|핵심\s*답변|근거\s*요약|설명|핵심\s*포인트|가이드)\s*[:：]\s*",
+                "",
+                softened,
+                flags=re.IGNORECASE,
+            )
             softened = softened.replace("문서 기준으로 ", "")
             softened = softened.replace("문서 기준으로", "")
             softened = softened.replace("문서 기준 ", "")
@@ -4091,6 +4542,12 @@ class RAGChatbotV17:
             item = _normalize_line(value)
             item = re.sub(r"^[-*•]\s*", "", item)
             item = re.sub(r"^(?:출처|source)\s*:\s*", "", item, flags=re.IGNORECASE)
+            item = re.sub(
+                r"^(?:핵심\s*결론|결론|요약|핵심\s*답변|근거\s*요약|설명|핵심\s*포인트|가이드)\s*[:：]\s*",
+                "",
+                item,
+                flags=re.IGNORECASE,
+            )
             return _soften_tone(item).strip()
 
         def _dedupe(values: list[str]) -> list[str]:
@@ -4107,32 +4564,41 @@ class RAGChatbotV17:
                 deduped.append(cleaned)
             return deduped
 
-        core_items = [_trim_item(item, 220) for item in _dedupe(sections["핵심 답변"])][:2]
-        evidence_items = [_trim_item(item, 200) for item in _dedupe(sections["근거 요약"])][:2]
+        core_limit = 3 if answer_style == "guide" else 2
+        evidence_limit = 4 if answer_style == "guide" else 1
+        core_items = [_trim_item(item, 320 if answer_style == "guide" else 220) for item in _dedupe(sections["핵심 답변"])][:core_limit]
+        evidence_items = [_trim_item(item, 240 if answer_style == "guide" else 180) for item in _dedupe(sections["근거 요약"])][:evidence_limit]
         source_items_all = _dedupe(sections["출처"])
         source_items_filtered = [item for item in source_items_all if _is_source_line(item)]
         source_items = source_items_filtered if source_items_filtered else source_items_all
         source_items = [_trim_item(item, 240) for item in source_items][:2]
 
         if not core_items:
-            core_items = ["요청하신 항목에 대해 문서에서 확정 가능한 근거를 찾지 못했습니다."]
+            core_items = ["요청하신 항목은 문서에서 확인되지 않습니다."]
 
-        rendered: list[str] = ["### 핵심 답변"]
-        rendered.extend([f"- {item}" for item in core_items])
+        primary = core_items[0] if core_items else "요청하신 항목에 대해 문서에서 확인 가능한 내용을 정리했습니다."
+        primary = _trim_item(primary, 320 if answer_style == "guide" else 220)
 
-        rendered.append("")
-        rendered.append("### 근거 요약")
-        if evidence_items:
-            rendered.extend([f"- {item}" for item in evidence_items])
-        else:
-            rendered.append("- 근거 문장을 확인하지 못했습니다.")
+        rendered: list[str] = [primary]
+        if answer_style == "guide":
+            for extra in core_items[1:2]:
+                rendered.append(extra)
+            guide_points: list[str] = []
+            for item in evidence_items:
+                cleaned = item.strip()
+                if not cleaned:
+                    continue
+                if re.match(r"^(근거|출처|source)\s*:", cleaned, flags=re.IGNORECASE):
+                    continue
+                guide_points.append(cleaned)
+            if guide_points:
+                rendered.extend([f"- {point}" for point in guide_points[:4]])
+            return "\n".join(rendered).strip()
 
-        rendered.append("")
-        rendered.append("### 출처")
-        if source_items:
-            rendered.extend([f"- {item}" for item in source_items])
-        else:
-            rendered.append("- 문서 출처 정보 없음")
+        if "확인되지 않습니다" not in primary and evidence_items:
+            follow = evidence_items[0]
+            if not re.match(r"^(근거|출처|source)\s*:", follow, flags=re.IGNORECASE):
+                rendered.append(_trim_item(follow, 220))
 
         return "\n".join(rendered).strip()
 

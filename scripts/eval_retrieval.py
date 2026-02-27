@@ -72,6 +72,19 @@ except ImportError:
 _CHATBOT_SINGLETON = None
 
 
+def _reset_chatbot_context(chatbot: object) -> None:
+    """평가 문항 간 대화 컨텍스트 누적을 방지한다."""
+    conv = getattr(chatbot, "conversation", None)
+    if conv is None:
+        return
+    if hasattr(conv, "history"):
+        conv.history = []
+    if hasattr(conv, "last_org"):
+        conv.last_org = None
+    if hasattr(conv, "last_query_type"):
+        conv.last_query_type = None
+
+
 def _normalize_source_label(source: str | None) -> str:
     """source 문자열을 소문자/확장자 제거 형태로 정규화한다."""
     if not source:
@@ -178,6 +191,8 @@ def run_rag_pipeline(question: str, metadata_filter: dict | None, top_k: int) ->
     global _CHATBOT_SINGLETON
     if _CHATBOT_SINGLETON is None:
         _CHATBOT_SINGLETON = _chatbot_cls()
+    else:
+        _reset_chatbot_context(_CHATBOT_SINGLETON)
 
     query_text = question
     if metadata_filter:

@@ -5,8 +5,10 @@
 
 from __future__ import annotations
 
+import html
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -38,11 +40,10 @@ def build_html(results: dict) -> str:
     inline_data = json.dumps(pq, ensure_ascii=False)
 
     # 레이턴시 평균 (Python 계산 → 정적 HTML로 임베드)
-    _stages = ["analyze_query", "retrieve", "extract_evidence", "generate"]
+    _stages = ["analyze_query", "retrieve", "generate"]
     _stage_ko = {
         "analyze_query": "질의분석 (analyze)",
         "retrieve": "문서검색 (retrieve)",
-        "extract_evidence": "근거추출 (extract_evidence)",
         "generate": "답변생성 (generate)",
     }
     _with_lat = [q for q in pq if q.get("latencies")]
@@ -54,7 +55,7 @@ def build_html(results: dict) -> str:
         w = max(2, round(ratio * 120))
         return f'<span style="display:inline-block;width:{w}px;height:6px;border-radius:3px;background:{color};opacity:0.7;vertical-align:middle;margin-left:6px"></span>'
 
-    _colors = {"analyze_query": "#3b82f6", "retrieve": "#06b6d4", "extract_evidence": "#a855f7", "generate": "#22c55e"}
+    _colors = {"analyze_query": "#3b82f6", "retrieve": "#06b6d4", "generate": "#22c55e"}
     _lat_rows = "".join(
         f'<tr><td style="color:#d1d5db">{_stage_ko[k]}</td>'
         f'<td style="font-weight:700;color:#f3f4f6">{_avg[k]:.2f}s</td>'
@@ -68,6 +69,147 @@ def build_html(results: dict) -> str:
         f'<div style="margin-top:0.5rem;font-size:0.74rem;color:#6b7280">합계: <strong style="color:#f3f4f6">{_total:.1f}s</strong></div>'
     )
     _lat_value = f"{_total:.1f}s"
+
+    def _esc(value: object) -> str:
+        return html.escape(str(value or ""))
+
+    def _clean_answer_for_display(value: object) -> str:
+        # HTML 단계에서는 답변을 정제하지 않고 원문을 그대로 보여준다.
+        return str(value or "").replace("\r\n", "\n").strip()
+
+    _top_k = int(S.get("top_k", 5) or 5)
+    _static_cards: list[str] = []
+    for q in pq:
+        qid = _esc(str(q.get("id", "") or "").replace("eval_", "#"))
+        question = _esc(q.get("question", ""))
+        query_type_raw = str(q.get("query_type", "unknown") or "unknown")
+        query_type = _esc(query_type_raw)
+        if query_type_raw == "single_doc":
+            query_type_class = "type-single"
+        elif query_type_raw == "multi_doc":
+            query_type_class = "type-multi"
+        elif query_type_raw == "csv_match":
+            query_type_class = "type-csv"
+        else:
+            query_type_class = "type-comparison"
+        memo_raw = str(q.get("memo", "") or "").strip()
+        memo = _esc(memo_raw)
+
+        cs = int((q.get("correctness") or {}).get("score", 0) or 0)
+        acs = int((q.get("answer_coverage") or {}).get("score", 0) or 0)
+        fs = int((q.get("faithfulness") or {}).get("score", 0) or 0)
+        crs = int((q.get("context_relevance") or {}).get("score", 0) or 0)
+
+        hit = q.get("hit_position")
+        hit_text = f"Hit@{hit}" if hit else "MISS"
+        hit_cls = "hit-yes" if hit else "hit-no"
+
+        gt_sources = "".join(
+            f"<code style=\"font-size:0.76rem;background:rgba(59,130,246,0.1);color:#93c5fd;padding:0.1rem 0.4rem;border-radius:3px\">{_esc(s)}</code> "
+            for s in (q.get("ground_truth_sources") or [])
+        ).strip()
+        retrieved_sources_all = list(q.get("retrieved_sources") or [])
+        retrieved_sources = "".join(
+            f"<code style=\"font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px\">{_esc(s)}</code> "
+            for s in retrieved_sources_all[:_top_k]
+        ).strip()
+        remaining = max(len(retrieved_sources_all) - _top_k, 0)
+        remaining_text = (
+            f"<span style=\"color:var(--text2);font-size:0.78rem\">... +{remaining}개</span>" if remaining > 0 else ""
+        )
+
+        lat = q.get("latencies") or {}
+        analyze = float(lat.get("analyze_query", 0.0) or 0.0)
+        retrieve = float(lat.get("retrieve", 0.0) or 0.0)
+        generate = float(lat.get("generate", 0.0) or 0.0)
+        lat_text = f"analyze={analyze:.1f}s | retrieve={retrieve:.2f}s | generate={generate:.1f}s"
+
+        expected = _esc(_clean_answer_for_display(q.get("expected_answer", "(정답 없음)")) or "(정답 없음)")
+        generated = _esc(_clean_answer_for_display(q.get("generated_answer", "(답변 없음)")) or "(답변 없음)")
+
+        c_reason = _esc((q.get("correctness") or {}).get("reason", ""))
+        ac_reason = _esc((q.get("answer_coverage") or {}).get("reason", ""))
+        f_reason = _esc((q.get("faithfulness") or {}).get("reason", ""))
+        cr_reason = _esc((q.get("context_relevance") or {}).get("reason", ""))
+
+        _static_cards.append(
+            f"""
+    <div class="query-card">
+      <div class="query-header" onclick="this.parentElement.classList.toggle('open')">
+        <span class="query-id">{qid}</span>
+        <span class="type-tag {query_type_class}">{query_type}</span>
+        <span class="query-q">{question}</span>
+        {"<span style='font-size:0.75rem;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;flex-shrink:0' title='" + memo + "'>💬 " + memo + "</span>" if memo_raw else ""}
+        <span class="query-scores">
+          <span class="score-pill s{max(0, min(cs, 5))}" title="Correctness">C:{cs}</span>
+          <span class="score-pill s{max(0, min(acs, 5))}" title="Answer Coverage">AC:{acs}</span>
+          <span class="score-pill s{max(0, min(fs, 5))}" title="Faithfulness">F:{fs}</span>
+          <span class="score-pill s{max(0, min(crs, 5))}" title="Context Relevance">CR:{crs}</span>
+          <span class="hit-badge {hit_cls}">{hit_text}</span>
+        </span>
+        <span class="query-chevron">▶</span>
+      </div>
+      <div class="query-body">
+        {"<div class='meta-row' style='background:rgba(234,179,8,0.06);border-left:3px solid #eab308;padding:0.5rem 0.75rem;border-radius:0 4px 4px 0;margin-bottom:0.75rem'><span style='font-size:0.8rem;color:#eab308'>💬 <strong>메모:</strong></span> <span style='font-size:0.8rem;color:var(--text)'>" + memo + "</span></div>" if memo_raw else ""}
+        <div class="meta-row">
+          <span><strong>유형:</strong> {query_type}</span>
+          <span><strong>검색 문서:</strong> {min(int(q.get("num_retrieved", 0) or 0), _top_k)}개</span>
+          <span><strong>Hit (source):</strong> <span class="{hit_cls}">{hit_text}</span></span>
+          <span><strong>Recall@K (source):</strong> {float(q.get("recall_at_k", 0.0) or 0.0) * 100:.0f}%</span>
+        </div>
+        <div class="meta-row" style="flex-direction:column;gap:0.4rem">
+          <span><strong>정답 문서:</strong> {gt_sources}</span>
+          <span><strong>검색된 문서:</strong> {retrieved_sources} {remaining_text}</span>
+        </div>
+        <div class="meta-row latency-row">
+          <span><strong>지연시간:</strong> {lat_text}</span>
+        </div>
+        <div class="answer-grid">
+          <div class="answer-box expected">
+            <div class="box-label">기대 답변 (Expected)</div>
+            <div class="box-content">{expected}</div>
+          </div>
+          <div class="answer-box generated">
+            <div class="box-label">생성 답변 (Generated)</div>
+            <div class="box-content">{generated}</div>
+          </div>
+        </div>
+        <div class="judge-grid">
+          <div class="judge-item">
+            <div class="j-header">
+              <span class="j-label">Correctness <span class="j-label-ko">정확성</span></span>
+              <span class="score-pill s{max(0, min(cs, 5))}">{cs}/5</span>
+            </div>
+            <div class="j-reason">{c_reason}</div>
+          </div>
+          <div class="judge-item">
+            <div class="j-header">
+              <span class="j-label">Answer Coverage <span class="j-label-ko">커버리지</span></span>
+              <span class="score-pill s{max(0, min(acs, 5))}">{acs}/5</span>
+            </div>
+            <div class="j-reason">{ac_reason}</div>
+          </div>
+          <div class="judge-item">
+            <div class="j-header">
+              <span class="j-label">Faithfulness <span class="j-label-ko">충실성</span></span>
+              <span class="score-pill s{max(0, min(fs, 5))}">{fs}/5</span>
+            </div>
+            <div class="j-reason">{f_reason}</div>
+          </div>
+          <div class="judge-item">
+            <div class="j-header">
+              <span class="j-label">Context Relevance <span class="j-label-ko">검색관련성</span></span>
+              <span class="score-pill s{max(0, min(crs, 5))}">{crs}/5</span>
+            </div>
+            <div class="j-reason">{cr_reason}</div>
+          </div>
+        </div>
+      </div>
+    </div>"""
+        )
+
+    # JS 렌더 실패 환경에서도 상세 결과가 보이도록 서버사이드에서 토글 카드를 선렌더한다.
+    _static_query_cards_html = "".join(_static_cards)
 
     return f"""<!DOCTYPE html>
 <html lang="ko">
@@ -237,7 +379,7 @@ def build_html(results: dict) -> str:
   <div class="table-section">
     <h2>질문별 상세 결과</h2>
     <button class="expand-all" onclick="toggleAll()">전체 펼치기/접기</button>
-    <div id="queryCards"></div>
+    <div id="queryCards">{_static_query_cards_html}</div>
   </div>
 
   <div class="footer">
@@ -340,6 +482,7 @@ cardsEl.innerHTML = cardDefs.map(c=>`
   </div>
 `).join('');
 
+try {{
 // --- Radar ---
 new Chart(document.getElementById('radarChart'), {{
   type: 'radar',
@@ -424,6 +567,11 @@ new Chart(document.getElementById('distChart'), {{
   }},
   options: {{ plugins: {{ legend:{{position:'right', labels:{{color:'#a1a1a1',font:{{size:11}},padding:12}}}} }} }}
 }});
+}} catch (chartError) {{
+  document.querySelectorAll('.chart-box').forEach((box) => {{
+    box.innerHTML = '<h3>차트</h3><div style="color:var(--text2);font-size:0.85rem">차트 로드 실패(Chart.js)로 시각화는 생략되었습니다. 질문별 상세 결과는 아래에서 확인 가능합니다.</div>';
+  }});
+}}
 
 // --- Insights ---
 const perfect = PQ.filter(q=>(q.correctness?.score??0)===5).length;
@@ -439,8 +587,8 @@ document.getElementById('insights').innerHTML = `
 
 // --- Latency Table ---
 (function() {{
-  const stages = ['analyze_query','retrieve','extract_evidence','generate'];
-  const stageLabels = ['analyze_query','retrieve','extract_evidence','generate'];
+  const stages = ['analyze_query','retrieve','generate'];
+  const stageLabels = ['analyze_query','retrieve','generate'];
   const groups = {{
     '전체 평균': PQ,
     'CSV Match': PQ.filter(q=>q.query_type==='csv_match'),
@@ -455,7 +603,7 @@ document.getElementById('insights').innerHTML = `
   const table = document.getElementById('latencyTable');
   const header = `<thead><tr>
     <th>구간</th>
-    <th>analyze_query</th><th>retrieve</th><th>extract_evidence</th><th>generate</th>
+    <th>analyze_query</th><th>retrieve</th><th>generate</th>
     <th>합계</th><th>n</th>
   </tr></thead>`;
 
@@ -522,79 +670,12 @@ function isEquivalentSource(a, b) {{
 }}
 
 function cleanAnswerForDisplay(text) {{
-  const raw = (text || '').toString().normalize('NFKC').replace(/\\r\\n/g, '\\n');
-  if (!raw.trim()) return raw;
-
-  const lines = [];
-  let inStructuredSection = false;
-  for (const original of raw.split('\\n')) {{
-    const trimmed = (original || '').trim();
-    if (!trimmed) continue;
-
-    const headingMatch = trimmed.match(
-      /^(?:#{1,6}\\s*)?\\[?\\s*(핵심 답변|근거 요약|출처)\\s*\\]?\\s*:?\\s*(.*)$/i
-    );
-    if (headingMatch) {{
-      const heading = headingMatch[1];
-      const trailing = (headingMatch[2] || '').trim();
-      lines.push(heading);
-      inStructuredSection = true;
-      if (trailing) {{
-        lines.push(`- ${{trailing}}`);
-      }}
-      continue;
-    }}
-
-    const hadBullet = /^\\s*[-*•]\\s+/.test(original || '');
-    let line = trimmed
-      .replace(/^\\s*[-*•]\\s*/, '')
-      .replace(/\\s+/g, ' ')
-      .trim();
-
-    if (!line) continue;
-
-    line = line
-      .replace(/Col\\d+\\s*:\\s*/gi, '')
-      .replace(/요구\\s*사항\\s*상세\\s*설명\\s*,?/g, '')
-      .replace(/세부\\s*내용\\s*,?/g, '')
-      .replace(/\\[\\s*\\d+\\s*\\[/g, '[')
-      .replace(/(\\S+)\\s+\\1(\\s+\\1)+/g, '$1')
-      .trim();
-
-    if (!line) continue;
-    if (!/[A-Za-z0-9가-힣]/.test(line)) continue;
-
-    const weirdChars = (line.match(/[^\\w\\s가-힣\\.\\,\\-\\:\\;\\(\\)\\/%\\`\\|\\[\\]'\\"~]/g) || []).length;
-    if (line.length >= 24 && weirdChars / line.length > 0.35) continue;
-
-    const compact = line.replace(/\\s+/g, '');
-    if (compact.length > 120 && !/[.!?]/.test(line)) {{
-      line = `${{line.slice(0, 120)}} ...`;
-    }}
-
-    if (hadBullet || inStructuredSection) {{
-      line = `- ${{line}}`;
-    }}
-
-    lines.push(line);
-  }}
-
-  const deduped = [];
-  const seen = new Set();
-  for (const line of lines) {{
-    const key = line
-      .replace(/^\\s*[-*•]\\s*/, '')
-      .toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(line);
-  }}
-
-  if (!deduped.length) return raw.trim();
-  return deduped.join('\\n');
+  // HTML 단계에서는 정제하지 않고 생성 결과 원문을 그대로 노출한다.
+  return (text || '').toString().replace(/\\r\\n/g, '\\n').trim();
 }}
 
 const cardsContainer = document.getElementById('queryCards');
+if (cardsContainer && cardsContainer.children.length === 0) {{
 PQ.forEach(q => {{
   const cs = q.correctness?.score??0, acs = q.answer_coverage?.score??0, fs = q.faithfulness?.score??0, crs = q.context_relevance?.score??0;
   const cReason = q.correctness?.reason??'', acReason = q.answer_coverage?.reason??'', fReason = q.faithfulness?.reason??'', crReason = q.context_relevance?.reason??'';
@@ -637,7 +718,7 @@ PQ.forEach(q => {{
         }}).join(' ')}} ${{(q.retrieved_sources||[]).length > (S.top_k||5) ? `<span style="color:var(--text2);font-size:0.78rem">... +${{(q.retrieved_sources||[]).length-(S.top_k||5)}}개</span>` : ''}}</span>
       </div>
       <div class="meta-row latency-row">
-        ${{q.latencies?`<span><strong>지연시간:</strong> analyze=${{(q.latencies.analyze_query||0).toFixed(1)}}s | retrieve=${{(q.latencies.retrieve||0).toFixed(2)}}s | evidence=${{(q.latencies.extract_evidence||0).toFixed(1)}}s | generate=${{(q.latencies.generate||0).toFixed(1)}}s</span>`:''}}</span>
+        ${{q.latencies?`<span><strong>지연시간:</strong> analyze=${{(q.latencies.analyze_query||0).toFixed(1)}}s | retrieve=${{(q.latencies.retrieve||0).toFixed(2)}}s | generate=${{(q.latencies.generate||0).toFixed(1)}}s</span>`:''}}
       </div>
       <div class="answer-grid">
         <div class="answer-box expected">
@@ -683,6 +764,7 @@ PQ.forEach(q => {{
   `;
   cardsContainer.appendChild(card);
 }});
+}}
 
 function escapeHtml(text) {{
   const div = document.createElement('div');
