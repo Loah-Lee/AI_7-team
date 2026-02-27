@@ -9,19 +9,23 @@
   - 레이턴시 실험은 `CSV 숏서킷 -> 2트랙 구축/개선` 순서 유지
 
 ## 최종 발표 순서
-1. 실험 1: 평가 정합화 기준선 확립
+1. 실험 1: 신뢰성 기반 확보 (1-1 평가 정합화, 1-2 DB handoff 검증)
 2. 실험 2: CSV short-circuit 저지연 경로 구축
 3. 실험 3: 2트랙 생성 경로 구축 + 개선(통합)
-4. 실험 4: DB handoff 검증으로 데이터 영향 분리
-5. 실험 5: chunk recall 개선(측정 정합 + 개선 시도 분리)
-6. 실험 6: #017 목적형 개선(표/이미지 수치 추출)
-7. 실험 7: evidence-bounded generation 확정
-8. 최종 정리: 기준선 대비 최종 운영 지표 정리
+4. 실험 4: chunk recall 개선(측정 정합 + 개선 시도 분리)
+5. 실험 5: eval_017 목적형 개선(표/이미지 수치 추출)
+6. 실험 6: evidence-bounded generation 확정
+7. 최종 정리: 기준선 대비 최종 운영 지표 정리
 
 ---
 
-## 1) 실험 1: 평가 정합화 기준선 확립
-핵심: "먼저 측정이 맞아야 개선이 맞다."
+## 1) 실험 1: 신뢰성 기반 확보
+핵심: "평가 정합화 + DB 검증을 하나의 신뢰성 축으로 통합."
+
+공통 A/B(통일, 신뢰 비교군):
+- A: `before_dev`
+- B: `current_patch`
+- 사유: DB 불안정 진단값(`testdb`)을 공식 비교군에서 제외하고, 재현 가능한 기준선/패치 기준으로 통일
 
 | 지표 | A (before_dev) | B (current_patch) | 변화율 |
 |---|---:|---:|---:|
@@ -33,7 +37,22 @@
 | MRR (source) | 0.75 | 0.90 | +20.00% |
 | 매크로(C/AC/F/CR) | 2.775 | 4.025 | +45.05% |
 
-전환: "지표 정합화가 끝났으니, 성능/속도 병목을 줄이는 실험으로 이동."
+### 1-1) 평가 정합화
+- 목적: 측정 신뢰도 확보(확장자 동치, 멀티소스 hit/recall/mrr 일관화)
+- 핵심 효과: 정답 판정 왜곡 제거, 이후 실험의 해석 가능성 확보
+
+### 1-2) DB handoff 검증
+- 목적: 코드 영향과 DB 품질 영향을 분리
+- 반영 수정:
+  - `048d68a`: single-doc ranking/fallback 정밀화(노이즈 source 노출 억제)
+  - `d6ca724`: precision fact anchor chunk 가중 보강
+  - `f5cc477`: source metadata 정규화(확장자/표기 불일치 보정)
+  - `e5a18a4`: source-based fallback + eval alignment(저신뢰 검색 시 안전 fallback)
+- 진단 스냅샷(참고):
+  - `testdb_20260226` (2026-02-26 11:06): C 1.20 / AC 1.00 / R 0.20 / MRR 0.20
+  - `backupdb_20260226` (2026-02-26 11:18): C 3.75 / AC 3.50 / R 0.90 / MRR 0.90
+
+전환: "신뢰성 기반이 확보되었으니, 성능/속도 병목을 줄이는 실험으로 이동."
 
 ---
 
@@ -151,27 +170,7 @@
 
 ---
 
-## 4) 실험 4: DB handoff 검증으로 데이터 영향 분리
-핵심: "코드보다 DB 품질이 결과를 크게 좌우."
-
-### 어떤 수정을 했는가 (DB 영향 분리용 코드 보강)
-- `048d68a`: single-doc ranking/fallback 정밀화(노이즈 source 노출 억제)
-- `d6ca724`: precision fact anchor chunk 가중 보강
-- `f5cc477`: source metadata 정규화(확장자/표기 불일치 보정)
-- `e5a18a4`: source-based fallback + eval alignment(저신뢰 검색 시 안전 fallback)
-
-| 지표 | A (testdb_20260226) | B (backupdb_20260226) | 변화율 |
-|---|---:|---:|---:|
-| Correctness | 1.20 | 3.75 | +212.50% |
-| Answer Coverage | 1.00 | 3.50 | +250.00% |
-| Recall@5 (source) | 0.20 | 0.90 | +350.00% |
-| MRR (source) | 0.20 | 0.90 | +350.00% |
-
-전환: "source hit 이후에는 chunk hit 개선이 다음 과제."
-
----
-
-## 5) 실험 5: chunk recall 개선(측정/개선 분리 보고)
+## 4) 실험 4: chunk recall 개선(측정/개선 분리 보고)
 핵심: "chunk recall은 별도 지표로 관리하고, 품질 트레이드오프를 함께 본다."
 
 ### 5-1) 측정 정합(라벨 보정)
@@ -199,7 +198,7 @@
 
 ---
 
-## 6) 실험 6: eval_017 목적형 개선(표/이미지 수치 추출)
+## 5) 실험 5: eval_017 목적형 개선(표/이미지 수치 추출)
 핵심: "평균이 아니라 목적형 KPI 단건 성공을 증명."
 
 비교 기준:
@@ -217,7 +216,7 @@
 
 ---
 
-## 7) 실험 7: evidence-bounded generation 확정
+## 6) 실험 6: evidence-bounded generation 확정
 핵심: "근거 밖 문장 생성 억제로 신뢰성 향상."
 
 | 지표 | A (full20_after_patch_v2) | B (full20_evidence_strict) | 변화율 |
@@ -229,19 +228,25 @@
 | 매크로(C/AC/F/CR) | 4.1375 | 4.2250 | +2.11% |
 
 ### 샘플 이미지
-- 패치 전(충실성 3/5 사례)
 
-![구 실험8 패치 전](assets/exp8_before.png)
-
-- 패치 후(충실성 5/5 사례)
-
-![구 실험8 패치 후](assets/exp8_after.png)
+<table>
+  <tr>
+    <td align="center">
+      <strong>패치 전 (충실성 3/5)</strong><br/>
+      <img src="assets/exp8_before.png" alt="구 실험8 패치 전" width="380"/>
+    </td>
+    <td align="center">
+      <strong>패치 후 (충실성 5/5)</strong><br/>
+      <img src="assets/exp8_after.png" alt="구 실험8 패치 후" width="380"/>
+    </td>
+  </tr>
+</table>
 
 전환: "최종적으로 기준선 대비 결과를 한 번에 정리."
 
 ---
 
-## 8) 최종 정리: 기준선 대비 최종 운영 지표
+## 7) 최종 정리: 기준선 대비 최종 운영 지표
 핵심: "실험 1의 기준선(current_patch)에서 최종 운영(full20_evidence_strict)까지의 순증."
 
 | 지표 | A (current_patch) | B (full20_evidence_strict) | 변화율 |
