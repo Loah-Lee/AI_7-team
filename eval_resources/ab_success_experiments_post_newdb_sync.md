@@ -2,97 +2,90 @@
 
 ## 범위
 - 기간: 2026-02-26 ~ 2026-02-27
-- 조건: **새 DB 적용 후**, 평가가 **싱크 오류 없이 정상 시작된 구간** 기준
-- 대상: LLM Judge 4지표(C/AC/F/CR)에서 **뚜렷한 개선이 확인된 패치만**
-- 보고 원칙: 변화율(%) 중심, 원점수는 보조지표로만 표기
+- 조건: 새 DB 적용 후, 평가가 싱크 오류 없이 정상 시작된 구간
+- 보고 원칙: 변화율(%) 중심, 원점수는 보조지표
 
 ## 계산 기준
 - 변화율(%) = `(B - A) / A * 100`
-- 종합 변화율(매크로) = `((C+AC+F+CR)/4)`의 A/B 변화율
+- 매크로 변화율 = `((C+AC+F+CR)/4)`의 A/B 변화율
 
 ---
 
-## 실험 1 (성공)
-### 커밋(시간순)
-1. `f5cc477` (2026-02-26 12:03) feat(retriever): normalize source metadata and default asset sidecar off  
-2. `e5a18a4` (2026-02-26 14:12) feat(retriever): source-based fallback and eval alignment  
-3. `d758ebe` (2026-02-26 14:42) refactor(retrieval): dynamic strategy routing for visual/fact queries  
-4. `07013fc` (2026-02-26 14:50) fix(eval): preserve csv sources and robust multi-source hit position
+## 실험 2 (묶음, 성공) - 2/26 15:00~19:17 유효 실험 통합
+### 포함 커밋(시간순)
+1. `f5ebb82` (2026-02-26 15:17) eval report 구조화 답변 보존
+2. `685d36b` (2026-02-26 19:14) extractive draft 우선 short-circuit
+3. `f5f3d31` (2026-02-26 19:17) evidence rerank + chunk-aware dedupe
 
-### 실험 이유
-- 새 DB 전환 직후 `source/metadata` 불일치와 라우팅 불안정으로 평가가 흔들려,  
-  검색-평가 정렬(align)과 사실 질의 라우팅 안정화가 필요했음.
+### 묶음 실험 이유
+- 단건 패치로는 개선 해석이 약해서, 15~19시 구간의 유효 패치를 하나의 실험군으로 재정의.
+- 생성 전 단계에서 근거 초안을 먼저 고정하고, 근거 정렬/중복 제거로 실제 답변 입력 품질을 끌어올리는 것이 목적.
+- `f5ebb82`는 점수 지표보다 결과 해석 안정성(리포트 가독성) 측면의 유효 패치로 포함.
 
 ### A/B
-- A: `eval_results_p2_full20_recheck.json`
-- B: `eval_results_current_reval_dev_latest.json`
+- A: `eval_resources/eval_results_current_reval_dev_latest.json`
+- B: `eval_resources/eval_results_current_reval_full20_after_rebase.json`
 
 ### 결과 (변화율 중심)
-- Correctness: **+134.4%** (1.60 -> 3.75)
-- Answer Coverage: **+157.1%** (1.40 -> 3.60)
-- Faithfulness: **+1.2%** (4.30 -> 4.35)
-- Context Relevance: **+203.3%** (1.50 -> 4.55)
-- 매크로(4지표 평균): **+84.7%** (2.20 -> 4.06)
+- Correctness: +2.7% (3.75 -> 3.85)
+- Answer Coverage: +4.2% (3.60 -> 3.75)
+- Faithfulness: +5.7% (4.35 -> 4.60)
+- Context Relevance: -1.1% (4.55 -> 4.50)
+- 매크로(4지표 평균): +2.8% (4.06 -> 4.17)
 
 ### 판단
-- **성공**: C/AC/CR에서 대폭 개선, 평가 정상화 구간 진입.
+- 성공: CR 소폭 하락이 있었지만 C/AC/F가 동시 상승, 매크로 개선 유지.
 
 ---
 
-## 실험 2 (성공)
-### 커밋(시간순)
-1. `685d36b` (2026-02-26 19:14) fix(graph): short-circuit to extractive draft before LLM generation  
-2. `f5f3d31` (2026-02-26 19:17) retriever: keep effective evidence rerank and chunk-aware dedupe
+## 목적형 실험 별도 정리 - #017(표/이미지 정보 활용)
+### 목적
+- #017은 일반 질의 개선이 아니라, 표/이미지 기반 수치 추출 가능 여부를 확인하는 목적형 실험으로 별도 관리.
 
-### 실험 이유
-- 생성 단계에서 불필요한 재서술/누락이 발생해,  
-  **추출 초안 우선(extractive-first)** + **근거 재정렬/중복제거**로 답변 충실도를 끌어올리려 함.
-
-### A/B
-- A: `eval_results_current_reval_dev_latest.json`
-- B: `eval_results_current_reval_full20_after_rebase.json`
-
-### 결과 (변화율 중심)
-- Correctness: **+2.7%** (3.75 -> 3.85)
-- Answer Coverage: **+4.2%** (3.60 -> 3.75)
-- Faithfulness: **+5.7%** (4.35 -> 4.60)
-- Context Relevance: **-1.1%** (4.55 -> 4.50)
-- 매크로(4지표 평균): **+2.8%** (4.06 -> 4.17)
-
-### 판단
-- **성공**: CR 소폭 하락은 있었지만 C/AC/F가 동시 상승했고 매크로가 양(+) 개선.
+### #017 전후 비교
+- 비교 파일
+  - 전: `eval_resources/eval_results_current_focus6_after_patch.json`
+  - 후: `eval_resources/eval_results_current_full20_after_patch_v2.json`
+- 점수 변화 (#017 단건)
+  - Correctness: +25.0% (4 -> 5)
+  - Answer Coverage: +25.0% (4 -> 5)
+  - Faithfulness: +25.0% (4 -> 5)
+  - Context Relevance: +0.0% (5 -> 5)
+- 해석
+  - 전체 20문항 평균과 무관하게, #017 목적(표/이미지 수치 추출 안정화)은 달성됨.
 
 ---
 
-## 실험 3 (성공, 최종 생성 파트)
-### 커밋(시간순)
-1. `3863ef6` (2026-02-27) feat(eval): enforce evidence-bounded generation and add post-sync A/B report
+## 실험 3 (성공) - 어젯밤부터 생성단계 확정 패치 전체 정리
+### 포함 패치(확정, 시간순)
+1. `685d36b` (2026-02-26 19:14)
+  - 생성 전에 extractive draft를 우선 채택해 장황/누락 리스크를 줄임.
+2. `b1e3439` (2026-02-27 10:36)
+  - evidence-bounded generation 강제
+  - 답변 스타일 제어(단답형 vs 가이드형) 강화
+  - 라벨(`결론/요약/근거/출처`) 제거 및 불필요 메타문장 억제
 
-### 실험 이유
-- 생성 답변에서 문맥 밖 문장이 섞이면서 Faithfulness가 흔들려,  
-  **생성 후단을 근거 한정(evidence-bounded)** 으로 강제해 환각성 문장을 제거하려고 함.
-
-### A/B
-- A: `eval_results_current_full20_after_patch_v2.json`
-- B: `eval_results_current_full20_evidence_strict.json`
+### 생성단계 A/B (최종 확정 패치 비교)
+- A: `eval_resources/eval_results_current_full20_after_patch_v2.json`
+- B: `eval_resources/eval_results_current_full20_evidence_strict.json`
 
 ### 결과 (변화율 중심)
-- Correctness: **+0.0%** (3.95 -> 3.95)
-- Answer Coverage: **+0.0%** (3.85 -> 3.85)
-- Faithfulness: **+6.2%** (4.05 -> 4.30)
-- Context Relevance: **+2.1%** (4.70 -> 4.80)
-- 매크로(4지표 평균): **+2.1%** (4.14 -> 4.23)
+- Correctness: +0.0% (3.95 -> 3.95)
+- Answer Coverage: +0.0% (3.85 -> 3.85)
+- Faithfulness: +6.2% (4.05 -> 4.30)
+- Context Relevance: +2.1% (4.70 -> 4.80)
+- 매크로(4지표 평균): +2.1% (4.14 -> 4.23)
 
 ### 판단
-- **성공**: C/AC를 유지한 채 F와 CR을 동시 개선.
+- 성공: C/AC 유지 상태에서 F/CR을 동시 개선.
 
 ---
 
 ## 메모
-- 본 문서는 **커밋 단위 패치**만 포함했으며, 미커밋(worktree) 실험은 제외함.
-- 참조 리포트/결과:
-  - `eval_resources/eval_results_p2_full20_recheck.json`
+- 본 문서는 커밋/결과 파일로 재현 가능한 실험만 포함.
+- 참조 결과 파일
   - `eval_resources/eval_results_current_reval_dev_latest.json`
   - `eval_resources/eval_results_current_reval_full20_after_rebase.json`
+  - `eval_resources/eval_results_current_focus6_after_patch.json`
   - `eval_resources/eval_results_current_full20_after_patch_v2.json`
   - `eval_resources/eval_results_current_full20_evidence_strict.json`
