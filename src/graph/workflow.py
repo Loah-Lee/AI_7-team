@@ -1604,7 +1604,7 @@ class RAGChatbotV17:
             if not key or key in seen_candidates:
                 return
             seen_candidates.add(key)
-            candidate_scores.append((score, line[:220]))
+            candidate_scores.append((score, self._clip_text_safely(line, 360)))
 
         capturing = False
         lines_since_heading = 0
@@ -2920,7 +2920,7 @@ class RAGChatbotV17:
             amount_text = format_amount(float(org_info.amount_numeric))
 
         if summary and len(summary) > 220:
-            summary = summary[:220].rstrip() + "..."
+            summary = self._clip_text_safely(summary, 360)
 
         bullet_lines: list[str] = []
         if project_name:
@@ -4028,9 +4028,12 @@ class RAGChatbotV17:
 
                 if self._is_single_value_query(query):
                     candidate_answer = polished_answer or answer_text
-                    single_value = self._extract_single_value_from_fact_answer(candidate_answer, query=query)
-                    if not single_value:
-                        single_value = self._extract_single_value_from_fact_answer(answer_text, query=query)
+                    preserve_context = self._should_preserve_contextual_answer(query, candidate_answer)
+                    single_value = ""
+                    if not preserve_context:
+                        single_value = self._extract_single_value_from_fact_answer(candidate_answer, query=query)
+                        if not single_value:
+                            single_value = self._extract_single_value_from_fact_answer(answer_text, query=query)
                     if single_value:
                         payload["answer"] = single_value
                     elif polished_answer:
@@ -4113,7 +4116,8 @@ class RAGChatbotV17:
         # 1) 질문 의도 파악
         intent = self.query_parser.parse(query)
         if intent.org_name:
-            intent.org_name = self.vector_store.normalize_org_name(intent.org_name)
+            normalized_org = self.vector_store.normalize_org_name(intent.org_name)
+            intent.org_name = self._resolve_known_org_name(normalized_org) or normalized_org
         if getattr(self.query_parser, "last_parse_used_llm", False):
             perf_stats["llm_calls"] = int(perf_stats["llm_calls"]) + 1
         normalized_query = unicodedata.normalize("NFKC", query.lower())
@@ -4647,10 +4651,10 @@ class RAGChatbotV17:
                 return value
             return value[: max_chars - 1].rstrip() + "…"
 
-        core_line = _trim_line(lines[0], 180)
+        core_line = _trim_line(lines[0], 300)
         rendered = [core_line]
         if len(lines) > 1:
-            rendered.append(_trim_line(lines[1], 220))
+            rendered.append(_trim_line(lines[1], 360))
         return "\n".join(rendered).strip()
 
     @staticmethod
@@ -5315,6 +5319,19 @@ class RAGChatbotV17:
         return any(marker in normalized for marker in value_markers)
 
     @staticmethod
+    def _should_preserve_contextual_answer(query: str, answer: str) -> bool:
+        """단일 값 질의라도 예외/조건 맥락이 있으면 값 축약을 피합니다."""
+        q_norm = unicodedata.normalize("NFKC", str(query or "").lower())
+        a_norm = unicodedata.normalize("NFKC", str(answer or "").lower())
+        if not q_norm or not a_norm:
+            return False
+        exception_markers = ["다만", "단,", "단 ", "예외", "초과", "가능", "허용", "경우", "협의"]
+        if any(marker in a_norm for marker in exception_markers):
+            if any(token in q_norm for token in ["용량", "이내", "기한", "책임", "부담", "기준", "요건", "조건"]):
+                return True
+        return False
+
+    @staticmethod
     def _extract_single_value_from_fact_answer(answer: str, query: str = "") -> str:
         """직접 추출 답변 문장에서 단일 값 부분만 추출합니다."""
         text = unicodedata.normalize("NFKC", str(answer or "")).strip()
@@ -5959,8 +5976,8 @@ class RAGChatbotV17:
 
         core_limit = 3 if answer_style == "guide" else 2
         evidence_limit = 6 if answer_style == "guide" else 1
-        core_items = [_trim_item(item, 320 if answer_style == "guide" else 220) for item in _dedupe(sections["핵심 답변"])][:core_limit]
-        evidence_items = [_trim_item(item, 240 if answer_style == "guide" else 180) for item in _dedupe(sections["근거 요약"])][:evidence_limit]
+        core_items = [_trim_item(item, 320 if answer_style == "guide" else 280) for item in _dedupe(sections["핵심 답변"])][:core_limit]
+        evidence_items = [_trim_item(item, 240 if answer_style == "guide" else 320) for item in _dedupe(sections["근거 요약"])][:evidence_limit]
         source_items_all = _dedupe(sections["출처"])
         source_items_filtered = [item for item in source_items_all if _is_source_line(item)]
         source_items = source_items_filtered if source_items_filtered else source_items_all
@@ -5970,7 +5987,7 @@ class RAGChatbotV17:
             core_items = ["요청하신 항목은 문서에서 확인되지 않습니다."]
 
         primary = core_items[0] if core_items else "요청하신 항목에 대해 문서에서 확인 가능한 내용을 정리했습니다."
-        primary = _trim_item(primary, 320 if answer_style == "guide" else 220)
+        primary = _trim_item(primary, 320 if answer_style == "guide" else 280)
 
         rendered: list[str] = [primary]
         if answer_style == "guide":
@@ -5991,7 +6008,7 @@ class RAGChatbotV17:
         if "확인되지 않습니다" not in primary and evidence_items:
             follow = evidence_items[0]
             if not re.match(r"^(근거|출처|source)\s*:", follow, flags=re.IGNORECASE):
-                rendered.append(_trim_item(follow, 220))
+                rendered.append(_trim_item(follow, 320))
 
         return "\n".join(rendered).strip()
 
@@ -6176,7 +6193,7 @@ class RAGChatbotV17:
                         score -= 1
                     if score <= 0:
                         continue
-                    scored_summary_lines.append((score, line[:220]))
+                    scored_summary_lines.append((score, self._clip_text_safely(line, 360)))
 
             if scored_summary_lines:
                 scored_summary_lines.sort(key=lambda x: (x[0], len(x[1])), reverse=True)
@@ -6218,7 +6235,7 @@ class RAGChatbotV17:
                             snippet_parts.append(nxt)
                         if len(" ; ".join(snippet_parts)) >= 180 or len(snippet_parts) >= 3:
                             break
-                    anchor_lines.append(" ; ".join(snippet_parts)[:220])
+                    anchor_lines.append(self._clip_text_safely(" ; ".join(snippet_parts), 360))
             if anchor_lines:
                 uniq_anchor: list[str] = []
                 seen_anchor: set[str] = set()
@@ -6343,13 +6360,13 @@ class RAGChatbotV17:
                     continue
                 if score <= 0 and keywords:
                     continue
-                snippet = line[:220]
+                snippet = self._clip_text_safely(line, 360)
                 if req_code_hit and req_match:
                     # 코드 앵커 질의는 코드 주변 스니펫을 우선 반환해 핵심 근거가 잘리지 않도록 한다.
                     start = max(0, req_match.start() - 90)
                     end = min(len(line), req_match.end() + 130)
                     snippet = line[start:end].strip()
-                snippet = snippet[:220]
+                snippet = self._clip_text_safely(snippet, 360)
                 scored_lines.append((score, snippet))
                 if req_code_hit:
                     req_anchor_lines.append((score, snippet))
@@ -6415,7 +6432,7 @@ class RAGChatbotV17:
                     continue
                 if not any(marker in line for marker in fallback_markers):
                     continue
-                lines.append(line[:220])
+                lines.append(self._clip_text_safely(line, 360))
                 if len(lines) >= max_lines:
                     return lines
         return lines
@@ -6424,6 +6441,118 @@ class RAGChatbotV17:
     def _normalize_text_for_match(text: str) -> str:
         normalized = unicodedata.normalize("NFC", unicodedata.normalize("NFKC", (text or "").lower()))
         return re.sub(r"[^0-9a-zA-Z가-힣]+", "", normalized)
+
+    @staticmethod
+    def _clip_text_safely(text: str, max_len: int = 360) -> str:
+        """문장 경계를 최대한 보존하면서 긴 텍스트를 잘라냅니다."""
+        value = unicodedata.normalize("NFKC", str(text or "")).strip()
+        if not value:
+            return ""
+        if len(value) <= max_len:
+            return value
+
+        min_idx = max(20, int(max_len * 0.6))
+        for idx in range(max_len, min_idx, -1):
+            prev = value[idx - 1]
+            nxt = value[idx] if idx < len(value) else ""
+            if prev in ".!?;:)]}\"'”’":
+                return value[:idx].rstrip()
+            if prev in "다됨요함" and (not nxt or nxt.isspace()):
+                return value[:idx].rstrip()
+        return value[: max_len - 1].rstrip() + "…"
+
+    @staticmethod
+    def _looks_incomplete_clause(text: str) -> bool:
+        value = unicodedata.normalize("NFKC", str(text or "")).strip()
+        if not value:
+            return False
+        if value.endswith(("…", "...", ".", "!", "?", "다", "다.", "입니다.", "합니다.", "됨.", "함.")):
+            return False
+        return bool(
+            re.search(
+                r"(하는|이며|하고|하여|되는|발생하는|경우|때|또는|및|으로|와|과|에서|에게|관련|대해)$",
+                value,
+            )
+        )
+
+    def _expand_line_with_context(
+        self,
+        base_line: str,
+        candidates: list[str],
+        max_len: int = 520,
+    ) -> str:
+        """근거 라인이 중간에서 끊긴 경우 동일 맥락의 더 긴 라인으로 보완합니다."""
+        base = self._clean_extracted_line(base_line)
+        if not base:
+            return ""
+        base_norm = self._normalize_text_for_match(base)
+        base_tokens = [
+            tok
+            for tok in re.findall(r"[0-9a-zA-Z가-힣]{2,}", unicodedata.normalize("NFKC", base.lower()))
+            if tok and not tok.isdigit()
+        ][:10]
+        best_line = base
+        best_score = -1.0
+
+        for raw in candidates:
+            cand = self._clean_extracted_line(raw)
+            if not cand:
+                continue
+            if len(cand) <= len(best_line) + 8:
+                continue
+            cand_norm = self._normalize_text_for_match(cand)
+            if not cand_norm:
+                continue
+
+            contains = bool(base_norm and base_norm in cand_norm)
+            overlap = 0
+            if base_tokens:
+                cand_lower = unicodedata.normalize("NFKC", cand.lower())
+                overlap = sum(1 for tok in base_tokens if tok in cand_lower)
+            min_overlap = max(2, len(base_tokens) // 2) if base_tokens else 1
+            if not contains and overlap < min_overlap:
+                continue
+
+            score = float(overlap + (4 if contains else 0))
+            if not self._looks_incomplete_clause(cand):
+                score += 1.2
+            if score > best_score or (score == best_score and len(cand) > len(best_line)):
+                best_score = score
+                best_line = cand
+
+        if self._looks_incomplete_clause(best_line):
+            best_norm = self._normalize_text_for_match(best_line)
+            for raw in candidates:
+                follow = self._clean_extracted_line(raw)
+                if not follow or follow == best_line:
+                    continue
+                if len(follow) < 6 or len(follow) > 220:
+                    continue
+                follow_norm = self._normalize_text_for_match(follow)
+                if not follow_norm or follow_norm in best_norm or best_norm in follow_norm:
+                    continue
+                marker_hit = any(
+                    marker in unicodedata.normalize("NFKC", follow.lower())
+                    for marker in ["경우", "다만", "단", "예외", "초과", "협의", "조정", "가능", "허용"]
+                )
+                if not marker_hit:
+                    continue
+                topic_hit = False
+                follow_lower = unicodedata.normalize("NFKC", follow.lower())
+                for tok in base_tokens:
+                    if tok in follow_lower:
+                        topic_hit = True
+                        break
+                if not topic_hit:
+                    follow_head = unicodedata.normalize("NFKC", follow).strip()
+                    if follow_head.startswith(("경우", "이 경우", "다만", "단,", "단 ")):
+                        topic_hit = True
+                if not topic_hit and base_tokens:
+                    continue
+                best_line = f"{best_line} {follow}".strip()
+                break
+
+        return self._clip_text_safely(best_line, max_len=max_len)
 
     @staticmethod
     def _clean_extracted_line(line: str) -> str:
@@ -8062,6 +8191,11 @@ class RAGChatbotV17:
                 )
             if not owner_line:
                 return None
+            owner_context_pool = [line for line, _src in ranked]
+            owner_context_pool.extend(
+                line for line, _src in _ensure_source_wide_lines(max_sources=3, max_lines_per_source=2400)
+            )
+            owner_line = self._expand_line_with_context(owner_line, owner_context_pool, max_len=520)
             subject = ""
             if any(marker in owner_line for marker in ["주사업자", "사업자", "제안사", "수급자", "계약상대자", "계약상대"]):
                 subject = "사업자(제안사/주사업자)"
@@ -8090,6 +8224,10 @@ class RAGChatbotV17:
             ]
             if not owner_evidence:
                 owner_evidence = [line for line, _src in ranked if owner_marker_pattern.search(line)]
+            owner_evidence = [self._expand_line_with_context(line, owner_context_pool, max_len=520) for line in owner_evidence]
+            owner_evidence = [line for line in owner_evidence if line]
+            if owner_line and owner_line not in owner_evidence:
+                owner_evidence.insert(0, owner_line)
             if owner_evidence:
                 evidence = owner_evidence[:3]
             return (answer, evidence, best_source)
@@ -8121,6 +8259,10 @@ class RAGChatbotV17:
             return None
 
         if wants_capacity:
+            capacity_context_pool = [line for line, _src in ranked]
+            capacity_context_pool.extend(
+                line for line, _src in _ensure_source_wide_lines(max_sources=3, max_lines_per_source=2400)
+            )
             capacity_line = next(
                 (
                     line
@@ -8129,7 +8271,7 @@ class RAGChatbotV17:
                     and (any(token in line.lower() for token in focus_tokens) or any(marker in line for marker in ["용량", "페이지"]))
                 ),
                 "",
-            )
+                )
             if not capacity_line:
                 capacity_line = next((line for line, _src in ranked if re.search(r"\d+\s*(MB|GB|KB)", line, re.IGNORECASE)), "")
             if not capacity_line:
@@ -8155,14 +8297,52 @@ class RAGChatbotV17:
                     "",
                 )
             if capacity_line:
+                capacity_line = self._expand_line_with_context(capacity_line, capacity_context_pool, max_len=520)
                 match = re.search(r"\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(MB|GB|KB)", capacity_line, re.IGNORECASE)
                 value = match.group(0).replace(" ", "") if match else ""
-                answer = (
-                    f"문서 기준 용량 값은 `{value}`입니다."
-                    if value
-                    else f"문서 기준 용량 관련 직접 근거는 `{capacity_line}`입니다."
+                value_key = value.replace(" ", "").lower()
+                exception_markers = ["단,", "다만", "예외", "초과", "허용", "가능", "특성"]
+                exception_line = next(
+                    (
+                        self._clean_extracted_line(line)
+                        for line in capacity_context_pool
+                        if line
+                        and any(marker in unicodedata.normalize("NFKC", line.lower()) for marker in exception_markers)
+                        and (
+                            (value_key and value_key in re.sub(r"\s+", "", unicodedata.normalize("NFKC", line.lower())))
+                            or any(token in unicodedata.normalize("NFKC", line.lower()) for token in ["용량", "페이지", "홍보"])
+                        )
+                    ),
+                    "",
                 )
-                return (answer, [capacity_line], best_source)
+                if exception_line:
+                    exception_line = self._expand_line_with_context(exception_line, capacity_context_pool, max_len=520)
+                if not exception_line:
+                    cap_norm = unicodedata.normalize("NFKC", capacity_line.lower())
+                    if any(marker in cap_norm for marker in exception_markers):
+                        exception_line = capacity_line
+
+                exception_clause = ""
+                if exception_line:
+                    exc_norm = self._clean_extracted_line(exception_line)
+                    clause_match = re.search(
+                        r"((?:단|다만|예외)[^.!?\n]{0,220}|[^.!?\n]{0,120}초과[^.!?\n]{0,120})",
+                        exc_norm,
+                        flags=re.IGNORECASE,
+                    )
+                    exception_clause = self._clean_extracted_line(clause_match.group(1)) if clause_match else exc_norm
+
+                if value and exception_clause:
+                    answer = f"문서 기준 용량은 `{value}` 이내이며, {exception_clause}"
+                elif value:
+                    answer = f"문서 기준 용량 값은 `{value}`입니다."
+                else:
+                    answer = f"문서 기준 용량 관련 직접 근거는 `{capacity_line}`입니다."
+
+                capacity_evidence = [capacity_line]
+                if exception_line and exception_line not in capacity_evidence:
+                    capacity_evidence.append(exception_line)
+                return (answer, capacity_evidence[:3], best_source)
             return None
 
         if wants_unit_quantity:
@@ -8171,6 +8351,87 @@ class RAGChatbotV17:
                 *[(line, src) for line, src in fallback_lines],
                 *[(line, src) for line, src in _ensure_source_wide_lines(max_sources=3, max_lines_per_source=2600)],
             ]
+
+            def _resolve_target_row_index() -> int | None:
+                row_match = re.search(r"(\d{1,3})\s*번(?:\s*항목)?", normalized_query)
+                if row_match:
+                    try:
+                        return int(row_match.group(1))
+                    except (TypeError, ValueError):
+                        return None
+                row_match = re.search(r"제\s*(\d{1,3})\s*항(?:목)?", normalized_query)
+                if row_match:
+                    try:
+                        return int(row_match.group(1))
+                    except (TypeError, ValueError):
+                        return None
+                return None
+
+            def _clean_qty_value(raw_value: str) -> str:
+                value = unicodedata.normalize("NFKC", str(raw_value or "")).strip()
+                value = value.strip("`\"'[]()")
+                value = re.sub(r"\s+", "", value)
+                value = re.sub(r"[;,]+$", "", value)
+                return value
+
+            def _extract_row_qty_from_line(line: str, row_index: int | None) -> str:
+                norm_line = unicodedata.normalize("NFKC", str(line or ""))
+                if not norm_line:
+                    return ""
+
+                if row_index is not None:
+                    idx = str(row_index)
+                    json_row_pattern = re.compile(
+                        rf'\[\s*"{idx}"\s*,\s*"[^"]*"\s*,\s*"([^"]{{1,40}})"',
+                        re.IGNORECASE,
+                    )
+                    json_match = json_row_pattern.search(norm_line)
+                    if json_match:
+                        candidate = _clean_qty_value(json_match.group(1))
+                        if candidate:
+                            return candidate
+
+                    pipe_row_pattern = re.compile(
+                        rf"\|\s*{idx}\s*\|[^|\n]{{0,140}}\|\s*([^|\n]{{1,40}}?)\s*\|",
+                        re.IGNORECASE,
+                    )
+                    pipe_match = pipe_row_pattern.search(norm_line)
+                    if pipe_match:
+                        candidate = _clean_qty_value(pipe_match.group(1))
+                        if candidate:
+                            return candidate
+
+                    labeled_row_pattern = re.compile(
+                        rf"번호\s*[:：]?\s*{idx}\b[^\n]{{0,260}}?수량\s*[:：]?\s*([0-9][^,\]\|;\n]{{0,24}})",
+                        re.IGNORECASE,
+                    )
+                    labeled_match = labeled_row_pattern.search(norm_line)
+                    if labeled_match:
+                        candidate = _clean_qty_value(labeled_match.group(1))
+                        if candidate:
+                            return candidate
+
+                generic_json_pattern = re.compile(
+                    r'\[\s*"\d{1,3}"\s*,\s*"[^"]*"\s*,\s*"([^"]{1,40})"',
+                    re.IGNORECASE,
+                )
+                generic_json_match = generic_json_pattern.search(norm_line)
+                if generic_json_match:
+                    candidate = _clean_qty_value(generic_json_match.group(1))
+                    if candidate:
+                        return candidate
+
+                generic_labeled_match = re.search(
+                    r"수량\s*[:：]?\s*([0-9][^,\]\|;\n]{0,24})",
+                    norm_line,
+                    re.IGNORECASE,
+                )
+                if generic_labeled_match:
+                    candidate = _clean_qty_value(generic_labeled_match.group(1))
+                    if candidate:
+                        return candidate
+                return ""
+
             if "직무교육" in normalized_query:
                 job_line = next(
                     (
@@ -8192,21 +8453,69 @@ class RAGChatbotV17:
                     )
                     return (answer, [job_line], best_source)
 
-            pair_pattern = re.compile(r"(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(명|건|개|회|MB|GB|KB)", re.IGNORECASE)
-            table_line = next(
-                (
-                    line
-                    for line, _src in quantity_lines
-                    if line.count("|") >= 2 and pair_pattern.search(line)
-                    and (not focus_tokens or any(token in line.lower() for token in focus_tokens))
-                ),
-                "",
-            )
-            if not table_line:
-                table_line = next((line for line, _src in quantity_lines if pair_pattern.search(line)), "")
-            if table_line:
-                pair = pair_pattern.search(table_line)
-                value = f"{pair.group(1)}{pair.group(2)}" if pair else ""
+            target_row_index = _resolve_target_row_index()
+            quantity_candidates: list[tuple[int, str, str]] = []
+            seen_qty: set[tuple[str, str]] = set()
+            for line, _src in quantity_lines:
+                value = _extract_row_qty_from_line(line, target_row_index)
+                if not value:
+                    continue
+                line_norm = unicodedata.normalize("NFKC", line.lower())
+                row_hit = bool(target_row_index is not None and re.search(rf'"\s*{target_row_index}\s*"', line_norm))
+                score = 10 if row_hit else 5
+                if line.count("|") >= 2 or '"rows"' in line_norm or '"headers"' in line_norm:
+                    score += 2
+                if focus_tokens and any(token in line_norm for token in focus_tokens):
+                    score += 1
+                key = (value, unicodedata.normalize("NFKC", line).strip())
+                if key in seen_qty:
+                    continue
+                seen_qty.add(key)
+                quantity_candidates.append((score, value, line))
+
+            if not quantity_candidates:
+                generic_pair_pattern = re.compile(
+                    r"(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*([가-힣A-Za-z]{1,10})",
+                    re.IGNORECASE,
+                )
+                stop_units = {
+                    "직접",
+                    "제외",
+                    "비고",
+                    "번호",
+                    "항목",
+                    "구매",
+                    "여부",
+                    "사유",
+                    "관련",
+                    "표",
+                    "센터",
+                    "사업",
+                    "품목",
+                    "소프트웨어",
+                    "상용소프트웨어",
+                }
+                for line, _src in quantity_lines:
+                    for pair in generic_pair_pattern.finditer(line):
+                        unit = unicodedata.normalize("NFKC", pair.group(2)).strip().lower()
+                        if not unit or unit in stop_units:
+                            continue
+                        value = _clean_qty_value(pair.group(1) + pair.group(2))
+                        if not value:
+                            continue
+                        score = 2
+                        line_norm = unicodedata.normalize("NFKC", line.lower())
+                        if focus_tokens and any(token in line_norm for token in focus_tokens):
+                            score += 1
+                        key = (value, unicodedata.normalize("NFKC", line).strip())
+                        if key in seen_qty:
+                            continue
+                        seen_qty.add(key)
+                        quantity_candidates.append((score, value, line))
+
+            if quantity_candidates:
+                quantity_candidates.sort(key=lambda item: item[0], reverse=True)
+                _score, value, table_line = quantity_candidates[0]
                 answer = (
                     f"문서 기준 단위/수량 값은 `{value}`입니다."
                     if value
