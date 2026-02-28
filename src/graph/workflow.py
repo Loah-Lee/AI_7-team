@@ -1423,6 +1423,28 @@ class RAGChatbotV17:
             return True
         return False
 
+    @staticmethod
+    def _should_bypass_short_circuit_for_query(query: str) -> bool:
+        """로컬 단축 경로를 우회하고 RAG+LLM 본문 경로를 강제할 질의를 판별합니다."""
+        normalized = unicodedata.normalize("NFKC", (query or "").lower()).strip()
+        if not normalized:
+            return False
+        summary_content_tokens = [
+            "사업개요",
+            "사업 개요",
+            "추진배경",
+            "추진 배경",
+            "사업범위",
+            "사업 범위",
+            "기대효과",
+            "기대 효과",
+            "추진목표",
+            "추진 목표",
+            "사업목적",
+            "사업 목적",
+        ]
+        return any(token in normalized for token in summary_content_tokens)
+
     def _resolve_csv_vat_note(self, row: dict[str, Any]) -> str:
         """CSV 행에서 VAT 관련 안내 문구를 추출합니다."""
         note = self._clean_csv_value(
@@ -3603,23 +3625,25 @@ class RAGChatbotV17:
                 self._log_perf_stats(query, perf_stats, total_elapsed=time.perf_counter() - answer_started)
                 return _finalize_payload(self._build_org_not_found_payload(org_name))
 
-        csv_payload = self._try_csv_short_circuit(query, intent, org_name=org_name)
-        if csv_payload:
-            perf_stats["csv_short_circuit_hit"] = int(perf_stats.get("csv_short_circuit_hit", 0)) + 1
-            self._log_perf_stats(query, perf_stats, total_elapsed=time.perf_counter() - answer_started)
-            return _finalize_payload(csv_payload)
-        org_overview_payload = self._try_org_overview_short_circuit(query, intent, org_name=org_name)
-        if org_overview_payload:
-            self._log_perf_stats(query, perf_stats, total_elapsed=time.perf_counter() - answer_started)
-            return _finalize_payload(org_overview_payload)
-        chunk_budget_payload = self._try_chunk_budget_short_circuit(query, intent, org_name=org_name)
-        if chunk_budget_payload:
-            self._log_perf_stats(query, perf_stats, total_elapsed=time.perf_counter() - answer_started)
-            return _finalize_payload(chunk_budget_payload)
-        org_scan_payload = self._try_org_document_scan_short_circuit(query, intent, org_name=org_name)
-        if org_scan_payload:
-            self._log_perf_stats(query, perf_stats, total_elapsed=time.perf_counter() - answer_started)
-            return _finalize_payload(org_scan_payload)
+        bypass_short_circuit = self._should_bypass_short_circuit_for_query(query)
+        if not bypass_short_circuit:
+            csv_payload = self._try_csv_short_circuit(query, intent, org_name=org_name)
+            if csv_payload:
+                perf_stats["csv_short_circuit_hit"] = int(perf_stats.get("csv_short_circuit_hit", 0)) + 1
+                self._log_perf_stats(query, perf_stats, total_elapsed=time.perf_counter() - answer_started)
+                return _finalize_payload(csv_payload)
+            org_overview_payload = self._try_org_overview_short_circuit(query, intent, org_name=org_name)
+            if org_overview_payload:
+                self._log_perf_stats(query, perf_stats, total_elapsed=time.perf_counter() - answer_started)
+                return _finalize_payload(org_overview_payload)
+            chunk_budget_payload = self._try_chunk_budget_short_circuit(query, intent, org_name=org_name)
+            if chunk_budget_payload:
+                self._log_perf_stats(query, perf_stats, total_elapsed=time.perf_counter() - answer_started)
+                return _finalize_payload(chunk_budget_payload)
+            org_scan_payload = self._try_org_document_scan_short_circuit(query, intent, org_name=org_name)
+            if org_scan_payload:
+                self._log_perf_stats(query, perf_stats, total_elapsed=time.perf_counter() - answer_started)
+                return _finalize_payload(org_scan_payload)
 
         # 3) 검색 (기관 지정 질의는 원본 문서 우선 + 비교 질의는 더 넓게 검색)
         analyze_elapsed = time.perf_counter() - analyze_started
