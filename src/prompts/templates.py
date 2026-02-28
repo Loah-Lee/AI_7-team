@@ -164,6 +164,30 @@ ANSWER_GENERATION_FROM_EVIDENCE_PROMPT = """## 질문
 # QueryIntentParser 프롬프트
 # ============================================================================
 
+INTENT_ANALYSIS_PROMPT_COMPACT = """아래 질문의 의도를 분류해 JSON 객체만 반환하세요.
+
+허용 query_type: org | ranking | filter | category | search
+필드:
+- query_type: 문자열
+- org_name: 기관명(없으면 빈 문자열)
+- rank_order: "desc" | "asc" | ""
+- amount_min: 정수 또는 null
+- amount_max: 정수 또는 null
+- qualifications: 문자열 배열
+- categories: 문자열 배열
+- confidence: 0~1 실수
+
+규칙:
+- 기관명이 명확하면 org
+- TOP/순위/가장 많은·적은은 ranking
+- 금액 범위(이상/이하/사이/~)는 filter
+- 분야 탐색(관련 사업/추천/목록/기관 찾아줘)은 category
+- 나머지는 search
+- 출력은 JSON 객체 하나만
+
+질문: {query}
+"""
+
 INTENT_ANALYSIS_PROMPT = """당신은 RFP 입찰 질문 분석 전문가입니다. 사용자 질문을 분석하여 JSON으로 응답하세요.
 
 ## 질문 유형

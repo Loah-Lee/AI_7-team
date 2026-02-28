@@ -8,6 +8,7 @@ import json
 import re
 import os
 import time
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,7 @@ sys.path.insert(0, 'src')
 from src.utils.config import DEFAULT_MODEL, INTENT_REGEX_FIRST, REASONING_MODEL, OPENAI_API_KEY
 from src.prompts.templates import (
     INTENT_ANALYSIS_PROMPT,
+    INTENT_ANALYSIS_PROMPT_COMPACT,
     ANSWER_GENERATION_PROMPT,
     ANSWER_GENERATION_FROM_EVIDENCE_PROMPT,
     EVIDENCE_REFINEMENT_PROMPT,
@@ -39,63 +41,201 @@ class QueryIntentParser:
         self.llm = llm
         self.last_parse_used_llm = False
         self.last_parse_elapsed = 0.0
+        self._intent_cache_exact: dict[str, QueryIntent] = {}
+        self._intent_cache_signature: dict[str, QueryIntent] = {}
+        self._cache_max_entries = 256
+
+    @staticmethod
+    def _normalize_query_for_cache(query: str) -> str:
+        normalized = unicodedata.normalize("NFKC", (query or "").lower()).strip()
+        normalized = re.sub(r"\s+", " ", normalized)
+        return normalized
+
+    @classmethod
+    def _build_query_signature(cls, query: str) -> str:
+        normalized = cls._normalize_query_for_cache(query)
+        if not normalized:
+            return ""
+        tokens = re.findall(r"[0-9a-zA-Z가-힣]{2,}", normalized)
+        stopwords = {
+            "알려줘", "알려주세요", "알려", "요약", "정리", "설명", "질문", "문서", "기준",
+            "이거", "그거", "그것", "해주세요", "해줘", "좀", "관련", "정보",
+        }
+        filtered = [tok for tok in tokens if tok not in stopwords]
+        selected = filtered if filtered else tokens
+        if not selected:
+            return ""
+        # 유사 질의 캐시를 위해 토큰 순서 영향은 줄이고, 과도한 충돌은 방지한다.
+        uniq = sorted(set(selected))
+        return "|".join(uniq[:12])
+
+    @staticmethod
+    def _clone_intent(intent: QueryIntent, query: str) -> QueryIntent:
+        return QueryIntent(
+            query_type=intent.query_type,
+            org_name=intent.org_name,
+            rank_order=intent.rank_order,
+            amount_min=intent.amount_min,
+            amount_max=intent.amount_max,
+            qualifications=list(intent.qualifications or []),
+            categories=list(intent.categories or []),
+            raw_query=query,
+            confidence=float(intent.confidence or 0.0),
+        )
+
+    def _cache_get(self, query: str) -> QueryIntent | None:
+        key = self._normalize_query_for_cache(query)
+        if not key:
+            return None
+        cached = self._intent_cache_exact.get(key)
+        if cached:
+            return self._clone_intent(cached, query)
+
+        sig = self._build_query_signature(query)
+        if not sig:
+            return None
+        cached_sig = self._intent_cache_signature.get(sig)
+        if cached_sig:
+            return self._clone_intent(cached_sig, query)
+        return None
+
+    @staticmethod
+    def _cache_trim(cache_map: dict[str, QueryIntent], max_entries: int) -> None:
+        while len(cache_map) > max_entries:
+            first_key = next(iter(cache_map))
+            cache_map.pop(first_key, None)
+
+    def _cache_put(self, query: str, intent: QueryIntent) -> None:
+        if not query:
+            return
+        cached_intent = self._clone_intent(intent, query)
+        key = self._normalize_query_for_cache(query)
+        if key:
+            self._intent_cache_exact[key] = cached_intent
+            self._cache_trim(self._intent_cache_exact, self._cache_max_entries)
+
+        sig = self._build_query_signature(query)
+        if sig:
+            self._intent_cache_signature[sig] = cached_intent
+            self._cache_trim(self._intent_cache_signature, self._cache_max_entries)
+
+    @staticmethod
+    def _has_intent_conflict_markers(query: str) -> bool:
+        normalized = unicodedata.normalize("NFKC", (query or "").lower()).strip()
+        if not normalized:
+            return False
+
+        has_ranking = bool(re.search(r"(top\s*\d+|\d+\s*(위|곳|개)|순위|랭킹|상위|하위|가장)", normalized))
+        has_filter = bool(re.search(r"(이상|이하|초과|미만|사이|부터|~|범위)", normalized))
+        has_category = any(marker in normalized for marker in ["관련 사업", "분야", "추천", "목록", "기관 찾아"])
+        has_org = bool(re.search(r"[가-힣]+(대학교|대학|공사|공단|재단|위원회|연구원|진흥원|협회|센터)", normalized))
+        has_fact = any(marker in normalized for marker in ["얼마", "언제", "마감", "기한", "요구사항", "요건", "누가"])
+
+        flag_count = sum([has_ranking, has_filter, has_category, has_org, has_fact])
+        if flag_count <= 1:
+            return False
+        if has_org and has_fact and flag_count == 2:
+            return False
+        return True
+
+    def _should_call_llm(self, query: str, regex_intent: QueryIntent) -> bool:
+        if not self.llm:
+            return False
+        if self._has_intent_conflict_markers(query):
+            return True
+
+        confidence = float(regex_intent.confidence or 0.0)
+        if confidence < 0.78:
+            return True
+        if regex_intent.query_type == "search" and confidence < 0.82:
+            return True
+        return False
+
+    @staticmethod
+    def _safe_load_intent_json(payload: str) -> dict[str, Any] | None:
+        text = str(payload or "").strip()
+        if not text:
+            return None
+        try:
+            data = json.loads(text)
+            return data if isinstance(data, dict) else None
+        except Exception:
+            pass
+
+        match = re.search(r"\{[\s\S]*\}", text)
+        if not match:
+            return None
+        try:
+            data = json.loads(match.group(0))
+            return data if isinstance(data, dict) else None
+        except Exception:
+            return None
 
     def parse(self, query: str) -> QueryIntent:
         """질문을 분석하여 의도를 파악합니다."""
         started = time.perf_counter()
         self.last_parse_used_llm = False
         try:
-            if not self.llm:
-                return self._parse_with_regex(query)
+            cached = self._cache_get(query)
+            if cached:
+                return cached
 
-            if INTENT_REGEX_FIRST:
-                regex_intent = self._parse_with_regex(query)
-                if regex_intent.confidence >= 0.75:
-                    return regex_intent
-
-                llm_intent = self._parse_with_llm(query)
-                if llm_intent.confidence >= regex_intent.confidence:
-                    self.last_parse_used_llm = True
-                    return llm_intent
+            regex_intent = self._parse_with_regex(query)
+            if not self._should_call_llm(query, regex_intent):
+                self._cache_put(query, regex_intent)
                 return regex_intent
 
-            llm_intent = self._parse_with_llm(query)
-            self.last_parse_used_llm = True
-            if llm_intent.confidence < 0.7:
-                regex_intent = self._parse_with_regex(query)
-                if regex_intent.confidence > llm_intent.confidence:
-                    return regex_intent
-            return llm_intent
+            llm_intent = self._parse_with_llm(query, fallback=regex_intent)
+            llm_conf = float(llm_intent.confidence or 0.0)
+            regex_conf = float(regex_intent.confidence or 0.0)
+            llm_margin = 0.03
+            use_llm = llm_conf >= max(0.7, regex_conf + llm_margin)
+            final_intent = llm_intent if use_llm else regex_intent
+            self.last_parse_used_llm = use_llm
+            self._cache_put(query, final_intent)
+            return final_intent
         finally:
             self.last_parse_elapsed = time.perf_counter() - started
 
-    def _parse_with_llm(self, query: str) -> QueryIntent:
+    def _parse_with_llm(self, query: str, fallback: QueryIntent | None = None) -> QueryIntent:
         """LLM로 질문을 분석합니다."""
         try:
-            prompt = INTENT_ANALYSIS_PROMPT.format(query=query)
+            prompt = INTENT_ANALYSIS_PROMPT_COMPACT.format(query=query)
 
             messages = [
-                SystemMessage(content="당신은 JSON만 반환하는 분석 전문가입니다. JSON 외의 텍스트는 절대 출력하지 마세요."),
+                SystemMessage(content="JSON 객체 하나만 출력하세요. 설명 문장과 코드블록은 금지입니다."),
                 HumanMessage(content=prompt)
             ]
 
             response = self.llm.invoke(messages)
-            result = json.loads(response.content)
+            result = self._safe_load_intent_json(getattr(response, "content", ""))
+            if not result:
+                return fallback or self._parse_with_regex(query)
+
+            query_type = str(result.get("query_type", "search") or "search").strip().lower()
+            if query_type not in {"org", "ranking", "filter", "category", "search"}:
+                query_type = "search"
+            confidence_raw = result.get("confidence", 0.75)
+            try:
+                confidence = float(confidence_raw)
+            except (TypeError, ValueError):
+                confidence = 0.75
+            confidence = max(0.0, min(1.0, confidence))
 
             return QueryIntent(
-                query_type=result.get("query_type", "search"),
-                org_name=result.get("org_name") or "",
-                rank_order=result.get("rank_order") or "",
+                query_type=query_type,
+                org_name=str(result.get("org_name") or "").strip(),
+                rank_order=str(result.get("rank_order") or "").strip(),
                 amount_min=result.get("amount_min"),
                 amount_max=result.get("amount_max"),
                 qualifications=result.get("qualifications") or [],
                 categories=result.get("categories") or [],
                 raw_query=query,
-                confidence=result.get("confidence", 0.8)
+                confidence=confidence,
             )
 
         except Exception:
-            return self._parse_with_regex(query)
+            return fallback or self._parse_with_regex(query)
 
     def _parse_with_regex(self, query: str) -> QueryIntent:
         """정규식으로 질문을 분석합니다."""

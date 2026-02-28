@@ -16,6 +16,7 @@ EMBEDDING_MODEL: str = os.environ.get("EMBEDDING_MODEL", "jhgan/ko-sroberta-mult
 CHROMA_COLLECTION: str = os.environ.get("CHROMA_COLLECTION", "chunks")
 DEFAULT_MODEL: str = os.environ.get("DEFAULT_MODEL", "gpt-5-mini")
 REASONING_MODEL: str = os.environ.get("REASONING_MODEL", "gpt-5-mini")
+QUERY_INTENT_MODEL: str = os.environ.get("QUERY_INTENT_MODEL", "gpt-5-nano")
 
 # 임베딩 설정
 class EmbeddingConfig:

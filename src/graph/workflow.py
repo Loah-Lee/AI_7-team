@@ -112,14 +112,29 @@ class RAGChatbotV17:
         # 상수(OPENAI_API_KEY)만 보지 말고 런타임 env도 다시 확인한다.
         runtime_api_key = str(os.environ.get("OPENAI_API_KEY", "") or OPENAI_API_KEY or "").strip()
         self.llm = None
+        self.intent_llm = None
         if runtime_api_key:
+            reasoning_model = str(os.environ.get("REASONING_MODEL", "") or REASONING_MODEL or "").strip() or "gpt-5-mini"
+            query_intent_model = str(
+                os.environ.get("QUERY_INTENT_MODEL", "") or QUERY_INTENT_MODEL or ""
+            ).strip() or "gpt-5-nano"
             self.llm = ChatOpenAI(
                 api_key=runtime_api_key,
-                model=REASONING_MODEL,
+                model=reasoning_model,
                 temperature=0.0,
                 timeout=OPENAI_TIMEOUT_SEC,
                 max_retries=OPENAI_MAX_RETRIES,
             )
+            if query_intent_model == reasoning_model:
+                self.intent_llm = self.llm
+            else:
+                self.intent_llm = ChatOpenAI(
+                    api_key=runtime_api_key,
+                    model=query_intent_model,
+                    temperature=0.0,
+                    timeout=min(OPENAI_TIMEOUT_SEC, 15),
+                    max_retries=OPENAI_MAX_RETRIES,
+                )
 
         # 나중에 각 모듈에서 import
         from src.graph.nodes import RFPAnswerGenerator, QueryIntentParser, QuestionPlanner
@@ -130,7 +145,7 @@ class RAGChatbotV17:
         self.answer_generator = RFPAnswerGenerator(self.llm)
         default_db_path = str(Path(get_default_db_path()).resolve())
         self.vector_store = VectorStore(db_path=db_path or default_db_path)
-        self.query_parser = QueryIntentParser(self.llm)
+        self.query_parser = QueryIntentParser(self.intent_llm)
         self.question_planner = QuestionPlanner()
         self.conversation = ConversationContext(max_history=5)
         self.csv_metadata_by_filename: dict[str, dict[str, Any]] = {}
@@ -1270,6 +1285,28 @@ class RAGChatbotV17:
         if not normalized:
             return None
 
+        # 사업 개요/배경/범위/효과/목표 계열은 summary 우선으로 본다.
+        summary_focus_tokens = [
+            "사업개요",
+            "사업 개요",
+            "개요",
+            "사업요약",
+            "사업 요약",
+            "요약",
+            "추진배경",
+            "추진 배경",
+            "사업범위",
+            "사업 범위",
+            "기대효과",
+            "기대 효과",
+            "추진목표",
+            "추진 목표",
+            "사업목적",
+            "사업 목적",
+        ]
+        if any(token in normalized for token in summary_focus_tokens):
+            return "summary"
+
         if any(token in normalized for token in [t.lower() for t in self.csv_question_field_map["notice_num"]]):
             return "notice_num"
         if any(token in normalized for token in [t.lower() for t in self.csv_question_field_map["end_date"]]):
@@ -1306,6 +1343,85 @@ class RAGChatbotV17:
         """질문이 시간 단위(시/분)까지 요구하는지 판별합니다."""
         normalized = unicodedata.normalize("NFKC", (query or "").lower())
         return any(token in normalized for token in ["시간", "시각", "몇시", "몇 시", "오전", "오후", "시분"])
+
+    @staticmethod
+    def _resolve_summary_focus_slot(query: str) -> str:
+        """요약 질의의 세부 포커스(개요/배경/범위/효과/목표)를 식별합니다."""
+        normalized = unicodedata.normalize("NFKC", (query or "").lower()).strip()
+        if any(token in normalized for token in ["사업개요", "사업 개요", "개요"]):
+            return "overview"
+        if any(token in normalized for token in ["추진배경", "추진 배경", "배경", "필요성"]):
+            return "background"
+        if any(token in normalized for token in ["사업범위", "사업 범위", "범위"]):
+            return "scope"
+        if any(token in normalized for token in ["기대효과", "기대 효과", "효과"]):
+            return "effect"
+        if any(token in normalized for token in ["추진목표", "추진 목표", "목표", "목적"]):
+            return "goal"
+        return "summary"
+
+    @staticmethod
+    def _extract_focus_value_from_summary(summary_text: str, slot: str) -> str:
+        """CSV summary 문자열에서 질의 포커스에 대응하는 문장을 추출합니다."""
+        text = str(summary_text or "").strip()
+        if not text:
+            return ""
+        lines = [ln.strip(" -•\t") for ln in text.splitlines() if ln and ln.strip(" -•\t")]
+        if not lines:
+            return ""
+
+        slot_markers: dict[str, list[str]] = {
+            "overview": ["사업개요", "사업 개요", "개요"],
+            "background": ["추진배경", "추진 배경", "배경", "필요성"],
+            "scope": ["사업범위", "사업 범위", "범위"],
+            "effect": ["기대효과", "기대 효과", "효과"],
+            "goal": ["추진목표", "추진 목표", "목표", "목적"],
+            "summary": ["사업요약", "사업 요약", "요약"],
+        }
+        markers = slot_markers.get(slot, [])
+
+        for line in lines:
+            lowered = unicodedata.normalize("NFKC", line.lower())
+            if any(marker in lowered for marker in markers):
+                normalized_line = re.sub(
+                    r"^(사업개요|사업 개요|개요|추진배경|추진 배경|배경|필요성|사업범위|사업 범위|범위|기대효과|기대 효과|효과|추진목표|추진 목표|목표|목적)\s*[:：-]?\s*",
+                    "",
+                    line,
+                    flags=re.IGNORECASE,
+                ).strip()
+                return normalized_line or line
+        return ""
+
+    @staticmethod
+    def _is_low_information_overview_value(value: str, row: dict[str, Any]) -> bool:
+        """사업개요 값이 사실상 사업명 재진술인지 판별합니다."""
+        overview_text = unicodedata.normalize("NFKC", str(value or "")).strip()
+        if not overview_text:
+            return True
+
+        project_name = unicodedata.normalize("NFKC", str(row.get("project_name", "") or "")).strip()
+        org_name = unicodedata.normalize("NFKC", str(row.get("org_name", "") or "")).strip()
+        value_key = re.sub(r"[^0-9a-zA-Z가-힣]+", "", overview_text.lower())
+        project_key = re.sub(r"[^0-9a-zA-Z가-힣]+", "", project_name.lower())
+        org_key = re.sub(r"[^0-9a-zA-Z가-힣]+", "", org_name.lower())
+
+        if org_key:
+            value_key = value_key.replace(org_key, "")
+            project_key = project_key.replace(org_key, "")
+        if project_key and (value_key == project_key or value_key in project_key or project_key in value_key):
+            return True
+
+        informative_markers = [
+            "배경", "필요성", "범위", "효과", "목표", "통합", "개선", "지원", "대응", "데이터", "서비스",
+            "구축을 통해", "고도화", "현황", "문제점",
+        ]
+        if any(marker in overview_text for marker in informative_markers):
+            return False
+
+        token_count = len(re.findall(r"[0-9a-zA-Z가-힣]{2,}", overview_text))
+        if token_count <= 8 and any(marker in overview_text for marker in ["구축 사업", "구축사업", "고도화 사업", "개선 사업"]):
+            return True
+        return False
 
     def _resolve_csv_vat_note(self, row: dict[str, Any]) -> str:
         """CSV 행에서 VAT 관련 안내 문구를 추출합니다."""
@@ -1574,11 +1690,35 @@ class RAGChatbotV17:
                 if field == "amount" and not value_map["amount"][1] and org_info.amount_numeric > 0:
                     value_map["amount"] = ("사업비", format_amount(org_info.amount_numeric))
         label, value = value_map.get(field, ("값", ""))
+        if field == "summary":
+            raw_summary = str(row.get("summary", "") or "").strip()
+            slot = self._resolve_summary_focus_slot(query)
+            if slot != "summary":
+                focused_value = self._extract_focus_value_from_summary(raw_summary, slot)
+                if not focused_value:
+                    # CSV 요약에서 원하는 세부 항목을 찾지 못하면 RAG 본문 검색으로 넘긴다.
+                    return None
+                if slot == "overview" and self._is_low_information_overview_value(focused_value, row):
+                    # 사업개요가 사실상 사업명 재진술이면 본문 근거(RAG)로 이관한다.
+                    return None
+                slot_label_map = {
+                    "overview": "사업개요",
+                    "background": "추진배경",
+                    "scope": "사업범위",
+                    "effect": "기대효과",
+                    "goal": "추진목표",
+                }
+                label = slot_label_map.get(slot, "사업 요약")
+                value = self._summarize_with_limit(focused_value, 260)
+
         if not value:
             return None
 
         prefix = f"{org_name} 문서 기준 " if org_name else "문서 기준 "
-        answer = f"{prefix}{label}은(는) `{value}`입니다.\n\n[출처]\n- {source} (CSV)"
+        if field == "summary":
+            answer = f"{prefix}{label}: `{value}`\n\n[출처]\n- {source} (CSV)"
+        else:
+            answer = f"{prefix}{label}은(는) `{value}`입니다.\n\n[출처]\n- {source} (CSV)"
         evidence = [
             {
                 "source": source,
