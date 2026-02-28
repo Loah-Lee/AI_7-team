@@ -4044,11 +4044,60 @@ class RAGChatbotV17:
                         if not single_value:
                             single_value = self._extract_single_value_from_fact_answer(answer_text, query=query)
                     if single_value:
-                        payload["answer"] = single_value
+                        contextual_single = self._render_single_value_answer(
+                            query,
+                            single_value,
+                            fallback=candidate_answer if preserve_context else "",
+                        )
+                        payload["answer"] = contextual_single or single_value
                     elif polished_answer:
                         payload["answer"] = polished_answer
                 elif polished_answer:
                     payload["answer"] = polished_answer
+                if payload.get("answer"):
+                    polished_final = self._enforce_honorific_tone(str(payload.get("answer", "")))
+                    if self._is_single_value_query(query):
+                        compact = unicodedata.normalize("NFKC", polished_final.replace("`", "")).strip()
+                        compact = re.sub(r"(입니다|합니다)\.$", "", compact).strip()
+                        if compact and re.fullmatch(r"[0-9A-Za-z가-힣,%./:+\- ]{1,40}", compact):
+                            contextual = self._render_single_value_answer(query, compact, fallback="")
+                            if contextual:
+                                polished_final = self._enforce_honorific_tone(contextual)
+                        if "\n" in polished_final:
+                            lines = [ln.strip() for ln in polished_final.splitlines() if ln.strip()]
+                            if lines:
+                                if len(lines) >= 2 and any(
+                                    marker in unicodedata.normalize("NFKC", lines[1].lower())
+                                    for marker in ["다만", "단 ", "단,", "예외", "초과", "허용", "가능"]
+                                ):
+                                    polished_final = f"{lines[0]} {lines[1]}".strip()
+                                else:
+                                    polished_final = lines[0]
+                    if "\n" in polished_final:
+                        lines = [ln.strip() for ln in polished_final.splitlines() if ln.strip()]
+                        if len(lines) >= 2:
+                            norm0 = re.sub(r"[^0-9a-zA-Z가-힣]+", "", unicodedata.normalize("NFKC", lines[0].lower()))
+                            norm1 = re.sub(r"[^0-9a-zA-Z가-힣]+", "", unicodedata.normalize("NFKC", lines[1].lower()))
+                            t0 = {
+                                tok
+                                for tok in re.findall(r"[0-9a-zA-Z가-힣]{2,}", unicodedata.normalize("NFKC", lines[0].lower()))
+                                if tok
+                            }
+                            t1 = {
+                                tok
+                                for tok in re.findall(r"[0-9a-zA-Z가-힣]{2,}", unicodedata.normalize("NFKC", lines[1].lower()))
+                                if tok
+                            }
+                            overlap = (len(t0 & t1) / max(1, min(len(t0), len(t1)))) if t0 and t1 else 0.0
+                            if (
+                                (norm0 and norm1 and (norm0 in norm1 or norm1 in norm0))
+                                or overlap >= 0.45
+                            ) and not any(
+                                marker in unicodedata.normalize("NFKC", lines[1].lower())
+                                for marker in ["다만", "단 ", "단,", "예외", "초과", "허용", "가능"]
+                            ):
+                                polished_final = lines[0]
+                    payload["answer"] = polished_final
                 if use_llm_polish and perf_stats is not None:
                     perf_stats["generation_elapsed"] = float(perf_stats.get("generation_elapsed", 0.0) or 0.0) + (
                         time.perf_counter() - polish_started
@@ -5341,6 +5390,97 @@ class RAGChatbotV17:
         return False
 
     @staticmethod
+    def _render_single_value_answer(query: str, value: str, fallback: str = "") -> str:
+        """단일 값을 질문 문맥에 맞춘 존댓말 문장으로 변환합니다."""
+        q_norm = unicodedata.normalize("NFKC", str(query or "").lower())
+        raw_value = unicodedata.normalize("NFKC", str(value or "")).strip()
+        if not raw_value:
+            return ""
+
+        quoted = f"`{raw_value}`"
+        if "정보보안교육" in q_norm or ("교육" in q_norm and any(token in q_norm for token in ["자주", "주기", "얼마나"])):
+            return f"정보보안교육 실시 주기는 {quoted}입니다."
+        if "직무교육" in q_norm or (("인원" in q_norm or "대상" in q_norm) and any(token in q_norm for token in ["몇명", "몇 명", "몇", "얼마나"])):
+            return f"직무교육 대상 인원은 {quoted}입니다."
+        if any(token in q_norm for token in ["사업기간", "기간"]):
+            return f"사업기간은 {quoted}입니다."
+        if any(token in q_norm for token in ["복구", "기한", "마감", "일자", "언제", "이내"]):
+            return f"기한은 {quoted}입니다."
+        if any(token in q_norm for token in ["용량", "mb", "gb", "kb"]):
+            if fallback:
+                return fallback
+            return f"용량 기준은 {quoted}입니다."
+        if any(token in q_norm for token in ["사업비", "예산", "금액"]):
+            return f"사업비는 {quoted}입니다."
+        if any(token in q_norm for token in ["규격", "치수", "가로", "세로", "길이", "mm"]):
+            return f"규격은 {quoted}입니다."
+        if any(token in q_norm for token in ["협상적격", "배점", "평가점수", "기준"]):
+            return f"선정 기준 값은 {quoted}입니다."
+        return f"요청하신 값은 {quoted}입니다."
+
+    @staticmethod
+    def _enforce_honorific_tone(answer: str) -> str:
+        """최종 답변의 문장 어미를 존댓말 중심으로 정규화합니다."""
+        text = unicodedata.normalize("NFKC", str(answer or "")).strip()
+        if not text:
+            return ""
+        converted_lines: list[str] = []
+        for raw in text.splitlines():
+            line = unicodedata.normalize("NFKC", raw).strip()
+            if not line:
+                continue
+
+            line = line.replace("할수있음", "할 수 있습니다")
+            line = line.replace("할수 있음", "할 수 있습니다")
+            line = line.replace("할 수 있음", "할 수 있습니다")
+            line = line.replace("조정함", "조정합니다")
+            line = line.replace("가능함", "가능합니다")
+            line = line.replace("확인됨", "확인됩니다")
+            if line.endswith("하며"):
+                line = line[:-2] + "합니다"
+            if line.endswith("이며"):
+                line = line[:-2] + "입니다"
+            if line.endswith("이고"):
+                line = line[:-2] + "입니다"
+
+            if line.startswith("- "):
+                content = line[2:].strip()
+                if content and re.search(r"[가-힣]$", content):
+                    if not re.search(r"(습니다|입니다|합니다|됩니다|있습니다|없습니다|하세요|해 주세요)[.!?]?$", content):
+                        if content.endswith("함"):
+                            content = content[:-1] + "합니다"
+                        elif content.endswith("됨"):
+                            content = content[:-1] + "됩니다"
+                        elif content.endswith("가능"):
+                            content += "합니다"
+                        elif content.endswith("다") and not content.endswith("니다"):
+                            content = content[:-1] + "입니다"
+                        elif not content.endswith("."):
+                            content += "입니다"
+                if content and not content.endswith((".", "!", "?")):
+                    content += "."
+                line = f"- {content}" if content else line
+            else:
+                if re.search(r"[가-힣]$", line):
+                    if not re.search(r"(습니다|입니다|합니다|됩니다|있습니다|없습니다|하세요|해 주세요)[.!?]?$", line):
+                        if line.endswith("함"):
+                            line = line[:-1] + "합니다"
+                        elif line.endswith("됨"):
+                            line = line[:-1] + "됩니다"
+                        elif line.endswith("가능"):
+                            line += "합니다"
+                        elif line.endswith("다") and not line.endswith("니다"):
+                            line = line[:-1] + "입니다"
+                        else:
+                            line += "입니다"
+                if not line.endswith((".", "!", "?")):
+                    line += "."
+
+            converted_lines.append(line)
+
+        return "\n".join(converted_lines).strip()
+
+    @staticmethod
     def _augment_answer_from_evidence_context(
         query: str,
         answer: str,
@@ -6026,6 +6166,39 @@ class RAGChatbotV17:
                 return value
             return value[: max_len - 1].rstrip() + "…"
 
+        def _overlap_ratio(left: str, right: str) -> float:
+            l_tokens = {
+                tok
+                for tok in re.findall(r"[0-9a-zA-Z가-힣]{2,}", unicodedata.normalize("NFKC", left.lower()))
+                if tok
+            }
+            r_tokens = {
+                tok
+                for tok in re.findall(r"[0-9a-zA-Z가-힣]{2,}", unicodedata.normalize("NFKC", right.lower()))
+                if tok
+            }
+            if not l_tokens or not r_tokens:
+                return 0.0
+            inter = len(l_tokens & r_tokens)
+            base = max(1, min(len(l_tokens), len(r_tokens)))
+            return inter / base
+
+        def _norm_compact(value: str) -> str:
+            return re.sub(r"[^0-9a-zA-Z가-힣]+", "", unicodedata.normalize("NFKC", value or "").lower())
+
+        def _extract_numeric_markers(value: str) -> set[str]:
+            normalized = unicodedata.normalize("NFKC", value or "")
+            markers = {
+                re.sub(r"\s+", "", m).lower()
+                for m in re.findall(
+                    r"\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:%|원|만원|억원|명|건|개|회|시간|일|주|개월|년|MB|GB|KB)?",
+                    normalized,
+                    flags=re.IGNORECASE,
+                )
+                if m and re.search(r"\d", m)
+            }
+            return {m for m in markers if m}
+
         def _clean_item(value: str) -> str:
             item = _normalize_line(value)
             item = re.sub(r"^[-*•]\s*", "", item)
@@ -6084,25 +6257,51 @@ class RAGChatbotV17:
             return "\n".join(rendered).strip()
 
         if "확인되지 않습니다" not in primary and evidence_items:
-            follow = evidence_items[0]
-            if not re.match(r"^(근거|출처|source)\s*:", follow, flags=re.IGNORECASE):
-                if RAGChatbotV17._looks_incomplete_clause(follow):
+            follow = ""
+            needs_follow = RAGChatbotV17._looks_incomplete_clause(primary)
+            for candidate in evidence_items:
+                cand = candidate.strip()
+                if not cand:
+                    continue
+                if re.match(r"^(근거|출처|source)\s*:", cand, flags=re.IGNORECASE):
+                    continue
+                cand_lower = unicodedata.normalize("NFKC", cand.lower())
+                has_context_marker = any(
+                    marker in cand_lower
+                    for marker in ["경우", "다만", "단 ", "단,", "예외", "초과", "협의", "허용", "가능"]
+                )
+                if not needs_follow and not has_context_marker:
+                    continue
+                primary_norm = _norm_compact(primary)
+                cand_norm = _norm_compact(cand)
+                if (primary_norm and cand_norm and (primary_norm in cand_norm or cand_norm in primary_norm)) or _overlap_ratio(primary, cand) >= 0.45:
+                    continue
+                primary_nums = _extract_numeric_markers(primary)
+                cand_nums = _extract_numeric_markers(cand)
+                if primary_nums and cand_nums and (primary_nums & cand_nums):
+                    continue
+                if RAGChatbotV17._looks_incomplete_clause(cand):
                     continuation = ""
-                    for candidate in evidence_items[1:]:
-                        cand = candidate.strip()
-                        if not cand or cand == follow:
+                    for nxt in evidence_items:
+                        nxt_line = nxt.strip()
+                        if not nxt_line or nxt_line == cand:
                             continue
-                        if RAGChatbotV17._looks_incomplete_clause(cand):
+                        if RAGChatbotV17._looks_incomplete_clause(nxt_line):
                             continue
-                        if cand.startswith(("경우", "이 경우", "으로", "로", "및", "또는", "단", "다만")):
-                            continuation = cand
+                        if nxt_line.startswith(("경우", "이 경우", "으로", "로", "및", "또는", "단", "다만")):
+                            continuation = nxt_line
                             break
                     if continuation:
-                        follow = f"{follow} {continuation}".strip()
+                        cand = f"{cand} {continuation}".strip()
                     else:
-                        follow = ""
-                if follow:
-                    rendered.append(_trim_item(follow, 320))
+                        continue
+                cand = cand.rstrip(",;: ")
+                if not cand:
+                    continue
+                follow = cand
+                break
+            if follow:
+                rendered.append(_trim_item(follow, 320))
 
         return "\n".join(rendered).strip()
 
