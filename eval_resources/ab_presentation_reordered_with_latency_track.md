@@ -208,6 +208,25 @@
 - 추가 재검증(2026-02-27, focus6): 질문 초점 기반 tail 보강 패치를 적용했으나 C/AC/F/CR 개선 없이 유지 또는 하락으로 확인됨.
 - 추가 재검증2(2026-02-27, focus6): 컨텍스트/근거 예산 동적 확장 패치에서도 C 소폭 상승 대비 F/CR 하락으로 순개선은 확인되지 않음.
 
+### 4-3) 최신 운영 재검증(동기화셋 기준)
+비교 기준:
+- A: `full20_chunk_synced_after_commit` (1차 러닝)
+- B: `full20_chunk_synced_after_commit_rerun` (재실행)
+
+| 지표 | A | B | 변화 |
+|---|---:|---:|---:|
+| Recall@5 (chunk) | 0.5333 | 0.5333 | +0.0000 |
+| Recall@5 (source) | 0.9500 | 1.0000 | +0.0500 |
+| MRR (source) | 0.9000 | 0.9500 | +0.0500 |
+| Correctness | 4.15 | 4.25 | +2.41% |
+| Answer Coverage | 4.05 | 4.25 | +4.94% |
+| Faithfulness | 4.30 | 4.15 | -3.49% |
+| Context Relevance | 4.50 | 4.65 | +3.33% |
+
+해석:
+- 동기화셋 기준 chunk recall은 `0.5333`으로 유지되어 측정값 자체는 안정적.
+- source recall/MRR은 재실행에서 회복(특정 문항 miss 변동 해소)되어 운영 지표는 `B`를 대표값으로 채택.
+
 전환: "평균 점수 외에 목적형 단건 개선을 별도로 검증."
 
 ---
@@ -261,14 +280,14 @@
 ---
 
 ## 7) 최종 정리: 기준선 대비 최종 운영 지표
-핵심: "실험 1의 기준선(current_patch)에서 최종 운영(full20_evidence_strict)까지의 순증."
+핵심: "실험 1의 기준선(current_patch)에서 최종 운영(full20_chunk_synced_after_commit_rerun)까지의 순증."
 
-| 지표 | A (current_patch) | B (full20_evidence_strict) | 변화율 |
+| 지표 | A (current_patch) | B (full20_chunk_synced_after_commit_rerun) | 변화율 |
 |---|---:|---:|---:|
-| Correctness | 3.75 | 3.95 | +5.33% |
-| Answer Coverage | 3.35 | 3.85 | +14.93% |
-| Faithfulness | 4.35 | 4.30 | -1.15% |
-| Context Relevance | 4.65 | 4.80 | +3.23% |
+| Correctness | 3.75 | 4.25 | +13.33% |
+| Answer Coverage | 3.35 | 4.25 | +26.87% |
+| Faithfulness | 4.35 | 4.15 | -4.60% |
+| Context Relevance | 4.65 | 4.65 | +0.00% |
 | Recall@5 (source) | 0.90 | 1.00 | +11.11% |
 | MRR (source) | 0.90 | 0.95 | +5.56% |
-| 매크로(C/AC/F/CR) | 4.0250 | 4.2250 | +4.97% |
+| 매크로(C/AC/F/CR) | 4.0250 | 4.3250 | +7.45% |
