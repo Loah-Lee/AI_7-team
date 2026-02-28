@@ -236,3 +236,7 @@ data_index/files/*
 !data_index/files/.gitkeep
 data/files/*
 !data/files/.gitkeep
+
+# Eval generated artifacts (keep source datasets/docs, ignore heavy run outputs)
+eval_resources/eval_report_*.html
+eval_resources/eval_results_*.json

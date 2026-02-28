@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -104,6 +105,27 @@ def _has_csv_ground_truth(gt_sources: list[str]) -> bool:
     return False
 
 
+def _parse_chunk_index_from_marker(value: str | int | None) -> int | None:
+    """'hash_123' 또는 '123' marker에서 trailing index를 추출한다."""
+    if value is None:
+        return None
+    marker = str(value).strip()
+    if not marker:
+        return None
+    if marker.isdigit():
+        try:
+            return int(marker)
+        except Exception:
+            return None
+    matched = re.search(r"_([0-9]+)$", marker)
+    if not matched:
+        return None
+    try:
+        return int(matched.group(1))
+    except Exception:
+        return None
+
+
 def load_eval_dataset(path: Path) -> list[dict]:
     """평가셋 YAML 파일을 로드한다."""
     if not path.exists():
@@ -149,22 +171,39 @@ def run_rag_pipeline(question: str, metadata_filter: dict | None, top_k: int) ->
                 except (TypeError, ValueError):
                     score = 0.0
                 content = str(doc.get("content") or doc.get("text") or "")
+                chunk_id_raw = (
+                    doc.get("chunk_id")
+                    if doc.get("chunk_id") is not None
+                    else (
+                        doc.get("uid")
+                        if doc.get("uid") is not None
+                        else doc.get("id")
+                    )
+                )
+                chunk_id = str(chunk_id_raw).strip() if chunk_id_raw is not None else None
+                if chunk_id == "":
+                    chunk_id = None
+                chunk_index_raw = (
+                    doc.get("chunk_index")
+                    if doc.get("chunk_index") is not None
+                    else doc.get("chunk_order")
+                )
+                chunk_index: int | None = None
+                if chunk_index_raw is not None and str(chunk_index_raw).strip() != "":
+                    try:
+                        chunk_index = int(chunk_index_raw)
+                    except Exception:
+                        chunk_index = None
+                if chunk_index is None:
+                    chunk_index = _parse_chunk_index_from_marker(chunk_id)
                 retrieved_docs.append(
                     {
                         "source": source,
                         "page": page,
                         "score": score,
                         "content": content,
-                        "chunk_id": (
-                            doc.get("chunk_id")
-                            if doc.get("chunk_id") is not None
-                            else doc.get("uid")
-                        ),
-                        "chunk_index": (
-                            doc.get("chunk_index")
-                            if doc.get("chunk_index") is not None
-                            else doc.get("chunk_order")
-                        ),
+                        "chunk_id": chunk_id,
+                        "chunk_index": chunk_index,
                     }
                 )
 
@@ -227,12 +266,24 @@ def run_rag_pipeline(question: str, metadata_filter: dict | None, top_k: int) ->
                     "chunk_id": (
                         doc.get("chunk_id")
                         if doc.get("chunk_id") is not None
-                        else doc.get("uid")
+                        else (
+                            doc.get("uid")
+                            if doc.get("uid") is not None
+                            else doc.get("id")
+                        )
                     ),
                     "chunk_index": (
                         doc.get("chunk_index")
                         if doc.get("chunk_index") is not None
-                        else doc.get("chunk_order")
+                        else (
+                            doc.get("chunk_order")
+                            if doc.get("chunk_order") is not None
+                            else _parse_chunk_index_from_marker(
+                                doc.get("chunk_id")
+                                if doc.get("chunk_id") is not None
+                                else doc.get("id")
+                            )
+                        )
                     ),
                 }
             )
@@ -265,7 +316,11 @@ def run_rag_pipeline(question: str, metadata_filter: dict | None, top_k: int) ->
                         else (
                             meta.get("chunk_id")
                             if meta.get("chunk_id") is not None
-                            else meta.get("uid")
+                            else (
+                                meta.get("uid")
+                                if meta.get("uid") is not None
+                                else doc.get("id")
+                            )
                         )
                     ),
                     "chunk_index": (
@@ -274,7 +329,19 @@ def run_rag_pipeline(question: str, metadata_filter: dict | None, top_k: int) ->
                         else (
                             meta.get("chunk_index")
                             if meta.get("chunk_index") is not None
-                            else meta.get("chunk_order")
+                            else (
+                                meta.get("chunk_order")
+                                if meta.get("chunk_order") is not None
+                                else _parse_chunk_index_from_marker(
+                                    doc.get("chunk_id")
+                                    if doc.get("chunk_id") is not None
+                                    else (
+                                        meta.get("chunk_id")
+                                        if meta.get("chunk_id") is not None
+                                        else doc.get("id")
+                                    )
+                                )
+                            )
                         )
                     ),
                 }
@@ -323,7 +390,13 @@ def evaluate_e2e(
         expected_answer = item.get("expected_answer", "")
         gt = item.get("ground_truth", {})
         gt_sources: list[str] = gt.get("sources", [])
-        gt_chunks = gt.get("chunks", gt.get("chunk_ids", gt.get("chunk_orders", [])))
+        # chunk GT는 DB 교체 시 chunk_order가 달라질 수 있어 uid를 우선 사용한다.
+        gt_chunk_labels = {
+            "chunk_uids": gt.get("chunk_uids", []),
+            "chunk_ids": gt.get("chunk_ids", []),
+            "chunks": gt.get("chunks", []),
+            "chunk_orders": gt.get("chunk_orders", []),
+        }
         metadata_filter = item.get("metadata_filter")
 
         print(f"\n[{i}/{total}] {question[:60]}...")
@@ -380,7 +453,7 @@ def evaluate_e2e(
         ))
 
         recall = calculate_recall_at_k(retrieved_for_metrics, gt_sources, k=top_k)
-        chunk_recall = calculate_recall_at_k_chunk(retrieved_for_metrics, gt_chunks, k=top_k)
+        chunk_recall = calculate_recall_at_k_chunk(retrieved_for_metrics, gt_chunk_labels, k=top_k)
         hit_pos = calculate_hit_position(retrieved_for_metrics, gt_sources)
         recalls.append(recall)
         chunk_recalls.append(chunk_recall)

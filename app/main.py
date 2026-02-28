@@ -34,6 +34,7 @@ from storage import (
 
 _CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.dirname(_CURRENT_DIR)
+_FIXED_CHROMA_PATH = (Path(_PROJECT_ROOT) / "data_index" / "chroma_B").resolve()
 sys.path.insert(0, _PROJECT_ROOT)
 sys.path.insert(0, os.path.join(_PROJECT_ROOT, "src"))
 
@@ -44,6 +45,9 @@ def _load_runtime_env() -> None:
     load_dotenv(project_root / ".env", override=False)
     load_dotenv(parent_root / ".env", override=False)
     load_dotenv(override=False)
+    # 앱 런타임 DB는 최근 평가에 사용한 chroma_B로 고정한다.
+    if _FIXED_CHROMA_PATH.exists():
+        os.environ["CHROMA_PATH"] = str(_FIXED_CHROMA_PATH)
     # RAG 컨텍스트 품질 개선: .env에 설정이 없을 때만 적용
     os.environ.setdefault("CONTEXT_MAX_CHARS", "3000")   # 700 → 3000 (청크당 충분한 내용 전달)
     os.environ.setdefault("CONTEXT_TOP_RESULTS", "10")   # 6 → 10 (더 많은 관련 청크 활용)
@@ -77,58 +81,14 @@ st.set_page_config(
 
 @st.cache_resource
 def resolve_runtime_db_path() -> str:
-    """Pick a usable Chroma DB path with the highest chunk count."""
-    candidates: list[Path] = []
-
+    """Use fixed CHROMA_PATH for consistent app/eval behavior."""
     env_db = os.environ.get("CHROMA_PATH", "").strip()
     if env_db:
-        candidates.append(Path(env_db).expanduser())
-
-    candidates.append(Path(get_default_db_path()))
-    candidates.extend(
-        [
-            Path(_PROJECT_ROOT) / "data_index" / "chroma_db",
-            Path(_PROJECT_ROOT) / "data_index" / "data" / "chroma_db_v17",
-            Path(_PROJECT_ROOT) / "data_index" / "chroma_B",
-        ]
-    )
-
-    # Keep insertion order while removing duplicates.
-    uniq: list[Path] = []
-    seen: set[str] = set()
-    for raw in candidates:
-        resolved = raw.resolve()
-        key = str(resolved).lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        uniq.append(resolved)
-
-    def _db_score(path: Path) -> tuple[int, int, int]:
-        if not path.exists():
-            return (0, -1, -1)
-
-        sqlite_path = path / "chroma.sqlite3"
-        sqlite_size = int(sqlite_path.stat().st_size) if sqlite_path.exists() else -1
-
-        try:
-            import chromadb
-
-            client = chromadb.PersistentClient(path=str(path))
-            col = client.get_collection("chunks")
-            chunk_count = int(col.count())
-            return (2, chunk_count, sqlite_size)
-        except Exception:
-            # Some environments open old DBs in read-only mode; fallback to file size.
-            if sqlite_size > 0:
-                return (1, sqlite_size, sqlite_size)
-            return (0, -1, -1)
-
-    ranked: list[tuple[tuple[int, int, int], Path]] = [(_db_score(p), p) for p in uniq]
-    ranked.sort(key=lambda x: x[0], reverse=True)
-
-    if ranked and ranked[0][0][0] > 0:
-        return str(ranked[0][1])
+        candidate = Path(env_db).expanduser().resolve()
+        if candidate.exists():
+            return str(candidate)
+    if _FIXED_CHROMA_PATH.exists():
+        return str(_FIXED_CHROMA_PATH)
     return str(Path(get_default_db_path()).resolve())
 
 
@@ -170,7 +130,7 @@ def run_query(chatbot: Any, query: str) -> dict[str, Any] | None:
 
     with st.spinner("AI가 문서를 분석하고 있습니다..."):
         try:
-            result = chatbot.answer(query.strip(), top_k=30)
+            result = chatbot.answer(query.strip(), top_k=10)
         except Exception as exc:
             st.error(f"질의 처리 중 오류가 발생했습니다: {exc}")
             return None
@@ -765,4 +725,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

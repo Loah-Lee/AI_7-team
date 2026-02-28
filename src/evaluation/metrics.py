@@ -262,9 +262,49 @@ def _normalize_chunk_label(value: str | int | None) -> str:
     return unicodedata.normalize("NFKC", str(value)).strip().lower()
 
 
+def _split_chunk_gt_labels(
+    ground_truth_chunks: dict | str | int | list[str] | list[int] | tuple[str | int, ...] | set[str | int],
+) -> tuple[list[str], list[str]]:
+    """GT chunk 라벨을 uid 계열/순번 계열로 분리한다."""
+    uid_labels: list[str] = []
+    order_labels: list[str] = []
+
+    def _append_label(value: str | int | None, prefer_uid: bool = False) -> None:
+        normalized = _normalize_chunk_label(value)
+        if not normalized:
+            return
+        # uid는 보통 "<hash>_<order>" 형태이며, order는 숫자형이 대부분이다.
+        if prefer_uid or "_" in normalized or any(ch.isalpha() for ch in normalized):
+            uid_labels.append(normalized)
+        else:
+            order_labels.append(normalized)
+
+    if isinstance(ground_truth_chunks, dict):
+        for value in ground_truth_chunks.get("chunk_uids", []) or []:
+            _append_label(value, prefer_uid=True)
+        for value in ground_truth_chunks.get("chunk_ids", []) or []:
+            _append_label(value, prefer_uid=True)
+        for value in ground_truth_chunks.get("chunks", []) or []:
+            _append_label(value)
+        for value in ground_truth_chunks.get("chunk_orders", []) or []:
+            _append_label(value, prefer_uid=False)
+    else:
+        if isinstance(ground_truth_chunks, (str, int)):
+            values = [ground_truth_chunks]
+        else:
+            values = list(ground_truth_chunks or [])
+        for value in values:
+            _append_label(value)
+
+    # 중복 제거(순서 유지)
+    uid_unique = list(dict.fromkeys(uid_labels))
+    order_unique = list(dict.fromkeys(order_labels))
+    return uid_unique, order_unique
+
+
 def calculate_recall_at_k_chunk(
     retrieved_docs: list[dict],
-    ground_truth_chunks: str | int | list[str] | list[int] | tuple[str | int, ...] | set[str | int],
+    ground_truth_chunks: dict | str | int | list[str] | list[int] | tuple[str | int, ...] | set[str | int],
     k: int = 5,
 ) -> float | None:
     """Recall@K (chunk) — top-K 내 정답 청크 커버리지.
@@ -273,30 +313,43 @@ def calculate_recall_at_k_chunk(
     - GT chunk 라벨이 없으면 None
     - 있으면 [0,1] 범위 비율 (matched / total_gt_chunks)
     """
-    if isinstance(ground_truth_chunks, (str, int)):
-        values = [ground_truth_chunks]
-    else:
-        values = list(ground_truth_chunks or [])
-
-    gt_chunks = [_normalize_chunk_label(v) for v in values if _normalize_chunk_label(v)]
-    if not gt_chunks:
+    gt_uid_labels, gt_order_labels = _split_chunk_gt_labels(ground_truth_chunks)
+    if not gt_uid_labels and not gt_order_labels:
         return None
 
     top_k_docs = retrieved_docs[:k]
-    retrieved_chunk_keys: set[str] = set()
+    retrieved_uid_keys: set[str] = set()
+    retrieved_order_keys: set[str] = set()
     for doc in top_k_docs:
         if not isinstance(doc, dict):
             continue
-        for key in ("chunk_id", "chunk_index"):
-            normalized = _normalize_chunk_label(doc.get(key))
-            if normalized:
-                retrieved_chunk_keys.add(normalized)
+        chunk_id = _normalize_chunk_label(doc.get("chunk_id"))
+        chunk_index = _normalize_chunk_label(doc.get("chunk_index"))
+        if chunk_id:
+            retrieved_uid_keys.add(chunk_id)
+            # chunk_id가 "hash_12" 형태면 trailing order도 보조키로 추가한다.
+            if "_" in chunk_id:
+                trailing = chunk_id.rsplit("_", 1)[-1].strip()
+                if trailing.isdigit():
+                    retrieved_order_keys.add(trailing)
+        if chunk_index:
+            retrieved_order_keys.add(chunk_index)
 
-    if not retrieved_chunk_keys:
+    if not retrieved_uid_keys and not retrieved_order_keys:
         return 0.0
 
-    matched = sum(1 for gt in gt_chunks if gt in retrieved_chunk_keys)
-    return matched / len(gt_chunks)
+    recalls: list[float] = []
+    if gt_uid_labels:
+        matched_uid = sum(1 for gt in gt_uid_labels if gt in retrieved_uid_keys)
+        recalls.append(matched_uid / len(gt_uid_labels))
+    if gt_order_labels:
+        matched_order = sum(1 for gt in gt_order_labels if gt in retrieved_order_keys)
+        recalls.append(matched_order / len(gt_order_labels))
+
+    if not recalls:
+        return 0.0
+    # uid/order 라벨이 동시에 있을 때는 더 신뢰도 높은 매칭 결과를 채택한다.
+    return max(recalls)
 
 
 def calculate_recall_at_k_chunk_summary(

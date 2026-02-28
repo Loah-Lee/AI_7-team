@@ -240,6 +240,67 @@ class VectorStore:
         return None
 
     @staticmethod
+    def _parse_chunk_index_from_marker(value: Any) -> int | None:
+        """'hash_123' 형태 식별자에서 trailing chunk index를 파싱한다."""
+        if value is None:
+            return None
+        marker = str(value).strip()
+        if not marker:
+            return None
+        if "_" not in marker:
+            if marker.isdigit():
+                try:
+                    return int(marker)
+                except Exception:
+                    return None
+            return None
+        tail = marker.rsplit("_", 1)[-1].strip()
+        if not tail.isdigit():
+            return None
+        try:
+            return int(tail)
+        except Exception:
+            return None
+
+    @classmethod
+    def _resolve_chunk_fields(
+        cls,
+        metadata: dict[str, Any],
+        row_id: str | None,
+    ) -> tuple[str | None, int | None]:
+        """metadata가 비어 있어도 row id를 사용해 chunk 식별자를 복원한다."""
+        chunk_id_raw = (
+            metadata.get("chunk_id")
+            if metadata.get("chunk_id") is not None
+            else (
+                metadata.get("uid")
+                if metadata.get("uid") is not None
+                else row_id
+            )
+        )
+        chunk_id = str(chunk_id_raw).strip() if chunk_id_raw is not None else None
+        if chunk_id == "":
+            chunk_id = None
+
+        chunk_index_raw = (
+            metadata.get("chunk_index")
+            if metadata.get("chunk_index") is not None
+            else metadata.get("chunk_order")
+        )
+        chunk_index: int | None = None
+        if chunk_index_raw is not None and str(chunk_index_raw).strip() != "":
+            try:
+                chunk_index = int(chunk_index_raw)
+            except Exception:
+                chunk_index = None
+        if chunk_index is None:
+            chunk_index = cls._parse_chunk_index_from_marker(chunk_id)
+        if chunk_index is None:
+            chunk_index = cls._parse_chunk_index_from_marker(row_id)
+
+        return chunk_id, chunk_index
+
+    @staticmethod
     def _dense_score(distance: float | int | None) -> float:
         try:
             d = float(distance)
@@ -333,18 +394,27 @@ class VectorStore:
         docs = response.get("documents") or [[]]
         metas = response.get("metadatas") or [[]]
         dists = response.get("distances") or [[]]
+        ids = response.get("ids") or [[]]
         rows = []
         for i, doc in enumerate(docs[0] if docs and docs[0] else []):
             metadata = metas[0][i] if metas and metas[0] and i < len(metas[0]) else {}
             distance = dists[0][i] if dists and dists[0] and i < len(dists[0]) else None
+            row_id = ids[0][i] if ids and ids[0] and i < len(ids[0]) else None
             source = self._normalize_source(metadata)
+            chunk_id, chunk_index = self._resolve_chunk_fields(
+                metadata if isinstance(metadata, dict) else {},
+                str(row_id) if row_id is not None else None,
+            )
             rows.append(
                 {
+                    "id": str(row_id) if row_id is not None else "",
                     "text": doc,
                     "metadata": metadata if isinstance(metadata, dict) else {},
                     "source": source,
                     "page": self._extract_page(metadata if isinstance(metadata, dict) else {}),
                     "distance": distance,
+                    "chunk_id": chunk_id,
+                    "chunk_index": chunk_index,
                 }
             )
         return rows
@@ -389,6 +459,7 @@ class VectorStore:
             score = dense if selected_mode == "chroma" else (alpha * dense + (1.0 - alpha) * lexical)
             ranked.append(
                 {
+                    "id": row.get("id", ""),
                     "text": row.get("text", ""),
                     "metadata": row.get("metadata", {}),
                     "source": row.get("source", ""),
@@ -396,6 +467,8 @@ class VectorStore:
                     "score": float(score),
                     "dense_score": float(dense),
                     "lexical_score": float(lexical),
+                    "chunk_id": row.get("chunk_id"),
+                    "chunk_index": row.get("chunk_index"),
                 }
             )
 
