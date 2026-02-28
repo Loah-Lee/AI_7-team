@@ -181,6 +181,7 @@ class RAGChatbotV17:
         self.failed_sources_registry = self._load_failed_sources_registry()
         self._chunk_budget_cache: dict[str, dict[str, Any]] = {}
         self._chunk_budget_cache_ready = False
+        self._summary_section_line_cache: dict[str, list[str]] = {}
 
         self._load_documents()
 
@@ -1391,6 +1392,328 @@ class RAGChatbotV17:
                 ).strip()
                 return normalized_line or line
         return ""
+
+    @staticmethod
+    def _summary_focus_profile(slot: str) -> dict[str, Any]:
+        """요약 계열 슬롯별 섹션 헤더/핵심 키워드를 반환합니다."""
+        profiles: dict[str, dict[str, Any]] = {
+            "overview": {
+                "heading_markers": ["사업개요", "사업 개요", "개요"],
+                "focus_markers": [
+                    "사업기간",
+                    "기간",
+                    "사업예산",
+                    "사업비",
+                    "예산",
+                    "무상유지보수",
+                    "유지보수",
+                    "입찰",
+                    "계약",
+                    "다년",
+                ],
+                "action_markers": ["구축", "개선", "고도화", "통합", "지원"],
+                "exclude_markers": ["하도급", "배점", "평가 부문"],
+                "capture_line_limit": 20,
+            },
+            "background": {
+                "heading_markers": [
+                    "추진배경",
+                    "추진 배경",
+                    "추진배경 및 필요성",
+                    "추진 배경 및 필요성",
+                    "배경 및 필요성",
+                    "현황 및 문제점",
+                    "필요성",
+                    "배경",
+                ],
+                "focus_markers": ["현황", "문제점", "문제", "필요성", "배경", "한계", "노후", "불편", "중복", "비효율"],
+                "action_markers": ["개선", "해소", "대응", "강화", "재정비"],
+                "exclude_markers": ["기관 인력 현황", "대표 홈페이지 기준", "평가 부문", "하도급"],
+                "capture_line_limit": 18,
+            },
+            "scope": {
+                "heading_markers": ["사업범위", "사업 범위", "과업범위", "과업 범위", "범위"],
+                "focus_markers": ["과업", "범위", "구축", "개발", "개선", "연계", "대상", "기능", "서비스", "시스템"],
+                "action_markers": ["구축", "개선", "개발", "고도화", "연계", "통합", "지원"],
+                "exclude_markers": ["평가 부문", "배점", "하도급"],
+                "capture_line_limit": 24,
+            },
+            "effect": {
+                "heading_markers": ["기대효과", "기대 효과", "효과"],
+                "focus_markers": ["기대효과", "효과", "성과", "개선", "향상", "절감", "편의", "효율", "안정", "강화"],
+                "action_markers": ["향상", "절감", "개선", "강화", "확대", "고도화"],
+                "exclude_markers": ["평가 부문", "배점", "하도급"],
+                "capture_line_limit": 18,
+            },
+            "goal": {
+                "heading_markers": ["추진목표", "추진 목표", "사업목적", "사업 목적", "목표", "목적"],
+                "focus_markers": ["목표", "목적", "추진", "지향", "방향", "개선", "고도화", "강화", "재설계", "표준화"],
+                "action_markers": ["구축", "개선", "강화", "고도화", "재설계", "표준화", "활용"],
+                "exclude_markers": ["평가 부문", "하도급", "배점", "입찰", "협상", "제안서"],
+                "capture_line_limit": 14,
+            },
+            "summary": {
+                "heading_markers": ["사업개요", "사업 개요", "개요", "요약"],
+                "focus_markers": ["사업기간", "예산", "범위", "배경", "효과", "목표", "구축"],
+                "action_markers": ["구축", "개선", "고도화", "강화", "연계"],
+                "exclude_markers": ["평가 부문", "하도급", "배점"],
+                "capture_line_limit": 20,
+            },
+        }
+        return profiles.get(slot, profiles["summary"])
+
+    @staticmethod
+    def _is_summary_heading_line(line: str, markers: list[str]) -> bool:
+        """문장이 특정 섹션 헤더(개요/배경/범위/효과/목표)인지 판별합니다."""
+        normalized = unicodedata.normalize("NFKC", str(line or "").lower()).strip()
+        if not normalized:
+            return False
+        normalized = re.sub(r"^\s*[-*•#]+\s*", "", normalized)
+        normalized = re.sub(r"^\s*[□○●]+\s*", "", normalized)
+        normalized = re.sub(r"^\s*[0-9]{1,3}\s*[\.\)\-]\s*", "", normalized)
+        normalized = re.sub(r"^\s*[ivxlcdm]+\s*[\.\)\-]\s*", "", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"^\s*[가-힣]\s*[\.\)\-]\s*", "", normalized)
+        normalized = re.sub(r"^\s*[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*[\.\)\-]?\s*", "", normalized)
+        compact = re.sub(r"\s+", "", normalized)
+        if not compact:
+            return False
+        for marker in markers:
+            marker_key = re.sub(r"\s+", "", unicodedata.normalize("NFKC", marker.lower()))
+            if not marker_key:
+                continue
+            if compact == marker_key:
+                return True
+            if compact.startswith(marker_key) and len(compact) <= max(42, len(marker_key) + 16):
+                return True
+        return False
+
+    @staticmethod
+    def _strip_summary_heading_prefix(line: str, markers: list[str]) -> str:
+        """헤더 라인의 접두(예: '1. 사업개요:')를 제거하고 본문 꼬리 텍스트를 반환합니다."""
+        text = unicodedata.normalize("NFKC", str(line or "")).strip()
+        if not text:
+            return ""
+        prefix_pattern = r"^\s*(?:[□○●]\s*)?(?:[0-9]{1,3}|[ivxlcdm]+|[가-힣]|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+)?\s*[\.\)\-]?\s*"
+        for marker in markers:
+            marker_pat = re.escape(unicodedata.normalize("NFKC", marker))
+            cleaned = re.sub(prefix_pattern + marker_pat + r"\s*[:：\-]\s*", "", text, flags=re.IGNORECASE)
+            if cleaned != text:
+                return cleaned.strip()
+        return ""
+
+    def _collect_summary_section_lines(
+        self,
+        source: str,
+        slot: str,
+        max_candidates: int = 24,
+    ) -> list[str]:
+        """원문 source 단위로 요약 섹션 라인을 수집합니다."""
+        source_name = str(source or "").strip()
+        if not source_name:
+            return []
+        source_key = self._normalize_text_for_match(source_name)
+        cache_key = f"{source_key}|{slot}"
+        cached = self._summary_section_line_cache.get(cache_key)
+        if cached:
+            return cached[:max_candidates]
+
+        try:
+            payload = self.vector_store.collection.get(
+                where={"source": source_name},
+                include=["metadatas", "documents"],
+                limit=4000,
+            )
+        except Exception:
+            return []
+
+        metadatas = payload.get("metadatas", []) or []
+        documents = payload.get("documents", []) or []
+        if not documents:
+            return []
+
+        ordered_chunks: list[tuple[int, int, int, str]] = []
+        for idx, (md, doc) in enumerate(zip(metadatas, documents)):
+            md_obj = md if isinstance(md, dict) else {}
+            page = self._extract_metadata_page(md_obj)
+            chunk_index = None
+            for key in ("chunk_index", "chunk_order", "row_id", "chunk_id"):
+                chunk_index = self._parse_chunk_index_from_marker(md_obj.get(key))
+                if chunk_index is not None:
+                    break
+            ordered_chunks.append(
+                (
+                    int(page) if page is not None else 1_000_000,
+                    int(chunk_index) if chunk_index is not None else idx,
+                    idx,
+                    str(doc or ""),
+                )
+            )
+        ordered_chunks.sort(key=lambda item: (item[0], item[1], item[2]))
+
+        profile = self._summary_focus_profile(slot)
+        heading_markers = list(profile.get("heading_markers", []))
+        focus_markers = [unicodedata.normalize("NFKC", marker.lower()) for marker in profile.get("focus_markers", [])]
+        action_markers = [unicodedata.normalize("NFKC", marker.lower()) for marker in profile.get("action_markers", [])]
+        exclude_markers = [unicodedata.normalize("NFKC", marker.lower()) for marker in profile.get("exclude_markers", [])]
+        capture_line_limit = int(profile.get("capture_line_limit", 20) or 20)
+        all_heading_markers: list[str] = []
+        for slot_name in ["overview", "background", "scope", "effect", "goal", "summary"]:
+            for marker in self._summary_focus_profile(slot_name).get("heading_markers", []):
+                if marker not in all_heading_markers:
+                    all_heading_markers.append(marker)
+
+        candidate_scores: list[tuple[int, str]] = []
+        seen_candidates: set[str] = set()
+
+        def _push_candidate(raw_line: str, base_score: int = 0) -> None:
+            line = self._clean_extracted_line(raw_line)
+            if len(line) < 10:
+                return
+            if line.count("|") >= 2:
+                return
+            if line.count("`") >= 4:
+                return
+            if len(line) >= 90 and line.count(",") >= 8:
+                return
+            if re.match(r"^(사업명|공고번호|공고 번호|파일명|발주기관|발주 기관)\s*[:：]", line):
+                return
+            line_lower = unicodedata.normalize("NFKC", line.lower())
+            if exclude_markers and any(marker in line_lower for marker in exclude_markers):
+                return
+            score = int(base_score)
+            focus_hits = sum(1 for marker in focus_markers if marker and marker in line_lower)
+            if focus_hits:
+                score += 3 + focus_hits
+            if any(marker in line_lower for marker in action_markers):
+                score += 1
+            if re.search(r"\d", line):
+                score += 1
+            if 16 <= len(line) <= 220:
+                score += 1
+            if self._is_noise_line(line) and focus_hits <= 0:
+                return
+            if score <= 1:
+                return
+            key = unicodedata.normalize("NFKC", line.lower()).strip()
+            if not key or key in seen_candidates:
+                return
+            seen_candidates.add(key)
+            candidate_scores.append((score, line[:220]))
+
+        capturing = False
+        lines_since_heading = 0
+        for _page, _chunk, _idx, doc_text in ordered_chunks:
+            for raw_line in str(doc_text or "").replace("\r", "\n").split("\n"):
+                line = self._clean_extracted_line(raw_line)
+                if not line:
+                    continue
+                is_target_heading = self._is_summary_heading_line(line, heading_markers)
+                is_any_heading = is_target_heading or self._is_summary_heading_line(line, all_heading_markers)
+                if is_any_heading:
+                    capturing = is_target_heading
+                    lines_since_heading = 0
+                    if is_target_heading:
+                        inline_tail = self._strip_summary_heading_prefix(line, heading_markers)
+                        if inline_tail:
+                            _push_candidate(inline_tail, base_score=4)
+                    continue
+                if not capturing:
+                    continue
+                if len(line) < 8:
+                    lines_since_heading += 1
+                    continue
+                if lines_since_heading > capture_line_limit:
+                    capturing = False
+                    continue
+                line_lower = unicodedata.normalize("NFKC", line.lower())
+                has_focus_marker = any(marker in line_lower for marker in focus_markers)
+                has_action_marker = any(marker in line_lower for marker in action_markers)
+                if lines_since_heading >= 2 and not (has_focus_marker or has_action_marker):
+                    lines_since_heading += 1
+                    continue
+                _push_candidate(line, base_score=2 if lines_since_heading < 2 else 0)
+                lines_since_heading += 1
+                if len(candidate_scores) >= max(32, max_candidates * 4):
+                    break
+            if len(candidate_scores) >= max(32, max_candidates * 4):
+                break
+
+        # 섹션 헤더 인식이 실패한 문서는 키워드 중심으로 한 번 더 수집한다.
+        if not candidate_scores:
+            for _page, _chunk, _idx, doc_text in ordered_chunks:
+                for raw_line in str(doc_text or "").replace("\r", "\n").split("\n"):
+                    line = self._clean_extracted_line(raw_line)
+                    if len(line) < 12 or line.count("|") >= 2:
+                        continue
+                    if self._is_noise_line(line):
+                        continue
+                    line_lower = unicodedata.normalize("NFKC", line.lower())
+                    focus_hits = sum(1 for marker in focus_markers if marker and marker in line_lower)
+                    if focus_hits <= 0:
+                        continue
+                    _push_candidate(line, base_score=focus_hits + 1)
+                    if len(candidate_scores) >= max(24, max_candidates * 3):
+                        break
+                if len(candidate_scores) >= max(24, max_candidates * 3):
+                    break
+
+        candidate_scores.sort(key=lambda item: (item[0], len(item[1])), reverse=True)
+        selected: list[str] = []
+        seen_selected: set[str] = set()
+        for _score, line in candidate_scores:
+            line_key = unicodedata.normalize("NFKC", line.lower()).strip()
+            if line_key in seen_selected:
+                continue
+            seen_selected.add(line_key)
+            selected.append(line)
+            if len(selected) >= max_candidates:
+                break
+
+        self._summary_section_line_cache[cache_key] = selected
+        return selected
+
+    def _extract_summary_focus_lines(
+        self,
+        query: str,
+        results: list[dict[str, Any]],
+        max_lines: int = 3,
+    ) -> list[str]:
+        """요약 계열 질의에서 source 섹션 단위 근거 라인을 추출합니다."""
+        if not results:
+            return []
+        slot = self._resolve_summary_focus_slot(query)
+        source_candidates: list[str] = []
+        seen_sources: set[str] = set()
+        for item in results[:10]:
+            md = item.get("metadata", {}) or {}
+            source = str(md.get("source", "") or "").strip()
+            if not source:
+                continue
+            source_key = self._normalize_text_for_match(source)
+            if source_key in seen_sources:
+                continue
+            seen_sources.add(source_key)
+            source_candidates.append(source)
+            if len(source_candidates) >= 2:
+                break
+
+        output: list[str] = []
+        seen_output: set[str] = set()
+        for source in source_candidates:
+            lines = self._collect_summary_section_lines(
+                source=source,
+                slot=slot,
+                max_candidates=max(8, max_lines * 4),
+            )
+            for line in lines:
+                line_key = unicodedata.normalize("NFKC", str(line or "").lower()).strip()
+                if not line_key or line_key in seen_output:
+                    continue
+                seen_output.add(line_key)
+                output.append(line)
+                if len(output) >= max_lines:
+                    return output
+        return output
 
     @staticmethod
     def _is_low_information_overview_value(value: str, row: dict[str, Any]) -> bool:
@@ -2791,12 +3114,16 @@ class RAGChatbotV17:
         """기관 단일 질의의 정밀 사실 질문은 기관 전 청크를 스캔해 즉답을 시도합니다."""
         if not org_name or not self._needs_org_fact_scan(query):
             return None
+        if self._asset_sidecar_enabled and self._is_visual_layout_query(query):
+            # 도면/표/이미지 질의는 sidecar 검색 경로를 우선 보장한다.
+            return None
         if self._is_comparison_query(query):
             return None
 
         candidates = self._collect_org_document_candidates(query, org_name=org_name, max_docs=140)
         if not candidates:
             return None
+        candidates = self._expand_results_with_neighbor_chunks(candidates, radius=1, max_sources=4)
 
         direct_fact = self._extract_direct_fact_from_results(query, candidates, target_org=org_name)
         if not direct_fact:
@@ -3435,7 +3762,7 @@ class RAGChatbotV17:
                         formatted_answer,
                         style=style_hint,
                     )
-                if answer_mode in {"generative", "hybrid"}:
+                if answer_mode == "generative":
                     polished_answer = self._restrict_answer_to_evidence(
                         polished_answer,
                         payload.get("evidence"),
@@ -4472,26 +4799,58 @@ class RAGChatbotV17:
         query_norm = unicodedata.normalize("NFKC", (query or "").strip())
         if query_norm:
             matched_lines = self._extract_evidence_lines(query_norm, results, max_lines=max(max_items * 3, 6))
+            span_candidates = self._expand_results_with_neighbor_chunks(
+                results[: max(40, max_items * 8)],
+                radius=1,
+                max_sources=4,
+            )
             for line in matched_lines:
                 line_norm = unicodedata.normalize("NFKC", str(line or "").strip())
                 if not line_norm:
                     continue
                 best_item: dict[str, Any] | None = None
                 best_score = -1.0
-                for item in results[: max(40, max_items * 6)]:
+                fuzzy_item: dict[str, Any] | None = None
+                fuzzy_score = -1.0
+                line_tokens = {
+                    tok
+                    for tok in re.findall(r"[0-9a-zA-Z가-힣]{2,}", unicodedata.normalize("NFKC", line_norm.lower()))
+                    if tok and not tok.isdigit()
+                }
+                for item in span_candidates:
                     text = unicodedata.normalize("NFKC", str(item.get("text", "") or ""))
                     if not text:
-                        continue
-                    if line_norm not in text:
                         continue
                     item_score_raw = item.get("score", (item.get("metadata", {}) or {}).get("score", 0.0))
                     try:
                         item_score = float(item_score_raw) if item_score_raw is not None else 0.0
                     except (TypeError, ValueError):
                         item_score = 0.0
-                    if item_score > best_score:
-                        best_item = item
-                        best_score = item_score
+                    if line_norm in text:
+                        if item_score > best_score:
+                            best_item = item
+                            best_score = item_score
+                        continue
+                    if not line_tokens:
+                        continue
+                    item_tokens = {
+                        tok
+                        for tok in re.findall(r"[0-9a-zA-Z가-힣]{2,}", unicodedata.normalize("NFKC", text.lower()))
+                        if tok and not tok.isdigit()
+                    }
+                    overlap = len(line_tokens & item_tokens)
+                    if overlap <= 0:
+                        continue
+                    fuzzy_rank = overlap * 10.0 + item_score
+                    if fuzzy_rank > fuzzy_score:
+                        fuzzy_item = item
+                        fuzzy_score = fuzzy_rank
+                if best_item is None and fuzzy_item is not None:
+                    # OCR 줄바꿈/표 파편으로 정확한 substring 매칭이 실패한 경우
+                    # 토큰 중첩이 높은 청크를 근거로 span을 보존한다.
+                    min_overlap = 2 if len(line_tokens) >= 4 else 1
+                    if fuzzy_score >= float(min_overlap * 10):
+                        best_item = fuzzy_item
                 if best_item is None:
                     continue
                 span = _to_span(best_item, text_override=line_norm)
@@ -4733,6 +5092,90 @@ class RAGChatbotV17:
             "confidence": draft.confidence,
             "evidence": evidence_dicts,
         }
+
+    def _resolve_chunk_index_from_item(self, item: dict[str, Any]) -> int | None:
+        """검색 결과 item에서 chunk index를 해석합니다."""
+        md = item.get("metadata", {}) or {}
+        raw = md.get("chunk_index")
+        if raw is None:
+            raw = md.get("chunk_order")
+        if raw is not None:
+            try:
+                return int(raw)
+            except Exception:
+                pass
+        marker = (
+            md.get("chunk_id")
+            if md.get("chunk_id") is not None
+            else (md.get("uid") if md.get("uid") is not None else item.get("chunk_id"))
+        )
+        return self._parse_chunk_index_from_marker(marker)
+
+    def _expand_results_with_neighbor_chunks(
+        self,
+        results: list[dict[str, Any]],
+        radius: int = 1,
+        max_sources: int = 4,
+    ) -> list[dict[str, Any]]:
+        """source 동일 + chunk_index 인접 청크를 후보에 추가해 단절된 근거를 복원합니다."""
+        if not results or radius <= 0:
+            return list(results)
+
+        merged = list(results)
+        seen_keys: set[tuple[str, int | None, str]] = set()
+
+        def _dedupe_key(item: dict[str, Any]) -> tuple[str, int | None, str]:
+            md = item.get("metadata", {}) or {}
+            source = str(md.get("source", "") or "").strip()
+            idx = self._resolve_chunk_index_from_item(item)
+            text_head = unicodedata.normalize("NFKC", str(item.get("text", "") or "")[:120].lower())
+            return (source, idx, text_head)
+
+        for item in merged:
+            seen_keys.add(_dedupe_key(item))
+
+        source_targets: dict[str, set[int]] = {}
+        for item in results[: min(len(results), 48)]:
+            md = item.get("metadata", {}) or {}
+            source = str(md.get("source", "") or "").strip()
+            if not source:
+                continue
+            idx = self._resolve_chunk_index_from_item(item)
+            if idx is None:
+                continue
+            bucket = source_targets.setdefault(source, set())
+            for delta in range(-radius, radius + 1):
+                bucket.add(idx + delta)
+
+        for source, raw_indices in list(source_targets.items())[:max_sources]:
+            target_indices = {idx for idx in raw_indices if idx is not None and idx >= 0}
+            if not target_indices:
+                continue
+            try:
+                payload = self.vector_store.collection.get(
+                    where={"source": source},
+                    include=["metadatas", "documents"],
+                    limit=4500,
+                )
+            except Exception:
+                continue
+            metadatas = payload.get("metadatas", []) or []
+            documents = payload.get("documents", []) or []
+            if not metadatas or not documents:
+                continue
+            for md, doc in zip(metadatas, documents):
+                md_obj = md if isinstance(md, dict) else {}
+                candidate = {"text": str(doc or ""), "metadata": md_obj, "score": 0.0}
+                idx = self._resolve_chunk_index_from_item(candidate)
+                if idx is None or idx not in target_indices:
+                    continue
+                key = _dedupe_key(candidate)
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                merged.append(candidate)
+
+        return merged
 
     @staticmethod
     def _parse_chunk_index_from_marker(value: Any) -> int | None:
@@ -5121,7 +5564,6 @@ class RAGChatbotV17:
             any(token in q_norm for token in ["현황", "as-is", "asis", "현재", "기존"])
             and any(token in q_norm for token in ["개선", "개선사항", "개선방안", "to-be", "tobe", "고도화"])
         )
-        wants_eval_threshold = any(token in q_norm for token in ["협상", "적격", "배점", "기술능력", "평가점수"])
 
         def _is_image_caption_line(line: str) -> bool:
             line_norm = unicodedata.normalize("NFKC", str(line or "").strip().lower())
@@ -5150,6 +5592,10 @@ class RAGChatbotV17:
             req_code_patterns.append(re.compile(rf"{alpha}\s*[-_ ]?\s*0*{digits}", re.IGNORECASE))
 
         if summary_content_query:
+            section_lines = self._extract_summary_focus_lines(query, results, max_lines=max_lines)
+            if section_lines:
+                return section_lines
+
             focus_markers = ["사업개요", "사업 개요", "개요"]
             if any(token in q_norm for token in ["추진배경", "추진 배경", "배경", "필요성"]):
                 focus_markers = ["추진배경", "추진 배경", "배경", "필요성", "현황", "문제점"]
@@ -5307,8 +5753,6 @@ class RAGChatbotV17:
             focus_markers.extend(["윤리", "청렴", "담합", "뇌물", "제재", "제한", "위약", "부정당", "고발"])
         if any(token in q_norm for token in ["재고", "거래", "전송", "기록", "판매", "주문", "결제"]):
             focus_markers.extend(["재고", "거래", "전송", "판매", "주문", "결제", "이관", "통계", "조회", "팩스", "문자"])
-        if wants_eval_threshold:
-            focus_markers.extend(["협상적격", "배점한도", "기술능력", "평가점수", "85%", "후보자"])
 
         numeric_pattern = re.compile(
             r"\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(원|만원|억원|천원|%|명|건|개|회|시간|분|초|일|주|개월|년|KB|MB|GB|TB)",
@@ -5326,6 +5770,8 @@ class RAGChatbotV17:
                 if not is_visual_query and _is_image_caption_line(line):
                     continue
                 line_lower = unicodedata.normalize("NFKC", line.lower())
+                if re.match(r"^(source_file|document_title|total_pages|source)\s*:", line, flags=re.IGNORECASE):
+                    continue
                 code_like_line = bool(re.search(r"[a-z]{2,5}\s*[-_ ]?\s*\d{2,3}", line_lower, flags=re.IGNORECASE))
                 if (len(line) < 8 and not code_like_line) or self._is_noise_line(line):
                     continue
@@ -5339,8 +5785,6 @@ class RAGChatbotV17:
                     re.search(r"\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(명|건|개|회|mb|gb|kb)", line, re.IGNORECASE)
                 )
                 focus_hit = any(term in line_lower for term in focus_terms) if focus_terms else False
-                has_eval_anchor = any(marker in line for marker in ["협상적격", "배점한도", "기술능력", "평가점수", "평가기준"])
-                has_eval_percent = bool(re.search(r"\b\d{1,3}\s*%", line))
                 req_match = next((pat.search(line_lower) for pat in req_code_patterns if pat.search(line_lower)), None)
                 req_code_hit = req_match is not None
                 if req_code_hit:
@@ -5378,11 +5822,11 @@ class RAGChatbotV17:
                     if focus_terms and not focus_hit:
                         continue
                     score += 3
-                if wants_eval_threshold:
-                    if has_eval_anchor and has_eval_percent:
-                        score += 8
-                    elif has_eval_anchor:
-                        score += 3
+                if wants_status_plus_improvement:
+                    if any(marker in line_lower for marker in ["현황", "as-is", "asis", "기존", "운영", "분산"]):
+                        score += 2
+                    if any(marker in line_lower for marker in ["개선", "개선방안", "개선사항", "고도화", "통합", "연계", "모니터링", "to-be", "tobe"]):
+                        score += 2
 
                 if marker_hits > 0:
                     score += marker_hits * 2
@@ -5396,13 +5840,6 @@ class RAGChatbotV17:
                     start = max(0, req_match.start() - 90)
                     end = min(len(line), req_match.end() + 130)
                     snippet = line[start:end].strip()
-                if wants_eval_threshold and has_eval_anchor:
-                    anchor_match = re.search(
-                        r"(협상적격[^.\n]{0,120}|기술능력[^.\n]{0,120}배점한도[^.\n]{0,60}\d{1,3}\s*%?)",
-                        line,
-                    )
-                    if anchor_match:
-                        snippet = anchor_match.group(1).strip()
                 snippet = snippet[:220]
                 scored_lines.append((score, snippet))
                 if req_code_hit:
@@ -5422,16 +5859,6 @@ class RAGChatbotV17:
                     seen.add(line)
                     output.append(line)
                     if len(output) >= min(max_lines, 2):
-                        break
-            if wants_eval_threshold:
-                for _score, line in scored_lines:
-                    if line in seen:
-                        continue
-                    if re.search(r"\b\d{1,3}\s*%", line) and any(
-                        marker in line for marker in ["협상적격", "배점한도", "기술능력", "평가점수", "평가기준"]
-                    ):
-                        seen.add(line)
-                        output.append(line)
                         break
             if wants_status_plus_improvement:
                 for _score, line in scored_lines:
@@ -5474,6 +5901,8 @@ class RAGChatbotV17:
                 if len(line) < 12 or self._is_noise_line(line):
                     continue
                 if not is_visual_query and _is_image_caption_line(line):
+                    continue
+                if re.match(r"^(source_file|document_title|total_pages|source)\s*:", line, flags=re.IGNORECASE):
                     continue
                 if not any(marker in line for marker in fallback_markers):
                     continue
@@ -6072,6 +6501,131 @@ class RAGChatbotV17:
             source_wide_lines = collected
             source_wide_limits = (max_sources, max_lines_per_source)
             return source_wide_lines
+
+        def _top_result_sources(limit: int = 3) -> list[str]:
+            """현재 retrieval 상위 결과에서 source 우선순위를 뽑습니다."""
+            source_order: list[str] = []
+            seen_sources: set[str] = set()
+            for item in results[: max(8, limit * 8)]:
+                md = item.get("metadata", {}) or {}
+                source = str(md.get("source") or md.get("source_file") or md.get("filename") or "").strip()
+                if not source or source in seen_sources:
+                    continue
+                seen_sources.add(source)
+                source_order.append(source)
+                if len(source_order) >= limit:
+                    break
+            return source_order
+
+        def _secondary_source_line_search(
+            source: str,
+            query_markers: list[str],
+            number_regex: re.Pattern[str] | None = None,
+            max_hits: int = 6,
+            neighbor_radius: int = 2,
+            line_window: int = 1,
+        ) -> list[str]:
+            """
+            Top source 내부에서 인접 청크(±radius) + 라인 윈도우(±line_window)로
+            정밀 후보 라인을 재탐색합니다.
+            """
+            source_name = str(source or "").strip()
+            if not source_name:
+                return []
+
+            try:
+                payload = self.vector_store.collection.get(
+                    where={"source": source_name},
+                    include=["metadatas", "documents"],
+                    limit=4000,
+                )
+            except Exception:
+                return []
+
+            metadatas = payload.get("metadatas", []) or []
+            documents = payload.get("documents", []) or []
+            if not documents:
+                return []
+
+            # retrieval 상위에서 source별 anchor chunk를 잡고, 인접 청크까지 후보 범위를 확장합니다.
+            anchor_indexes: list[int] = []
+            for item in results[:24]:
+                md = item.get("metadata", {}) or {}
+                item_source = str(md.get("source") or md.get("source_file") or md.get("filename") or "").strip()
+                if item_source != source_name:
+                    continue
+                idx = self._resolve_chunk_index_from_item(item)
+                if idx is not None:
+                    anchor_indexes.append(idx)
+            anchor_set = set(anchor_indexes)
+
+            entries: list[tuple[int, int, int, str]] = []
+            for idx, (md, doc) in enumerate(zip(metadatas, documents)):
+                md_obj = md if isinstance(md, dict) else {}
+                page = self._extract_metadata_page(md_obj)
+                chunk_idx = None
+                for key in ("chunk_index", "chunk_order", "row_id", "chunk_id"):
+                    chunk_idx = self._parse_chunk_index_from_marker(md_obj.get(key))
+                    if chunk_idx is not None:
+                        break
+                entries.append(
+                    (
+                        int(page) if page is not None else 1_000_000,
+                        int(chunk_idx) if chunk_idx is not None else idx,
+                        idx,
+                        str(doc or ""),
+                    )
+                )
+            entries.sort(key=lambda item: (item[0], item[1], item[2]))
+
+            marker_keys = [
+                self._normalize_text_for_match(marker)
+                for marker in query_markers
+                if marker and self._normalize_text_for_match(marker)
+            ]
+
+            scored_windows: list[tuple[float, str]] = []
+            seen_windows: set[str] = set()
+            for _page, chunk_idx, _pos, doc in entries:
+                if anchor_set and not any(abs(chunk_idx - anchor) <= neighbor_radius for anchor in anchor_set):
+                    continue
+                raw_lines = [self._clean_extracted_line(raw) for raw in str(doc).replace("\r", "\n").split("\n")]
+                raw_lines = [line for line in raw_lines if len(line) >= 4 and not self._is_noise_line(line)]
+                if not raw_lines:
+                    continue
+                for line_idx, line in enumerate(raw_lines):
+                    norm_line = self._normalize_text_for_match(line)
+                    marker_hits = sum(1 for marker in marker_keys if marker in norm_line)
+                    has_number = bool(number_regex.search(line)) if number_regex else False
+                    if marker_hits <= 0 and not has_number:
+                        continue
+
+                    start = max(0, line_idx - line_window)
+                    end = min(len(raw_lines), line_idx + line_window + 1)
+                    window_text = _clip_line_preserving_tail(" ".join(raw_lines[start:end]), max_len=520)
+                    if not window_text:
+                        continue
+                    window_key = self._normalize_text_for_match(window_text)
+                    if window_key in seen_windows:
+                        continue
+                    seen_windows.add(window_key)
+
+                    score = float(marker_hits * 2)
+                    if has_number:
+                        score += 3.0
+                    if "이상" in norm_line:
+                        score += 0.8
+                    if "배점한도" in norm_line:
+                        score += 1.2
+                    if "협상적격" in norm_line:
+                        score += 1.4
+                    scored_windows.append((score, window_text))
+
+            if not scored_windows:
+                return []
+
+            scored_windows.sort(key=lambda item: (item[0], len(item[1])), reverse=True)
+            return [line for _score, line in scored_windows[:max_hits]]
 
         if wants_guide:
             guide_lines = [
@@ -6688,6 +7242,37 @@ class RAGChatbotV17:
                 return (answer, list_lines, best_source)
 
         if wants_eval_threshold:
+            eval_markers = [
+                marker
+                for marker in [
+                    "협상적격",
+                    "기술능력",
+                    "평가점수",
+                    "배점한도",
+                    "평가",
+                    "기준",
+                    *focus_tokens[:4],
+                ]
+                if marker
+            ]
+            refined_threshold_lines: list[str] = []
+            for source in _top_result_sources(limit=3):
+                lines = _secondary_source_line_search(
+                    source=source,
+                    query_markers=eval_markers,
+                    number_regex=re.compile(r"85\s*%?", re.IGNORECASE),
+                    max_hits=5,
+                    neighbor_radius=2,
+                    line_window=1,
+                )
+                if not lines:
+                    continue
+                for line in lines:
+                    if line not in refined_threshold_lines:
+                        refined_threshold_lines.append(line)
+                if any(re.search(r"85\s*%?", line) for line in lines):
+                    break
+
             threshold_line = next(
                 (
                     line
@@ -6702,6 +7287,10 @@ class RAGChatbotV17:
             )
             if threshold_line and not re.search(r"85\s*%?", threshold_line):
                 threshold_line = ""
+            if not threshold_line and refined_threshold_lines:
+                threshold_line = next((line for line in refined_threshold_lines if re.search(r"85\s*%?", line)), "")
+                if not threshold_line:
+                    threshold_line = refined_threshold_lines[0]
             if not threshold_line:
                 for item in results[:18]:
                     chunk_text = (item.get("text", "") or "").replace("\r", "\n")
@@ -6750,11 +7339,21 @@ class RAGChatbotV17:
                     if value
                     else f"문서 기준 협상적격자 선정 관련 직접 근거는 `{threshold_line}`입니다."
                 )
-                threshold_evidence = [
+                threshold_evidence: list[str] = []
+                for line in refined_threshold_lines:
+                    if line not in threshold_evidence:
+                        threshold_evidence.append(line)
+                    if len(threshold_evidence) >= 3:
+                        break
+                for line in [
                     line
                     for line, _src in ranked
                     if re.search(r"85\s*%", line) or "협상적격" in line or "기술능력" in line
-                ]
+                ]:
+                    if line not in threshold_evidence:
+                        threshold_evidence.append(line)
+                    if len(threshold_evidence) >= 3:
+                        break
                 return (answer, threshold_evidence[:3] if threshold_evidence else [threshold_line], best_source)
 
         if wants_budget:
