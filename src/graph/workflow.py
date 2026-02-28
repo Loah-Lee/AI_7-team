@@ -4028,6 +4028,15 @@ class RAGChatbotV17:
 
                 if self._is_single_value_query(query):
                     candidate_answer = polished_answer or answer_text
+                    evidence_items = payload.get("evidence")
+                    augmented = self._augment_answer_from_evidence_context(
+                        query,
+                        candidate_answer,
+                        evidence_items if isinstance(evidence_items, list) else [],
+                    )
+                    if augmented:
+                        candidate_answer = augmented
+                        polished_answer = augmented
                     preserve_context = self._should_preserve_contextual_answer(query, candidate_answer)
                     single_value = ""
                     if not preserve_context:
@@ -5332,6 +5341,75 @@ class RAGChatbotV17:
         return False
 
     @staticmethod
+    def _augment_answer_from_evidence_context(
+        query: str,
+        answer: str,
+        evidence_items: list[dict[str, Any]],
+    ) -> str:
+        """단일값 답변에서 근거에 있는 예외/조건 문맥을 보강합니다."""
+        q_norm = unicodedata.normalize("NFKC", str(query or "").lower())
+        if not any(token in q_norm for token in ["용량", "mb", "gb", "kb"]):
+            return ""
+        answer_text = unicodedata.normalize("NFKC", str(answer or "")).strip()
+        if not answer_text:
+            return ""
+        lowered_answer = answer_text.lower()
+        if any(marker in lowered_answer for marker in ["다만", "단,", "단 ", "예외", "초과", "허용", "가능"]):
+            return ""
+
+        value_match = re.search(r"\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(MB|GB|KB)", answer_text, re.IGNORECASE)
+        if not value_match:
+            return ""
+        value = value_match.group(0).replace(" ", "")
+        value_key = value.lower()
+        exception_markers = ["다만", "단,", "단 ", "예외", "초과", "허용", "가능", "홍보"]
+
+        for item in evidence_items:
+            if not isinstance(item, dict):
+                continue
+            raw = unicodedata.normalize("NFKC", str(item.get("text", "") or "")).strip()
+            if not raw:
+                continue
+            raw_lower = raw.lower()
+            compact = re.sub(r"\s+", "", raw_lower)
+            if value_key not in compact:
+                continue
+            if not any(marker in raw_lower for marker in exception_markers):
+                continue
+
+            clause_match = re.search(
+                r"(?:단[,，]?\s*|다만\s*)([^.!?\n]{1,200})",
+                raw,
+                flags=re.IGNORECASE,
+            )
+            if clause_match:
+                clause = unicodedata.normalize("NFKC", clause_match.group(1)).strip(" -;:,")
+                for cut_marker in [
+                    "웹페이지별",
+                    "응답속도",
+                    "요청횟수",
+                    "디스플레이시간",
+                    "시스템응답시간",
+                    "- 웹페이지",
+                ]:
+                    cut_idx = clause.find(cut_marker)
+                    if cut_idx > 0:
+                        clause = clause[:cut_idx].strip(" -;:,")
+                        break
+                clause = re.sub(r"\s{2,}", " ", clause).strip()
+                clause = RAGChatbotV17._clip_text_safely(clause, 120)
+                if clause:
+                    return f"문서 기준 용량은 `{value}` 이내이며, 단 {clause}."
+            around_match = re.search(r"[^.!?\n]{0,120}초과[^.!?\n]{0,120}", raw, flags=re.IGNORECASE)
+            if around_match:
+                clause = unicodedata.normalize("NFKC", around_match.group(0)).strip(" -;:,")
+                clause = re.sub(r"\s{2,}", " ", clause).strip()
+                clause = RAGChatbotV17._clip_text_safely(clause, 120)
+                if clause:
+                    return f"문서 기준 용량은 `{value}` 이내이며, {clause}."
+        return ""
+
+    @staticmethod
     def _extract_single_value_from_fact_answer(answer: str, query: str = "") -> str:
         """직접 추출 답변 문장에서 단일 값 부분만 추출합니다."""
         text = unicodedata.normalize("NFKC", str(answer or "")).strip()
@@ -5975,7 +6053,7 @@ class RAGChatbotV17:
             return deduped
 
         core_limit = 3 if answer_style == "guide" else 2
-        evidence_limit = 6 if answer_style == "guide" else 1
+        evidence_limit = 6 if answer_style == "guide" else 2
         core_items = [_trim_item(item, 320 if answer_style == "guide" else 280) for item in _dedupe(sections["핵심 답변"])][:core_limit]
         evidence_items = [_trim_item(item, 240 if answer_style == "guide" else 320) for item in _dedupe(sections["근거 요약"])][:evidence_limit]
         source_items_all = _dedupe(sections["출처"])
@@ -6008,7 +6086,23 @@ class RAGChatbotV17:
         if "확인되지 않습니다" not in primary and evidence_items:
             follow = evidence_items[0]
             if not re.match(r"^(근거|출처|source)\s*:", follow, flags=re.IGNORECASE):
-                rendered.append(_trim_item(follow, 320))
+                if RAGChatbotV17._looks_incomplete_clause(follow):
+                    continuation = ""
+                    for candidate in evidence_items[1:]:
+                        cand = candidate.strip()
+                        if not cand or cand == follow:
+                            continue
+                        if RAGChatbotV17._looks_incomplete_clause(cand):
+                            continue
+                        if cand.startswith(("경우", "이 경우", "으로", "로", "및", "또는", "단", "다만")):
+                            continuation = cand
+                            break
+                    if continuation:
+                        follow = f"{follow} {continuation}".strip()
+                    else:
+                        follow = ""
+                if follow:
+                    rendered.append(_trim_item(follow, 320))
 
         return "\n".join(rendered).strip()
 
@@ -6466,6 +6560,8 @@ class RAGChatbotV17:
         value = unicodedata.normalize("NFKC", str(text or "")).strip()
         if not value:
             return False
+        if re.search(r"(?:\bCD\b|\bDVD\b|\bUSB\b|파일|문서|자료)$", value, flags=re.IGNORECASE):
+            return True
         if value.endswith(("…", "...", ".", "!", "?", "다", "다.", "입니다.", "합니다.", "됨.", "함.")):
             return False
         return bool(
