@@ -3402,9 +3402,16 @@ class RAGChatbotV17:
                 if style_hint not in {"concise", "guide"}:
                     style_hint = self._infer_answer_style(query)
                 is_csv_short = bool(payload.get("csv_short_circuit"))
+                answer_mode = str(payload.get("answer_mode", "") or "").strip().lower()
                 formatted_answer = self._format_answer_for_readability(answer_text, style=style_hint)
                 polish_started = time.perf_counter()
-                if self.llm and query and not is_csv_short:
+                use_llm_polish = bool(
+                    self.llm
+                    and query
+                    and not is_csv_short
+                    and answer_mode == "generative"
+                )
+                if use_llm_polish:
                     polished_answer = self._polish_answer_with_llm(
                         query,
                         formatted_answer,
@@ -3428,15 +3435,15 @@ class RAGChatbotV17:
                         formatted_answer,
                         style=style_hint,
                     )
-                answer_mode = str(payload.get("answer_mode", "") or "").strip().lower()
                 if answer_mode in {"generative", "hybrid"}:
                     polished_answer = self._restrict_answer_to_evidence(
                         polished_answer,
                         payload.get("evidence"),
+                        query=query,
                     )
                 if polished_answer:
                     payload["answer"] = polished_answer
-                if self.llm and query and not is_csv_short and perf_stats is not None:
+                if use_llm_polish and perf_stats is not None:
                     perf_stats["generation_elapsed"] = float(perf_stats.get("generation_elapsed", 0.0) or 0.0) + (
                         time.perf_counter() - polish_started
                     )
@@ -3829,6 +3836,7 @@ class RAGChatbotV17:
             "6) 기존 답변의 값/항목/목록(번호 매김 포함)은 삭제하지 말 것. 중복 제거만 허용한다.\n"
             "7) `문서에서 확인되지 않습니다.` 유형 문구를 임의로 추가하지 말고, 기존 답변에 해당 판단이 있을 때만 유지할 것.\n"
             "8) 문맥(근거)에 없는 추가 문장/해석/권고를 새로 만들지 말 것.\n\n"
+            "9) 질문의 핵심 키워드(주체/조건/기준값)는 첫 문장에 그대로 남길 것.\n\n"
             "[출력 가이드]\n"
             f"{style_guide}\n"
             f"[질문]\n{query}\n\n"
@@ -3872,6 +3880,7 @@ class RAGChatbotV17:
     def _restrict_answer_to_evidence(
         answer: str,
         evidence_items: Any,
+        query: str = "",
     ) -> str:
         """최종 답변에서 근거 텍스트와 정합성이 낮은 문장을 제거합니다."""
         text = str(answer or "").strip()
@@ -3892,10 +3901,36 @@ class RAGChatbotV17:
 
         evidence_join = " ".join(evidence_texts)
         evidence_join_no_comma = evidence_join.replace(",", "")
+        summary_content_query = RAGChatbotV17._should_bypass_short_circuit_for_query(query)
+        query_tokens = {
+            tok
+            for tok in re.findall(r"[0-9a-zA-Z가-힣]{2,}", unicodedata.normalize("NFKC", str(query or "").lower()))
+            if tok and not tok.isdigit()
+        }
         evidence_tokens = {
             tok
             for tok in re.findall(r"[0-9a-zA-Z가-힣]{2,}", evidence_join)
             if tok and not tok.isdigit()
+        }
+        missing_markers = ["문서에서 확인되지 않습니다", "문서에 명시되어 있지", "찾지 못"]
+        missing_stopwords = {
+            "문서에서",
+            "문서에",
+            "확인되지",
+            "않습니다",
+            "명시되어",
+            "있지",
+            "찾지",
+            "못",
+            "관련",
+            "해당",
+            "항목",
+            "내용",
+        }
+        topic_synonyms: dict[str, set[str]] = {
+            "개선": {"개선", "개선사항", "개선방안", "고도화", "통합", "연계", "모니터링", "최적화", "강화"},
+            "현황": {"현황", "구성", "운영", "시스템", "프로그램", "솔루션", "사용", "도입", "구축"},
+            "소프트웨어": {"소프트웨어", "sw", "시스템", "프로그램", "솔루션", "erp", "그룹웨어"},
         }
 
         kept_lines: list[str] = []
@@ -3908,11 +3943,35 @@ class RAGChatbotV17:
             if not normalized:
                 continue
 
-            if any(
-                marker in normalized
-                for marker in ["문서에서 확인되지 않습니다", "문서에 명시되어 있지", "찾지 못"]
-            ):
-                kept_lines.append(line)
+            if any(marker in normalized for marker in missing_markers):
+                prefix = normalized
+                for marker in missing_markers:
+                    if marker in prefix:
+                        prefix = prefix.split(marker, 1)[0].strip()
+                        break
+                topic_tokens = {
+                    tok
+                    for tok in re.findall(r"[0-9a-zA-Z가-힣]{2,}", prefix)
+                    if tok and tok not in missing_stopwords and not tok.isdigit()
+                }
+                expanded_topic_tokens = set(topic_tokens)
+                for token in topic_tokens:
+                    expanded_topic_tokens.update(topic_synonyms.get(token, set()))
+                if not expanded_topic_tokens and query_tokens:
+                    expanded_topic_tokens = set(query_tokens)
+                has_counter_evidence = False
+                if expanded_topic_tokens:
+                    overlap = len(expanded_topic_tokens & evidence_tokens)
+                    if overlap >= 1:
+                        has_counter_evidence = True
+                if not has_counter_evidence and any(token in topic_tokens for token in {"개선", "개선사항", "개선방안"}):
+                    if any(marker in evidence_join for marker in ["통합", "연계", "모니터링", "고도화", "강화", "개선"]):
+                        has_counter_evidence = True
+                if not has_counter_evidence and any(token in topic_tokens for token in {"현황", "소프트웨어"}):
+                    if any(marker in evidence_join for marker in ["시스템", "프로그램", "솔루션", "erp", "그룹웨어", "운영"]):
+                        has_counter_evidence = True
+                if not has_counter_evidence:
+                    kept_lines.append(line)
                 continue
 
             line_tokens = {
@@ -3924,7 +3983,16 @@ class RAGChatbotV17:
 
             numbers = re.findall(r"\d+(?:[.,]\d+)?", normalized)
             if numbers:
-                nums_ok = all(num.replace(",", "") in evidence_join_no_comma for num in numbers)
+                matched_numbers = sum(
+                    1 for num in numbers if num.replace(",", "") in evidence_join_no_comma
+                )
+                if summary_content_query:
+                    # 개요/배경/범위/효과/목표 질의는 문장 압축 과정에서
+                    # 일부 수치가 생략될 수 있어 과반 수치 정합으로 완화한다.
+                    required_matches = max(1, (len(numbers) + 1) // 2)
+                    nums_ok = matched_numbers >= required_matches
+                else:
+                    nums_ok = matched_numbers == len(numbers)
             else:
                 nums_ok = True
 
@@ -4510,6 +4578,8 @@ class RAGChatbotV17:
         question_plan: QuestionPlan | None = None,
     ) -> str:
         """질의 성질에 따라 답변 스타일(concise/guide)을 선택합니다."""
+        if self._should_bypass_short_circuit_for_query(query):
+            return "guide"
         if self._is_descriptive_query(query):
             return "guide"
         if question_plan and question_plan.query_kind in {"multi_doc", "comparison"}:
@@ -5046,11 +5116,30 @@ class RAGChatbotV17:
         keywords = self._extract_query_keywords(query, max_keywords=18)
         q_norm = unicodedata.normalize("NFKC", query.lower())
         focus_terms = self._extract_focus_terms_for_fact(query)
+        is_visual_query = self._is_visual_layout_query(query)
+        wants_status_plus_improvement = (
+            any(token in q_norm for token in ["현황", "as-is", "asis", "현재", "기존"])
+            and any(token in q_norm for token in ["개선", "개선사항", "개선방안", "to-be", "tobe", "고도화"])
+        )
+        wants_eval_threshold = any(token in q_norm for token in ["협상", "적격", "배점", "기술능력", "평가점수"])
+
+        def _is_image_caption_line(line: str) -> bool:
+            line_norm = unicodedata.normalize("NFKC", str(line or "").strip().lower())
+            if not line_norm:
+                return False
+            if line_norm.startswith("!["):
+                return True
+            if "../data_assets/" in line_norm:
+                return True
+            if re.search(r"\.(png|jpg|jpeg|webp|gif)\)", line_norm):
+                return True
+            return False
 
         wants_capacity = any(token in q_norm for token in ["용량", "mb", "gb", "kb"])
         wants_unit_quantity = any(token in q_norm for token in ["단위", "수량", "개수", "명", "건", "몇"])
         wants_charset = any(token in q_norm for token in ["문자셋", "인코딩", "utf", "charset"])
         wants_deadline = any(token in q_norm for token in ["복구", "기한", "이내", "시간", "장애", "마감"])
+        summary_content_query = self._should_bypass_short_circuit_for_query(query)
         req_mode = bool(re.search(r"[a-z]{2,5}\s*[-_ ]?\s*\d{2,3}", q_norm, flags=re.IGNORECASE))
         req_code_patterns: list[re.Pattern[str]] = []
         for code in re.findall(r"[a-z]{2,5}\s*[-_ ]?\s*\d{2,3}", q_norm, flags=re.IGNORECASE):
@@ -5059,6 +5148,94 @@ class RAGChatbotV17:
             if not alpha or not digits:
                 continue
             req_code_patterns.append(re.compile(rf"{alpha}\s*[-_ ]?\s*0*{digits}", re.IGNORECASE))
+
+        if summary_content_query:
+            focus_markers = ["사업개요", "사업 개요", "개요"]
+            if any(token in q_norm for token in ["추진배경", "추진 배경", "배경", "필요성"]):
+                focus_markers = ["추진배경", "추진 배경", "배경", "필요성", "현황", "문제점"]
+            elif any(token in q_norm for token in ["사업범위", "사업 범위", "범위"]):
+                focus_markers = ["사업범위", "사업 범위", "범위", "과업", "대상", "구축"]
+            elif any(token in q_norm for token in ["기대효과", "기대 효과", "효과"]):
+                focus_markers = ["기대효과", "기대 효과", "효과", "성과", "개선"]
+            elif any(token in q_norm for token in ["추진목표", "추진 목표", "사업목적", "사업 목적", "목표", "목적"]):
+                focus_markers = ["추진목표", "추진 목표", "사업목적", "사업 목적", "목표", "목적"]
+
+            summary_markers = [
+                "사업개요",
+                "사업 개요",
+                "사업기간",
+                "사업예산",
+                "예산",
+                "사업비",
+                "무상유지보수",
+                "입찰및계약",
+                "입찰 및 계약",
+                "다년 사업",
+                "추진배경",
+                "사업범위",
+                "기대효과",
+                "추진목표",
+                "사업목적",
+            ]
+            number_pattern = re.compile(
+                r"\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(원|만원|억원|천원|%|개월|년|일|회)",
+                re.IGNORECASE,
+            )
+            meta_line_pattern = re.compile(
+                r"^(source_file|document_title|total_pages|source)\s*:",
+                re.IGNORECASE,
+            )
+            heading_only_pattern = re.compile(
+                r"^(i|v|x|l|c|d|m)+\.\s*사업\s*개요$",
+                re.IGNORECASE,
+            )
+
+            scored_summary_lines: list[tuple[int, str]] = []
+            for item in results[:12]:
+                text = (item.get("text", "") or "").replace("\r", "\n")
+                for raw_line in text.split("\n"):
+                    line = self._clean_extracted_line(raw_line)
+                    if len(line) < 8:
+                        continue
+                    if not is_visual_query and _is_image_caption_line(line):
+                        continue
+                    line_lower = unicodedata.normalize("NFKC", line.lower())
+                    if meta_line_pattern.search(line):
+                        continue
+                    if line_lower in {"목 차", "목차"}:
+                        continue
+                    if heading_only_pattern.match(line_lower):
+                        continue
+                    if self._is_noise_line(line):
+                        continue
+
+                    score = 0
+                    if any(marker in line_lower for marker in summary_markers):
+                        score += 2
+                    focus_hit_count = sum(1 for marker in focus_markers if marker in line_lower)
+                    if focus_hit_count:
+                        score += 3 + focus_hit_count
+                    if number_pattern.search(line):
+                        score += 1
+                    if line.count("|") >= 2:
+                        score -= 1
+                    if score <= 0:
+                        continue
+                    scored_summary_lines.append((score, line[:220]))
+
+            if scored_summary_lines:
+                scored_summary_lines.sort(key=lambda x: (x[0], len(x[1])), reverse=True)
+                output: list[str] = []
+                seen: set[str] = set()
+                for _score, line in scored_summary_lines:
+                    if line in seen:
+                        continue
+                    seen.add(line)
+                    output.append(line)
+                    if len(output) >= max_lines:
+                        break
+                if output:
+                    return output
 
         # 요구사항 코드(anchor)가 질의에 있으면 코드 라인과 인접 보안/요건 라인을 우선 확보한다.
         if req_code_patterns:
@@ -5070,6 +5247,8 @@ class RAGChatbotV17:
                 for idx, line in enumerate(split_lines):
                     if not line:
                         continue
+                    if not is_visual_query and _is_image_caption_line(line):
+                        continue
                     line_lower = unicodedata.normalize("NFKC", line.lower())
                     if not any(pat.search(line_lower) for pat in req_code_patterns):
                         continue
@@ -5077,6 +5256,8 @@ class RAGChatbotV17:
                     for j in range(idx + 1, min(len(split_lines), idx + 8)):
                         nxt = split_lines[j]
                         if not nxt or self._is_noise_line(nxt):
+                            continue
+                        if not is_visual_query and _is_image_caption_line(nxt):
                             continue
                         if any(token in nxt for token in anchor_follow_tokens):
                             snippet_parts.append(nxt)
@@ -5126,6 +5307,8 @@ class RAGChatbotV17:
             focus_markers.extend(["윤리", "청렴", "담합", "뇌물", "제재", "제한", "위약", "부정당", "고발"])
         if any(token in q_norm for token in ["재고", "거래", "전송", "기록", "판매", "주문", "결제"]):
             focus_markers.extend(["재고", "거래", "전송", "판매", "주문", "결제", "이관", "통계", "조회", "팩스", "문자"])
+        if wants_eval_threshold:
+            focus_markers.extend(["협상적격", "배점한도", "기술능력", "평가점수", "85%", "후보자"])
 
         numeric_pattern = re.compile(
             r"\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(원|만원|억원|천원|%|명|건|개|회|시간|분|초|일|주|개월|년|KB|MB|GB|TB)",
@@ -5140,6 +5323,8 @@ class RAGChatbotV17:
             text = (item.get("text", "") or "").replace("\r", "\n")
             for raw_line in text.split("\n"):
                 line = self._clean_extracted_line(raw_line)
+                if not is_visual_query and _is_image_caption_line(line):
+                    continue
                 line_lower = unicodedata.normalize("NFKC", line.lower())
                 code_like_line = bool(re.search(r"[a-z]{2,5}\s*[-_ ]?\s*\d{2,3}", line_lower, flags=re.IGNORECASE))
                 if (len(line) < 8 and not code_like_line) or self._is_noise_line(line):
@@ -5154,6 +5339,8 @@ class RAGChatbotV17:
                     re.search(r"\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(명|건|개|회|mb|gb|kb)", line, re.IGNORECASE)
                 )
                 focus_hit = any(term in line_lower for term in focus_terms) if focus_terms else False
+                has_eval_anchor = any(marker in line for marker in ["협상적격", "배점한도", "기술능력", "평가점수", "평가기준"])
+                has_eval_percent = bool(re.search(r"\b\d{1,3}\s*%", line))
                 req_match = next((pat.search(line_lower) for pat in req_code_patterns if pat.search(line_lower)), None)
                 req_code_hit = req_match is not None
                 if req_code_hit:
@@ -5191,6 +5378,11 @@ class RAGChatbotV17:
                     if focus_terms and not focus_hit:
                         continue
                     score += 3
+                if wants_eval_threshold:
+                    if has_eval_anchor and has_eval_percent:
+                        score += 8
+                    elif has_eval_anchor:
+                        score += 3
 
                 if marker_hits > 0:
                     score += marker_hits * 2
@@ -5204,6 +5396,13 @@ class RAGChatbotV17:
                     start = max(0, req_match.start() - 90)
                     end = min(len(line), req_match.end() + 130)
                     snippet = line[start:end].strip()
+                if wants_eval_threshold and has_eval_anchor:
+                    anchor_match = re.search(
+                        r"(협상적격[^.\n]{0,120}|기술능력[^.\n]{0,120}배점한도[^.\n]{0,60}\d{1,3}\s*%?)",
+                        line,
+                    )
+                    if anchor_match:
+                        snippet = anchor_match.group(1).strip()
                 snippet = snippet[:220]
                 scored_lines.append((score, snippet))
                 if req_code_hit:
@@ -5214,6 +5413,8 @@ class RAGChatbotV17:
             req_anchor_lines.sort(key=lambda x: (x[0], len(x[1])), reverse=True)
             output: list[str] = []
             seen: set[str] = set()
+            current_markers = ["현황", "as-is", "asis", "기존", "운영", "분산", "구성"]
+            improvement_markers = ["개선", "개선방안", "개선사항", "고도화", "통합", "연계", "모니터링", "to-be", "tobe"]
             if req_mode and req_anchor_lines:
                 for _score, line in req_anchor_lines:
                     if line in seen:
@@ -5221,6 +5422,33 @@ class RAGChatbotV17:
                     seen.add(line)
                     output.append(line)
                     if len(output) >= min(max_lines, 2):
+                        break
+            if wants_eval_threshold:
+                for _score, line in scored_lines:
+                    if line in seen:
+                        continue
+                    if re.search(r"\b\d{1,3}\s*%", line) and any(
+                        marker in line for marker in ["협상적격", "배점한도", "기술능력", "평가점수", "평가기준"]
+                    ):
+                        seen.add(line)
+                        output.append(line)
+                        break
+            if wants_status_plus_improvement:
+                for _score, line in scored_lines:
+                    if line in seen:
+                        continue
+                    line_norm = unicodedata.normalize("NFKC", line.lower())
+                    if any(marker in line_norm for marker in current_markers):
+                        seen.add(line)
+                        output.append(line)
+                        break
+                for _score, line in scored_lines:
+                    if line in seen:
+                        continue
+                    line_norm = unicodedata.normalize("NFKC", line.lower())
+                    if any(marker in line_norm for marker in improvement_markers):
+                        seen.add(line)
+                        output.append(line)
                         break
             for _score, line in scored_lines:
                 if line in seen:
@@ -5244,6 +5472,8 @@ class RAGChatbotV17:
             for raw_line in text.split("\n"):
                 line = self._clean_extracted_line(raw_line)
                 if len(line) < 12 or self._is_noise_line(line):
+                    continue
+                if not is_visual_query and _is_image_caption_line(line):
                     continue
                 if not any(marker in line for marker in fallback_markers):
                     continue
