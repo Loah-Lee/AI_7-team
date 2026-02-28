@@ -1,82 +1,100 @@
-# 입찰메이트 RFP 챗봇 (`workspace_collab`)
+# 입찰메이트 RFP 챗봇
 
-`workspace_collab`는 협업용 실행 폴더입니다.
+Streamlit UI + Chroma 기반 RAG 파이프라인입니다.
 
-- 질문 유형: 기관 조회, 사업비/일정, 랭킹, 카테고리, 후속질문
-- UI: Streamlit (`app/main.py`)
-- 벡터 저장소: Chroma (`data_index/chroma_B`)
-- 데이터 원본: `data_index/files`
+- UI: `app/main.py`
+- 워크플로우: `src/graph/workflow.py`
+- 벡터 DB: `data_index/chroma_B`
+- 평가 스크립트: `scripts/eval_retrieval.py`, `scripts/build_eval_report.py`
 
-## 1) 클론 후 바로 실행
+## 1) 재현성 전제 (중요)
+
+원격 저장소에는 대용량 데이터/DB가 포함되지 않습니다.  
+다른 로컬에서 **같은 성능**을 재현하려면 아래가 동일해야 합니다.
+
+1. `data_index/chroma_B` (동일 Chroma DB 세트)
+2. `data/data_list.csv` (워크플로우 CSV 메타 참조)
+3. `data_index/data/data_list.csv` (앱 CSV 직접응답 경로)
+4. `.env`의 모델/키 설정
+   - `OPENAI_API_KEY`
+   - `EMBEDDING_MODEL=jhgan/ko-sroberta-multitask` (현재 운영 기준)
+
+## 2) 설치 및 실행
 
 ```bash
-git clone -b feature/jh2 https://github.com/Loah-Lee/AI_7-team.git
-cd AI_7-team/workspace_collab
+git clone -b dev https://github.com/Loah-Lee/AI_7-team.git
+cd AI_7-team
 
-# one-shot bootstrap
+# one-shot
 ./scripts/bootstrap.sh
 
-# or manual
+# 또는 수동
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
-
 cp .env.example .env
-# .env에 OPENAI_API_KEY 설정
+```
 
+`.env` 수정 후:
+
+```bash
 streamlit run app/main.py
 ```
 
-## 2) 첫 실행 시 동작
+## 3) 현재 런타임 동작 요약
 
-- 기본 DB 경로는 `workspace_collab/data_index/chroma_B` 입니다.
-- 이 경로에 DB가 없으면 `data_index/files`를 기준으로 자동 인덱싱을 수행합니다.
-- 인덱싱은 문서량/환경에 따라 시간이 걸릴 수 있습니다.
+- 앱은 `data_index/chroma_B`를 우선 DB 경로로 사용합니다.
+- DB가 이미 있으면 자동 재적재를 건너뛰고 기존 Chroma 컬렉션을 재사용합니다.
+- `top_k=10`으로 질의합니다.
+- CSV short-circuit는 기본 활성화(`CSV_SHORTCIRCUIT_ENABLED=true`)입니다.
+- 사이드카 자산 검색은 기본 비활성화(`RETRIEVER_ASSET_SIDECAR_ENABLED=false`)입니다.
 
-## 3) 시스템 의존성
+### 3-1) 기본 로직 흐름 (그래프)
 
-HWP/HWPX 처리용으로 LibreOffice가 필요합니다.
+```mermaid
+flowchart LR
+    USER["사용자 질문"] --> ANALYZE["LangGraph<br/>질의 분석 / 흐름 제어"]
+    ANALYZE --> STRATEGY{"Retrieval 전략"}
+
+    STRATEGY -->|단순| CSV_FAST["CSV Short-circuit<br/>구조화 질의 빠른 처리"]
+    STRATEGY -->|복합| HYBRID["Dynamic Retrieval<br/>Hybrid/Chroma 선택 + fallback"]
+
+    CSV_FAST --> EVIDENCE["근거 추출<br/>Extractive-first"]
+    HYBRID --> EVIDENCE
+
+    EVIDENCE --> GENERATE["GPT-5-mini<br/>필요 시 최소 생성"]
+    GENERATE --> ANSWER["최종 응답<br/>핵심 답변 / 근거 / 출처"]
+    ANSWER --> MONITOR["평가/모니터링<br/>Recall / MRR / Latency"]
+
+    classDef box fill:#f3f4f6,stroke:#bfc3c9,stroke-width:1px,color:#111111;
+    classDef decision fill:#e5e7eb,stroke:#bfc3c9,stroke-width:1px,color:#111111;
+    class USER,ANALYZE,CSV_FAST,HYBRID,EVIDENCE,GENERATE,ANSWER,MONITOR box;
+    class STRATEGY decision;
+    linkStyle default stroke:#9ca3af,stroke-width:1.2px;
+```
+
+## 4) 최신 평가 실행 (권장)
 
 ```bash
-# Ubuntu/Debian
-sudo apt-get update
-sudo apt-get install -y libreoffice
+# 20문항 평가 (chunk synced dataset)
+python scripts/eval_retrieval.py \
+  --label full20_chunk_synced_after_honorific_dedupe_fix_20260301 \
+  --dataset eval_resources/eval_dataset_chunk_synced.yaml \
+  --top_k 5
+
+# HTML 리포트 생성
+python scripts/build_eval_report.py \
+  eval_resources/eval_results_full20_chunk_synced_after_honorific_dedupe_fix_20260301.json
 ```
 
-## 4) 자주 쓰는 실행 명령
+생성 리포트:
 
-```bash
-# Streamlit
-streamlit run app/main.py
+- `eval_resources/eval_report_full20_chunk_synced_after_honorific_dedupe_fix_20260301.html`
 
-# 평가 데이터셋 생성
-python scripts/generate_eval_set.py --num_pairs 20
+## 5) 트러블슈팅
 
-# E2E 평가 실행
-python scripts/eval_retrieval.py --label collab --top_k 5
-```
-
-## 5) 폴더 구조 (요약)
-
-```text
-workspace_collab/
-├── app/main.py
-├── src/
-│   ├── graph/
-│   ├── prompts/
-│   ├── retrievers/
-│   ├── parsers/
-│   └── utils/
-├── data_index/
-│   ├── files/          # 원본 문서
-│   └── chroma_B/       # 로컬 Chroma DB (대용량, git 제외)
-├── requirements.txt
-└── docs/
-```
-
-## 6) 트러블슈팅
-
-- `ModuleNotFoundError`: `.venv` 활성화 후 `pip install -r requirements.txt` 재실행
-- 느린 응답: UI 사이드바의 `♻️ 챗봇 캐시 초기화` 버튼 실행
-- DB 관련 오류: `data_index/chroma_B` 삭제 후 앱 재시작(재인덱싱)
+- `ModuleNotFoundError`: 가상환경 활성화 후 `pip install -r requirements.txt` 재실행
+- CSV 직접응답 실패: `data_index/data/data_list.csv` 경로 확인
+- DB 품질 급락: DB/CSV 세트가 기존 실험과 동일한지 먼저 확인
+- 평가 점수 소폭 변동: LLM Judge 호출 특성상 재실행 변동이 일부 발생할 수 있음
