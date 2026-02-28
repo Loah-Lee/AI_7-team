@@ -1766,7 +1766,49 @@ class RAGChatbotV17:
             "사업목적",
             "사업 목적",
         ]
-        return any(token in normalized for token in summary_content_tokens)
+        if not any(token in normalized for token in summary_content_tokens):
+            return False
+
+        # 요약 질의라도 "원문 근거/조항/페이지"처럼 본문 직접 검증을 요구할 때만 우회한다.
+        evidence_demand_tokens = [
+            "본문",
+            "원문",
+            "조항",
+            "근거",
+            "페이지",
+            "텍스트",
+            "직접 인용",
+            "발췌",
+            "어느 조항",
+            "어느 페이지",
+        ]
+        return any(token in normalized for token in evidence_demand_tokens)
+
+    def _can_override_short_circuit_bypass(self, query: str, intent: QueryIntent, org_name: str) -> bool:
+        """요약 질의 우회 조건이어도 CSV 매칭 신뢰도가 높으면 단축 경로를 허용합니다."""
+        if not CSV_SHORTCIRCUIT_ENABLED:
+            return False
+        if not self._is_csv_shortcircuit_eligible(query, intent, org_name=org_name):
+            return False
+
+        org_scope = self._resolve_csv_org_scope(query, intent, org_name)
+        if not org_scope:
+            return False
+
+        row = self._select_csv_row_for_shortcircuit(query, intent, org_name=org_name)
+        if not row:
+            return False
+
+        row_org = str(row.get("org_name", "")).strip()
+        if row_org and not self._org_names_loosely_match(row_org, org_scope):
+            return False
+
+        field = self._detect_csv_structured_field(query)
+        if field == "summary":
+            summary_value = self._summarize_with_limit(row.get("summary", ""), 260)
+            if not summary_value:
+                return False
+        return True
 
     def _resolve_csv_vat_note(self, row: dict[str, Any]) -> str:
         """CSV 행에서 VAT 관련 안내 문구를 추출합니다."""
@@ -3130,6 +3172,9 @@ class RAGChatbotV17:
             return None
 
         fact_answer, evidence, source_line = direct_fact
+        single_value = ""
+        if self._is_single_value_query(query):
+            single_value = self._extract_single_value_from_fact_answer(fact_answer)
         # 즉답 추출에 실제 사용된 근거 라인을 포함한 청크를 우선 노출한다.
         self.vector_store.last_search_results = self._rerank_org_scan_candidates_by_evidence(
             candidates,
@@ -3137,12 +3182,15 @@ class RAGChatbotV17:
             evidence_lines=evidence,
             top_n=40,
         )
-        detail = "\n".join([f"- {line}" for line in evidence[:3]])
-        answer = (
-            f"{org_name} 문서 기준 {fact_answer}\n\n"
-            f"[근거]\n{detail}\n\n"
-            f"[출처]\n- {source_line}"
-        )
+        if single_value:
+            answer = single_value
+        else:
+            detail = "\n".join([f"- {line}" for line in evidence[:3]])
+            answer = (
+                f"{org_name} 문서 기준 {fact_answer}\n\n"
+                f"[근거]\n{detail}\n\n"
+                f"[출처]\n- {source_line}"
+            )
         payload = {
             "answer": self._format_answer_for_readability(answer),
             "found": True,
@@ -3768,7 +3816,16 @@ class RAGChatbotV17:
                         payload.get("evidence"),
                         query=query,
                     )
-                if polished_answer:
+                if self._is_single_value_query(query):
+                    candidate_answer = polished_answer or answer_text
+                    single_value = self._extract_single_value_from_fact_answer(candidate_answer)
+                    if not single_value:
+                        single_value = self._extract_single_value_from_fact_answer(answer_text)
+                    if single_value:
+                        payload["answer"] = single_value
+                    elif polished_answer:
+                        payload["answer"] = polished_answer
+                elif polished_answer:
                     payload["answer"] = polished_answer
                 if use_llm_polish and perf_stats is not None:
                     perf_stats["generation_elapsed"] = float(perf_stats.get("generation_elapsed", 0.0) or 0.0) + (
@@ -3911,13 +3968,18 @@ class RAGChatbotV17:
             and len(direct_explicit_orgs) <= 1
             and not self._is_comparison_query(query)
         )
+        is_single_org_visual_query = (
+            self._is_visual_layout_query(query)
+            and len(direct_explicit_orgs) <= 1
+            and not self._is_comparison_query(query)
+        )
         comparison_like_query = (
             question_plan.query_kind in {"multi_doc", "comparison"}
             or question_plan.is_comparison
             or self._is_comparison_query(query)
             or len(direct_explicit_orgs) >= 2
         )
-        if is_single_org_budget_query or is_single_org_non_comparison_query:
+        if is_single_org_budget_query or is_single_org_non_comparison_query or is_single_org_visual_query:
             comparison_like_query = False
             question_plan.is_comparison = False
             if question_plan.query_kind in {"multi_doc", "comparison"}:
@@ -3960,6 +4022,8 @@ class RAGChatbotV17:
                 return _finalize_payload(self._build_org_not_found_payload(org_name))
 
         bypass_short_circuit = self._should_bypass_short_circuit_for_query(query)
+        if bypass_short_circuit and self._can_override_short_circuit_bypass(query, intent, org_name=org_name):
+            bypass_short_circuit = False
         if not bypass_short_circuit:
             csv_payload = self._try_csv_short_circuit(query, intent, org_name=org_name)
             if csv_payload:
@@ -4431,6 +4495,8 @@ class RAGChatbotV17:
         direct_orgs = self._extract_org_names_from_query(query, limit=2, allow_project_fallback=False)
         if self._is_budget_query(query) and len(direct_orgs) <= 1:
             query_is_comparison_like = False
+        if self._is_visual_layout_query(query) and len(direct_orgs) <= 1 and not self._is_comparison_query(query):
+            query_is_comparison_like = False
         if intent.org_name and len(direct_orgs) <= 1 and not self._is_comparison_query(query):
             query_is_comparison_like = False
         resolved_targets = comparison_targets or []
@@ -4662,6 +4728,20 @@ class RAGChatbotV17:
         direct_fact = self._extract_direct_fact_from_results(query, results, target_org=target_org)
         if direct_fact:
             fact_answer, evidence, source_line = direct_fact
+            if self._is_single_value_query(query):
+                single_value = self._extract_single_value_from_fact_answer(fact_answer)
+                if single_value:
+                    return single_value
+            q_norm = unicodedata.normalize("NFKC", query.lower())
+            concise_visual_fact = (
+                self._is_visual_layout_query(query)
+                and any(token in q_norm for token in ["왼쪽", "오른쪽", "좌측", "우측", "가로", "세로", "치수", "길이"])
+            )
+            if concise_visual_fact:
+                if target_org and not fact_answer.startswith(target_org):
+                    trimmed = re.sub(r"^\s*문서\s*기준\s*", "", fact_answer).strip()
+                    return f"{target_org} {trimmed}"
+                return fact_answer
             detail = "\n".join([f"- {line}" for line in evidence[:2]])
             org_prefix = f"{target_org} 문서 기준 " if target_org else ""
             return (
@@ -4876,6 +4956,8 @@ class RAGChatbotV17:
             return True
         if question_plan.query_kind in {"fact_numeric", "deadline", "owner"}:
             return True
+        if RAGChatbotV17._is_visual_layout_query(query):
+            return True
         q = unicodedata.normalize("NFKC", query.lower())
         if re.search(r"[a-z]{2,5}\s*[-_ ]?\s*\d{2,3}", q, flags=re.IGNORECASE):
             return True
@@ -4888,6 +4970,116 @@ class RAGChatbotV17:
                 "핵심투입인력", "사업관리자", "배점", "적격",
             ]
         )
+
+    @staticmethod
+    def _is_single_value_query(query: str) -> bool:
+        """질문이 단일 값(숫자/식별자/짧은 속성값)만 요구하는지 판별합니다."""
+        normalized = unicodedata.normalize("NFKC", (query or "").lower()).strip()
+        if not normalized:
+            return False
+        if RAGChatbotV17._is_comparison_query(normalized):
+            return False
+        list_or_explain_markers = [
+            "목록",
+            "정리",
+            "설명",
+            "비교",
+            "차이",
+            "공통",
+            "각각",
+            "근거",
+            "왜",
+            "어떻게",
+            "항목",
+            "요약",
+            "배경",
+            "범위",
+            "효과",
+            "목표",
+        ]
+        if any(marker in normalized for marker in list_or_explain_markers):
+            return False
+        value_markers = [
+            "얼마",
+            "몇",
+            "번호",
+            "코드",
+            "id",
+            "아이디",
+            "요청번호",
+            "확정요청번호",
+            "공고번호",
+            "사업비",
+            "예산",
+            "금액",
+            "기한",
+            "기간",
+            "마감",
+            "일자",
+            "언제",
+            "문자셋",
+            "인코딩",
+            "charset",
+            "utf",
+            "용량",
+            "치수",
+            "가로",
+            "세로",
+            "길이",
+            "mm",
+            "사업명은",
+            "기관명은",
+            "발주기관은",
+        ]
+        return any(marker in normalized for marker in value_markers)
+
+    @staticmethod
+    def _extract_single_value_from_fact_answer(answer: str) -> str:
+        """직접 추출 답변 문장에서 단일 값 부분만 추출합니다."""
+        text = unicodedata.normalize("NFKC", str(answer or "")).strip()
+        if not text:
+            return ""
+
+        quoted_values = re.findall(r"`([^`\n]{1,120})`", text)
+        for value in quoted_values:
+            candidate = value.strip()
+            if candidate:
+                return candidate
+
+        pattern = re.compile(
+            r"(?:번호|코드|id|아이디|값|치수|길이|금액|예산|사업비|기한|기간|문자셋|인코딩|용량|가로|세로)\s*(?:은|는|이|가)?\s*"
+            r"([0-9A-Za-z가-힣][^.\n]{0,60}?)(?:입니다|로\s*확인|로\s*판단|입니다\.)",
+            re.IGNORECASE,
+        )
+        matched = pattern.search(text)
+        if matched:
+            return matched.group(1).strip(" `\"'")
+
+        tail_pattern = re.compile(
+            r"(?:번호|코드|id|아이디|값|치수|길이|금액|예산|사업비|기한|기간|문자셋|인코딩|용량|가로|세로|사업명|기관명|발주기관)\s*(?:은|는|이|가|:)?\s*"
+            r"([0-9A-Za-z가-힣][^.\n]{0,80}?)(?:[.!?]|$)",
+            re.IGNORECASE,
+        )
+        tail_matched = tail_pattern.search(text)
+        if tail_matched:
+            return tail_matched.group(1).strip(" `\"'")
+
+        id_matches = re.findall(r"\b\d{2,4}(?:[-/]\d{1,4}){1,3}\b", text)
+        if id_matches:
+            return id_matches[-1].strip()
+
+        comma_num_matches = re.findall(r"\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b", text)
+        if comma_num_matches:
+            return comma_num_matches[-1].strip()
+
+        plain_num_matches = re.findall(r"\b\d{2,}\b", text)
+        if plain_num_matches:
+            return plain_num_matches[-1].strip()
+
+        short_line = text.splitlines()[0].strip()
+        if 1 <= len(short_line) <= 32 and not any(token in short_line for token in ["문서", "근거", "출처"]):
+            return short_line.strip("`")
+        return ""
 
     @staticmethod
     def _is_descriptive_query(query: str) -> bool:
@@ -7142,13 +7334,56 @@ class RAGChatbotV17:
                 if not evidence_dim_lines:
                     evidence_dim_lines = dim_lines[:3]
 
+                asks_left = any(token in normalized_query for token in ["왼쪽", "좌측", "left"])
+                asks_right = any(token in normalized_query for token in ["오른쪽", "우측", "right"])
+                asks_mm_unit = any(token in normalized_query for token in ["mm", "밀리", "단위"])
+
+                def _raw_or_mm(value: str) -> str:
+                    digits = re.sub(r"[^0-9]", "", value or "")
+                    if not digits:
+                        return ""
+                    return f"{digits}mm" if asks_mm_unit else digits
+
                 if min_total and max_total and min_split_vals and max_split_vals:
+                    if asks_left and not asks_right:
+                        left_value = _raw_or_mm(min_total)
+                        if left_value:
+                            return (
+                                f"문서 기준 왼쪽 평면도 전체 가로 길이는 `{left_value}`입니다.",
+                                evidence_dim_lines,
+                                best_source,
+                            )
+                    if asks_right and not asks_left:
+                        right_value = _raw_or_mm(max_total)
+                        if right_value:
+                            return (
+                                f"문서 기준 오른쪽 평면도 전체 가로 길이는 `{right_value}`입니다.",
+                                evidence_dim_lines,
+                                best_source,
+                            )
                     answer = (
                         "문서 기준 지역의회 회의실 도면 가로 치수는 "
                         f"`최소규격 {_fmt_mm(min_total)} ({_fmt_split(min_split_vals)}), "
                         f"최대규격 {_fmt_mm(max_total)} ({_fmt_split(max_split_vals)})`입니다."
                     )
                     return (answer, evidence_dim_lines, best_source)
+                if min_total and max_total and (asks_left or asks_right):
+                    if asks_left and not asks_right:
+                        left_value = _raw_or_mm(min_total)
+                        if left_value:
+                            return (
+                                f"문서 기준 왼쪽 평면도 전체 가로 길이는 `{left_value}`입니다.",
+                                evidence_dim_lines,
+                                best_source,
+                            )
+                    if asks_right and not asks_left:
+                        right_value = _raw_or_mm(max_total)
+                        if right_value:
+                            return (
+                                f"문서 기준 오른쪽 평면도 전체 가로 길이는 `{right_value}`입니다.",
+                                evidence_dim_lines,
+                                best_source,
+                            )
                 if min_vals or max_vals:
                     parts: list[str] = []
                     if min_vals:
@@ -9333,10 +9568,12 @@ class RAGChatbotV17:
         q = unicodedata.normalize("NFKC", query.lower())
         # "비교과시스템"처럼 단어 내부의 "비교"는 비교 질의로 보지 않는다.
         has_compare_token = bool(re.search(r"비교(?!과)", q))
-        strong_markers = ["차이", "공통", "모두 고려", "동시에", "두 문서", "서로 다른", "어떻게 다른", "a 문서", "b 문서"]
-        if has_compare_token or any(marker in q for marker in strong_markers):
+        strong_markers = ["차이", "공통", "모두 고려", "동시에", "두 문서", "서로 다른", "어떻게 다른"]
+        has_doc_a = bool(re.search(r"(?<![a-z0-9])a\s*문서", q))
+        has_doc_b = bool(re.search(r"(?<![a-z0-9])b\s*문서", q))
+        if has_compare_token or any(marker in q for marker in strong_markers) or (has_doc_a and has_doc_b):
             return True
-        if "각각" in q and any(marker in q for marker in ["각 문서", "기관별", "두 문서", "a 문서", "b 문서"]):
+        if "각각" in q and (any(marker in q for marker in ["각 문서", "기관별", "두 문서"]) or has_doc_a or has_doc_b):
             return True
         return False
 
