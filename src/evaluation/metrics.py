@@ -52,29 +52,13 @@ def _normalize_stem_for_equivalence(stem: str) -> str:
 def _is_equivalent_source_name(a: str | None, b: str | None) -> bool:
     """두 source 문자열이 동일 문서를 가리키는지 판정한다.
 
-    규칙:
-    - exact filename 일치면 동일
-    - stem이 같고 확장자가 hwp/hwpx/pdf 변환군 내이면 동일
-    - 한쪽이 확장자 없는 stem이어도 stem이 같으면 동일로 본다.
+    확장자를 무시하고 stem(파일명 본체)만으로 비교한다.
     """
-    a_name, a_stem, a_ext = _split_source_parts(a)
-    b_name, b_stem, b_ext = _split_source_parts(b)
-    if not a_name or not b_name:
+    _, a_stem, _ = _split_source_parts(a)
+    _, b_stem, _ = _split_source_parts(b)
+    if not a_stem or not b_stem:
         return False
-    if a_name == b_name:
-        return True
-
-    def _stem_match() -> bool:
-        return _normalize_stem_for_equivalence(a_stem) == _normalize_stem_for_equivalence(b_stem)
-
-    if _stem_match():
-        # DB source를 확장자 없이 저장하는 모드 지원
-        if not a_ext or not b_ext:
-            return True
-        if a_ext in _CONVERTED_DOC_EXTS and b_ext in _CONVERTED_DOC_EXTS:
-            return True
-
-    return False
+    return _normalize_stem_for_equivalence(a_stem) == _normalize_stem_for_equivalence(b_stem)
 
 
 def _normalize_ground_truth_sources(

@@ -27,7 +27,6 @@ def _load_runtime_env() -> None:
     load_dotenv(parent_root / ".env", override=False)
     load_dotenv(override=False)
 
-
 _load_runtime_env()
 
 # 설정
@@ -2191,6 +2190,7 @@ class RAGChatbotV17:
         cache: dict[str, dict[str, Any]] = {}
         try:
             payload = self.vector_store.collection.get(include=["metadatas", "documents"])
+
         except Exception:
             self._chunk_budget_cache = {}
             self._chunk_budget_cache_ready = True
@@ -3110,10 +3110,11 @@ class RAGChatbotV17:
 
         def _finalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
             nonlocal analyze_elapsed
-
+            
             # 모든 응답 경로에 대해 마지막 문장/톤 후처리를 일관 적용한다.
             # LLM이 없거나 후처리가 실패해도 최소 요약 포맷은 강제한다.
             answer_text = str(payload.get("answer", "") or "").strip()
+        
             if answer_text:
                 style_hint = str(payload.get("answer_style_hint", "") or "").strip().lower()
                 if style_hint == "descriptive":
@@ -3230,6 +3231,7 @@ class RAGChatbotV17:
 
         # 1) 질문 의도 파악
         intent = self.query_parser.parse(query)
+
         if intent.org_name:
             intent.org_name = self.vector_store.normalize_org_name(intent.org_name)
         if getattr(self.query_parser, "last_parse_used_llm", False):
@@ -3245,6 +3247,7 @@ class RAGChatbotV17:
             or self._is_precision_fact_query(query)
             or any(marker in normalized_query for marker in fact_style_markers)
         )
+
         # 정밀 사실형 질의는 카테고리 단축 처리를 비활성화한다.
         # (예: 규격/치수/CPU/복구기한 질문이 category로 오분류되는 경우 방지)
         if intent.query_type == "category" and is_fact_style_query:
@@ -3255,12 +3258,14 @@ class RAGChatbotV17:
         if intent.query_type in {"ranking", "category"} and explicit_org_candidates:
             intent.query_type = "search"
             intent.confidence = min(intent.confidence, 0.7)
+
         if intent.query_type == "ranking":
             return _finalize_payload(self._handle_ranking_query(intent))
+
         if intent.query_type == "category":
             self._log_perf_stats(query, perf_stats, total_elapsed=time.perf_counter() - answer_started)
             return _finalize_payload(self._handle_category_query(intent))
-
+        
         # 2) 후속질문 컨텍스트 반영
         follow_up_ctx = self.conversation.get_follow_up_context(query)
         explicit_orgs_raw = self._extract_org_names_from_query(query)
@@ -3535,6 +3540,9 @@ class RAGChatbotV17:
                 "- `결론:`/`요약:`/`근거:`/`출처:` 라벨은 출력하지 말 것.\n"
                 "- 질문의 필수 항목이 실제로 누락된 경우에만 `문서에서 확인되지 않습니다.`를 짧게 명시할 것.\n"
             )
+        # 마크다운 표가 포함된 답변은 LLM이 표 구조를 보존하도록 추가 지시
+        if any(line.strip().count("|") >= 2 for line in raw_answer.split("\n")):
+            style_guide += "- 마크다운 표(| ... |)가 포함된 경우, 표의 행/열 구조를 그대로 유지할 것.\n"
         prompt = (
             "아래 '기존 답변'을 사용자에게 바로 전달할 수 있게 간결하고 자연스러운 한국어로 다듬어라.\n\n"
             "[필수 규칙]\n"
@@ -3674,6 +3682,10 @@ class RAGChatbotV17:
         ]
         if not lines:
             return ""
+
+        # 마크다운 표가 포함된 답변은 표 전체를 보존한다.
+        if any(line.count("|") >= 2 for line in lines):
+            return "\n".join(lines).strip()
 
         if answer_style == "guide":
             trimmed = [re.sub(r"\s+", " ", line).strip() for line in lines if line.strip()]
@@ -4431,6 +4443,41 @@ class RAGChatbotV17:
             return ""
         normalized_style = str(style).lower()
         answer_style = "guide" if normalized_style in {"guide", "descriptive"} else "concise"
+
+        # ── 마크다운 표 블록 감지 및 보존 ──
+        # 파이프(|)가 2개 이상인 연속 라인이 3줄 이상이면 표 답변으로 간주하고,
+        # 섹션 분배/evidence_limit 잘림을 우회하여 표를 원자적 블록으로 보존한다.
+        def _has_markdown_table(raw_text: str) -> bool:
+            consecutive = 0
+            for line in raw_text.split("\n"):
+                if unicodedata.normalize("NFKC", line).strip().count("|") >= 2:
+                    consecutive += 1
+                    if consecutive >= 3:
+                        return True
+                else:
+                    consecutive = 0
+            return False
+
+        if _has_markdown_table(text):
+            preserved: list[str] = []
+            for raw_line in text.split("\n"):
+                stripped = unicodedata.normalize("NFKC", raw_line).strip()
+                if not stripped:
+                    continue
+                if stripped.count("|") >= 2:
+                    # 표 행(헤더/구분선/데이터)은 그대로 보존
+                    preserved.append(stripped)
+                else:
+                    # 비표 행: LLM 라벨 접두어만 제거
+                    cleaned = re.sub(
+                        r"^(?:핵심\s*결론|결론|요약|핵심\s*답변|근거\s*요약|설명|핵심\s*포인트|가이드)\s*[:：]\s*",
+                        "",
+                        stripped,
+                        flags=re.IGNORECASE,
+                    ).strip()
+                    if cleaned:
+                        preserved.append(cleaned)
+            return "\n".join(preserved).strip()
 
         def _normalize_line(value: str) -> str:
             return unicodedata.normalize("NFKC", value or "").strip()
@@ -8099,7 +8146,7 @@ class RAGChatbotV17:
             top_n = int(n_match.group(1) or n_match.group(2) or n_match.group(3))
         else:
             top_n = 5
-
+            
         # 오름차순/내림차순 결정
         reverse = intent.rank_order != "asc"  # 기본은 내림차순 (많은 순)
 
@@ -8134,9 +8181,11 @@ class RAGChatbotV17:
 
         # 2) CSV에 금액이 부족하면 org_registry로 보강한다.
         if len(ranked_items) < top_n:
+
             if not ranked_items:
                 self._ensure_chunk_budget_cache()
-            for org in self.vector_store.org_registry.values():
+            
+            for i, org in enumerate(self.vector_store.org_registry.values()):
                 amount_numeric = float(getattr(org, "amount_numeric", 0) or 0)
                 if amount_numeric <= 0:
                     continue
@@ -8160,6 +8209,7 @@ class RAGChatbotV17:
             )
 
         top_items = ranked_items[:top_n]
+
         if not top_items:
             return {
                 "answer": "사업비 정보가 있는 기관을 찾을 수 없습니다.",
@@ -8168,35 +8218,53 @@ class RAGChatbotV17:
                 "slot_fill_rate": 0.0,
                 "evidence_count": 0,
                 "confidence": 0.0,
-                "evidence": [],
+                "evidence": []
             }
 
-        # 테이블 생성
+        # 표 형태 답변은 evidence에 원본 표를 보존하고, answer에 텍스트 요약을 반환한다.
+        # CSV 구조화 데이터(top_items)에서 직접 텍스트를 생성하므로 환각이 없다.
+
+        # (1) evidence용 마크다운 표 생성
         org_rows: list[str] = []
-        for item in top_items:
+        summary_parts: list[str] = []
+        for idx, item in enumerate(top_items, 1):
             project_name = str(item.get("project_name", "")).strip()
             project = project_name[:25] + "..." if len(project_name) > 25 else (project_name or "-")
             amount = format_amount(float(item.get("amount_numeric", 0) or 0))
-            org_rows.append(f"| {item.get('org_name', '-')} | {amount} | {project} |")
+            org_name = item.get("org_name", "-")
+            org_rows.append(f"| {org_name} | {amount} | {project} |")
+            summary_parts.append(f"{idx}위 {org_name}({amount})")
 
         rank_desc = "높은" if reverse else "낮은"
-        header = f"📊 **사업비가 {rank_desc} {len(top_items)}개 기관**\n\n"
-        header += "| 기관명 | 사업비 | 사업명 |\n"
-        header += "|--------|--------|--------|\n"
-        answer = header + "\n".join(org_rows)
+        table_header = f"📊 **사업비가 {rank_desc} {len(top_items)}개 기관**\n\n"
+        table_header += "| 기관명 | 사업비 | 사업명 |\n"
+        table_header += "|--------|--------|--------|\n"
+        table_text = table_header + "\n".join(org_rows)
 
-        # 대화 기록 추가
-        self.conversation.add_exchange(intent.raw_query, answer, intent)
+        # (2) answer용 추출형 텍스트 요약 생성
+        text_summary = (
+            f"사업비가 {rank_desc} 상위 {len(top_items)}개 기관은 "
+            + ", ".join(summary_parts)
+            + "입니다."
+        )
+
+        # 대화 기록 추가 (표 포함 전체 정보 보존)
+        self.conversation.add_exchange(intent.raw_query, table_text, intent)
 
         return {
-            "answer": answer,
+            "answer": text_summary,
             "found": True,
             "source_type": "csv",
             "answer_mode": "extractive",
             "slot_fill_rate": 1.0,
-            "evidence_count": 0,
+            "evidence_count": 1,
             "confidence": 0.9,
-            "evidence": [],
+            "evidence": [{
+                "source": "data_list.csv",
+                "page": None,
+                "text": table_text,
+            }],
+            "answer_style_hint": "concise",  # 텍스트 요약이므로 concise
         }
 
     def _handle_category_query(self, intent: QueryIntent) -> dict[str, Any]:
@@ -8247,6 +8315,7 @@ class RAGChatbotV17:
             project = str(getattr(org_info, "project_name", "") or "").strip() or "-"
             amount_numeric = float(getattr(org_info, "amount_numeric", 0) or 0)
             amount = format_amount(amount_numeric) if amount_numeric > 0 else "-"
+            break
             ranked_rows.append((score, amount_numeric, org_name, project, amount))
 
         if not ranked_rows:
@@ -8266,25 +8335,43 @@ class RAGChatbotV17:
         ranked_rows.sort(key=lambda item: (item[0], item[1]), reverse=True)
         top_rows = ranked_rows[:10]
         header_label = ",".join(active_categories) if active_categories else "검색"
-        answer_lines = [
+
+        # (1) evidence용 마크다운 표 생성
+        table_lines = [
             f"🔎 **{header_label} 관련 상위 {len(top_rows)}개 기관/사업**",
             "",
             "| 기관명 | 사업명 | 사업비 |",
             "|--------|--------|--------|",
         ]
+        summary_parts: list[str] = []
         for _score, _amount_num, org_name, project, amount in top_rows:
-            answer_lines.append(f"| {org_name} | {project} | {amount} |")
-        answer = "\n".join(answer_lines)
-        self.conversation.add_exchange(query, answer, intent)
+            table_lines.append(f"| {org_name} | {project} | {amount} |")
+            summary_parts.append(f"{org_name}({amount})")
+        table_text = "\n".join(table_lines)
+
+        # (2) answer용 추출형 텍스트 요약 생성
+        text_summary = (
+            f"{header_label} 관련 상위 {len(top_rows)}개 기관/사업은 "
+            + ", ".join(summary_parts)
+            + "입니다."
+        )
+
+        # 대화 기록 추가 (표 포함 전체 정보 보존)
+        self.conversation.add_exchange(query, table_text, intent)
         return {
-            "answer": answer,
+            "answer": text_summary,
             "found": True,
             "source_type": "csv",
             "answer_mode": "extractive",
             "slot_fill_rate": 1.0,
-            "evidence_count": 0,
+            "evidence_count": 1,
             "confidence": 0.85,
-            "evidence": [],
+            "evidence": [{
+                "source": "data_list.csv",
+                "page": None,
+                "text": table_text,
+            }],
+            "answer_style_hint": "concise",
         }
 
     @staticmethod
@@ -8623,9 +8710,9 @@ class RAGChatbotV17:
         return orgs[0] if orgs else None
 
     def _create_multi_org_summary(self, results: list, query: str) -> str:
-        """여러 기관의 요약 답변을 생성합니다 - 입찰 요약 형식."""
-        seen_orgs = set()
-        org_rows = []
+        """여러 기관의 요약 답변을 생성합니다 — 추출형 텍스트 요약."""
+        seen_orgs: set[str] = set()
+        summary_parts: list[str] = []
 
         for r in results[:15]:
             org_name = r['metadata'].get('org', '')
@@ -8634,17 +8721,12 @@ class RAGChatbotV17:
 
                 org_info = self.vector_store.org_registry.get(org_name)
                 if org_info:
-                    # 입찰 요약 형식: 기관명 | 사업비 | 사업명
-                    project = org_info.project_name[:20] + "..." if org_info.project_name and len(org_info.project_name) > 20 else (org_info.project_name or "-")
                     amount = format_amount(org_info.amount_numeric) if org_info.amount_numeric > 0 else "-"
-                    org_rows.append(f"| {org_info.name} | {amount} | {project} |")
+                    summary_parts.append(f"{org_info.name}({amount})")
 
-        if org_rows:
-            # 테이블 헤더
-            header = f"📊 **검색된 {len(org_rows)}개 사업** (입찰 요약)\n\n"
-            header += "| 기관명 | 사업비 | 사업명 |\n"
-            header += "|--------|--------|--------|\n"
-            return header + "\n".join(org_rows[:10])
+        if summary_parts:
+            parts_text = ", ".join(summary_parts[:10])
+            return f"검색된 {len(summary_parts)}개 사업: {parts_text}."
 
         return "📋 관련 사업을 찾았습니다. 구체적인 기관명을 물어보시면 상세 조건을 안내해 드립니다."
 

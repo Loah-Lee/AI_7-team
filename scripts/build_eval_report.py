@@ -73,6 +73,13 @@ def build_html(results: dict) -> str:
     def _esc(value: object) -> str:
         return html.escape(str(value or ""))
 
+    def _stem(source: str) -> str:
+        """source 파일명에서 확장자를 제거한다 (표시용)."""
+        name = str(source or "").strip().replace("\\", "/").rsplit("/", 1)[-1]
+        if "." in name:
+            return name.rsplit(".", 1)[0]
+        return name
+
     def _clean_answer_for_display(value: object) -> str:
         # HTML 단계에서는 답변을 정제하지 않고 원문을 그대로 보여준다.
         return str(value or "").replace("\r\n", "\n").strip()
@@ -105,12 +112,12 @@ def build_html(results: dict) -> str:
         hit_cls = "hit-yes" if hit else "hit-no"
 
         gt_sources = "".join(
-            f"<code style=\"font-size:0.76rem;background:rgba(59,130,246,0.1);color:#93c5fd;padding:0.1rem 0.4rem;border-radius:3px\">{_esc(s)}</code> "
+            f"<code style=\"font-size:0.76rem;background:rgba(59,130,246,0.1);color:#93c5fd;padding:0.1rem 0.4rem;border-radius:3px\">{_esc(_stem(s))}</code> "
             for s in (q.get("ground_truth_sources") or [])
         ).strip()
         retrieved_sources_all = list(q.get("retrieved_sources") or [])
         retrieved_sources = "".join(
-            f"<code style=\"font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px\">{_esc(s)}</code> "
+            f"<code style=\"font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px\">{_esc(_stem(s))}</code> "
             for s in retrieved_sources_all[:_top_k]
         ).strip()
         remaining = max(len(retrieved_sources_all) - _top_k, 0)

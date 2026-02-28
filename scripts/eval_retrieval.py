@@ -95,6 +95,16 @@ def _normalize_source_label(source: str | None) -> str:
     return label
 
 
+def _strip_ext(source: str) -> str:
+    """표시용: 파일명에서 확장자를 제거하되 대소문자를 보존한다."""
+    if not source:
+        return ""
+    name = str(source).strip().replace("\\", "/").rsplit("/", 1)[-1]
+    if "." in name:
+        return name.rsplit(".", 1)[0]
+    return name
+
+
 def _has_csv_ground_truth(gt_sources: list[str]) -> bool:
     """GT source 목록에 data_list.csv 계열이 포함되어 있는지 판정한다."""
     for source in gt_sources:
@@ -376,7 +386,7 @@ def evaluate_e2e(
                 ]
 
         retrieved_sources = list(dict.fromkeys(
-            doc.get("source", "unknown") for doc in retrieved_for_metrics
+            _strip_ext(doc.get("source", "unknown")) for doc in retrieved_for_metrics
         ))
 
         recall = calculate_recall_at_k(retrieved_for_metrics, gt_sources, k=top_k)
@@ -439,7 +449,7 @@ def evaluate_e2e(
             "num_retrieved": len(retrieved_docs),
             "csv_short_circuit": csv_short_circuit,
             "source_type": source_type,
-            "ground_truth_sources": gt_sources,
+            "ground_truth_sources": [_strip_ext(s) for s in gt_sources],
             "retrieved_sources": retrieved_sources,
             "latencies": state.get("latencies", {}),
         })
