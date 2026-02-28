@@ -6308,6 +6308,7 @@ class RAGChatbotV17:
                 "누구", "핵심투입인력", "사업관리자", "pm", "가이드", "guideline", "guide",
                 "규격", "치수", "가로", "세로", "도면", "mm",
                 "목표", "목적", "추진목표", "추진 목표",
+                "번호", "요청번호", "확정요청번호", "공고번호", "코드", "아이디", "id",
             ]
         )
         if not wants_direct_fact:
@@ -6315,7 +6316,27 @@ class RAGChatbotV17:
 
         wants_owner = any(token in normalized_query for token in ["누가", "누구", "책임", "부담", "소유권", "귀속", "저작권"])
         wants_deadline = any(token in normalized_query for token in ["언제", "마감", "기한", "일자", "제출", "이내", "까지"])
-        wants_numeric = any(token in normalized_query for token in ["얼마", "몇", "수량", "단위", "횟수", "비율", "퍼센트", "용량", "시간"])
+        wants_numeric = any(
+            token in normalized_query
+            for token in [
+                "얼마",
+                "몇",
+                "수량",
+                "단위",
+                "횟수",
+                "비율",
+                "퍼센트",
+                "용량",
+                "시간",
+                "번호",
+                "요청번호",
+                "확정요청번호",
+                "공고번호",
+                "코드",
+                "아이디",
+                "id",
+            ]
+        )
         wants_project_period = "사업기간" in normalized_query or ("기간" in normalized_query and "사업" in normalized_query)
         wants_budget = self._is_budget_query(query)
         wants_capacity = any(token in normalized_query for token in ["용량", "mb", "gb", "kb"])
@@ -6372,6 +6393,8 @@ class RAGChatbotV17:
         numeric_pattern = re.compile(
             r"("
                 r"\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:원|만원|억원|천원|%|명|건|개|회|시간|분|초|일|주|개월|년|KB|MB|GB|TB)"
+                r"|"
+                r"\d{2,6}\s*[-/]\s*\d{2,6}"
                 r"|"
                 r"\d{1,2}:\d{2}"
                 r"|"
