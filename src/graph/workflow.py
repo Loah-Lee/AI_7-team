@@ -1747,8 +1747,8 @@ class RAGChatbotV17:
         return False
 
     @staticmethod
-    def _should_bypass_short_circuit_for_query(query: str) -> bool:
-        """로컬 단축 경로를 우회하고 RAG+LLM 본문 경로를 강제할 질의를 판별합니다."""
+    def _is_summary_focus_query(query: str) -> bool:
+        """개요/배경/범위/효과/목표 등 요약 계열 질의인지 판별합니다."""
         normalized = unicodedata.normalize("NFKC", (query or "").lower()).strip()
         if not normalized:
             return False
@@ -1766,8 +1766,14 @@ class RAGChatbotV17:
             "사업목적",
             "사업 목적",
         ]
-        if not any(token in normalized for token in summary_content_tokens):
+        return any(token in normalized for token in summary_content_tokens)
+
+    @staticmethod
+    def _should_bypass_short_circuit_for_query(query: str) -> bool:
+        """로컬 단축 경로를 우회하고 RAG+LLM 본문 경로를 강제할 질의를 판별합니다."""
+        if not RAGChatbotV17._is_summary_focus_query(query):
             return False
+        normalized = unicodedata.normalize("NFKC", (query or "").lower()).strip()
 
         # 요약 질의라도 "원문 근거/조항/페이지"처럼 본문 직접 검증을 요구할 때만 우회한다.
         evidence_demand_tokens = [
@@ -2696,8 +2702,9 @@ class RAGChatbotV17:
 
         project_name = str((row or {}).get("project_name", "")).strip() or str(getattr(org_info, "project_name", "") or "").strip()
         summary = str((row or {}).get("summary", "")).strip() or str(getattr(org_info, "summary", "") or "").strip()
-        if asks_summary_content and not summary:
-            # 기관 메타만으로는 개요를 만들 수 없으므로 본문 RAG 검색으로 이관한다.
+        if asks_summary_content:
+            # 개요/배경/범위/효과/목표 질의는 CSV 단축 경로(_try_csv_short_circuit)에서 우선 처리한다.
+            # 여기까지 왔다면 CSV 매칭이 애매하거나 근거가 부족한 경우이므로 RAG 본문 검색으로 이관한다.
             return None
         open_date = str((row or {}).get("open_date", "")).strip()
         start_date = str((row or {}).get("start_date", "")).strip()
@@ -3174,7 +3181,7 @@ class RAGChatbotV17:
         fact_answer, evidence, source_line = direct_fact
         single_value = ""
         if self._is_single_value_query(query):
-            single_value = self._extract_single_value_from_fact_answer(fact_answer)
+            single_value = self._extract_single_value_from_fact_answer(fact_answer, query=query)
         # 즉답 추출에 실제 사용된 근거 라인을 포함한 청크를 우선 노출한다.
         self.vector_store.last_search_results = self._rerank_org_scan_candidates_by_evidence(
             candidates,
@@ -3818,9 +3825,9 @@ class RAGChatbotV17:
                     )
                 if self._is_single_value_query(query):
                     candidate_answer = polished_answer or answer_text
-                    single_value = self._extract_single_value_from_fact_answer(candidate_answer)
+                    single_value = self._extract_single_value_from_fact_answer(candidate_answer, query=query)
                     if not single_value:
-                        single_value = self._extract_single_value_from_fact_answer(answer_text)
+                        single_value = self._extract_single_value_from_fact_answer(answer_text, query=query)
                     if single_value:
                         payload["answer"] = single_value
                     elif polished_answer:
@@ -4292,7 +4299,7 @@ class RAGChatbotV17:
 
         evidence_join = " ".join(evidence_texts)
         evidence_join_no_comma = evidence_join.replace(",", "")
-        summary_content_query = RAGChatbotV17._should_bypass_short_circuit_for_query(query)
+        summary_content_query = RAGChatbotV17._is_summary_focus_query(query)
         query_tokens = {
             tok
             for tok in re.findall(r"[0-9a-zA-Z가-힣]{2,}", unicodedata.normalize("NFKC", str(query or "").lower()))
@@ -4724,12 +4731,34 @@ class RAGChatbotV17:
             re.search(r"[a-z]{2,5}\s*[-_ ]?\s*\d{2,3}", q, flags=re.IGNORECASE)
             or any(k in q for k in ["보안", "접근통제", "암호화", "인증", "취약성", "비밀번호"])
         )
+        is_summary_focus_query = self._is_summary_focus_query(query)
+
+        if is_summary_focus_query and single_org:
+            summary_lines = self._extract_summary_focus_lines(query, results, max_lines=3)
+            if summary_lines:
+                slot = self._resolve_summary_focus_slot(query)
+                slot_label_map = {
+                    "overview": "사업개요",
+                    "background": "추진배경",
+                    "scope": "사업범위",
+                    "effect": "기대효과",
+                    "goal": "추진목표",
+                }
+                label = slot_label_map.get(slot, "사업 요약")
+                source_line = self._format_first_source(results)
+                detail = "\n".join([f"- {line}" for line in summary_lines])
+                org_prefix = f"{target_org} " if target_org else ""
+                return (
+                    f"{org_prefix}{label}는 다음과 같습니다.\n\n"
+                    f"{detail}\n\n"
+                    f"[출처]\n- {source_line}"
+                )
 
         direct_fact = self._extract_direct_fact_from_results(query, results, target_org=target_org)
         if direct_fact:
             fact_answer, evidence, source_line = direct_fact
             if self._is_single_value_query(query):
-                single_value = self._extract_single_value_from_fact_answer(fact_answer)
+                single_value = self._extract_single_value_from_fact_answer(fact_answer, query=query)
                 if single_value:
                     return single_value
             q_norm = unicodedata.normalize("NFKC", query.lower())
@@ -4956,6 +4985,8 @@ class RAGChatbotV17:
             return True
         if question_plan.query_kind in {"fact_numeric", "deadline", "owner"}:
             return True
+        if RAGChatbotV17._is_summary_focus_query(query):
+            return True
         if RAGChatbotV17._is_visual_layout_query(query):
             return True
         q = unicodedata.normalize("NFKC", query.lower())
@@ -5034,17 +5065,71 @@ class RAGChatbotV17:
         return any(marker in normalized for marker in value_markers)
 
     @staticmethod
-    def _extract_single_value_from_fact_answer(answer: str) -> str:
+    def _extract_single_value_from_fact_answer(answer: str, query: str = "") -> str:
         """직접 추출 답변 문장에서 단일 값 부분만 추출합니다."""
         text = unicodedata.normalize("NFKC", str(answer or "")).strip()
         if not text:
             return ""
+        q_norm = unicodedata.normalize("NFKC", str(query or "").lower())
+        asks_identifier = any(
+            token in q_norm
+            for token in ["번호", "요청번호", "확정요청번호", "공고번호", "코드", "아이디", " id", "id "]
+        )
+        asks_dimension = any(token in q_norm for token in ["치수", "가로", "세로", "길이", "도면", "mm", "평면도"])
+        asks_budget = any(token in q_norm for token in ["사업비", "예산", "금액", "원", "만원", "억원"])
+        asks_deadline = any(token in q_norm for token in ["기한", "기간", "마감", "일자", "언제", "이내"])
 
         quoted_values = re.findall(r"`([^`\n]{1,120})`", text)
         for value in quoted_values:
             candidate = value.strip()
             if candidate:
                 return candidate
+
+        if asks_identifier:
+            labeled_id_pattern = re.compile(
+                r"(?:확정요청번호|요청번호|공고번호|번호|코드|아이디|id)\s*[:：]?\s*"
+                r"([A-Za-z0-9]{2,}(?:[-/][A-Za-z0-9]{1,})+|[A-Za-z]?\d{3,})",
+                re.IGNORECASE,
+            )
+            labeled_match = labeled_id_pattern.search(text)
+            if labeled_match:
+                return labeled_match.group(1).strip()
+
+            table_row_match = re.search(
+                r"(?:확정요청번호|요청번호|공고번호)\"\s*,\s*\"([A-Za-z0-9]{2,}(?:[-/][A-Za-z0-9]{1,})+)\"",
+                text,
+                re.IGNORECASE,
+            )
+            if table_row_match:
+                return table_row_match.group(1).strip()
+
+        if asks_dimension:
+            dim_pattern = re.compile(r"(?:전체\s*가로\s*길이|가로|세로|치수)\D{0,20}(\d{4,6})")
+            dim_match = dim_pattern.search(text)
+            if dim_match:
+                return dim_match.group(1).strip()
+
+            mm_match = re.search(r"\b(\d{4,6})\s*mm\b", text, re.IGNORECASE)
+            if mm_match:
+                return mm_match.group(1).strip()
+
+        if asks_budget:
+            money_match = re.search(
+                r"(\d{1,3}(?:,\d{3})+(?:\.\d+)?)\s*(원|만원|억원|천원)",
+                text,
+                re.IGNORECASE,
+            )
+            if money_match:
+                return f"{money_match.group(1)}{money_match.group(2)}"
+
+        if asks_deadline:
+            deadline_match = re.search(
+                r"(\d{4}\s*[./-]\s*\d{1,2}\s*[./-]\s*\d{1,2}|\d+\s*(?:시간|일|주|개월|년)\s*(?:이내|이상|이하)?)",
+                text,
+                re.IGNORECASE,
+            )
+            if deadline_match:
+                return re.sub(r"\s+", "", deadline_match.group(1))
 
         pattern = re.compile(
             r"(?:번호|코드|id|아이디|값|치수|길이|금액|예산|사업비|기한|기간|문자셋|인코딩|용량|가로|세로)\s*(?:은|는|이|가)?\s*"
@@ -5055,29 +5140,12 @@ class RAGChatbotV17:
         if matched:
             return matched.group(1).strip(" `\"'")
 
-        tail_pattern = re.compile(
-            r"(?:번호|코드|id|아이디|값|치수|길이|금액|예산|사업비|기한|기간|문자셋|인코딩|용량|가로|세로|사업명|기관명|발주기관)\s*(?:은|는|이|가|:)?\s*"
-            r"([0-9A-Za-z가-힣][^.\n]{0,80}?)(?:[.!?]|$)",
-            re.IGNORECASE,
-        )
-        tail_matched = tail_pattern.search(text)
-        if tail_matched:
-            return tail_matched.group(1).strip(" `\"'")
-
-        id_matches = re.findall(r"\b\d{2,4}(?:[-/]\d{1,4}){1,3}\b", text)
-        if id_matches:
-            return id_matches[-1].strip()
-
-        comma_num_matches = re.findall(r"\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b", text)
-        if comma_num_matches:
-            return comma_num_matches[-1].strip()
-
-        plain_num_matches = re.findall(r"\b\d{2,}\b", text)
-        if plain_num_matches:
-            return plain_num_matches[-1].strip()
-
         short_line = text.splitlines()[0].strip()
-        if 1 <= len(short_line) <= 32 and not any(token in short_line for token in ["문서", "근거", "출처"]):
+        if (
+            1 <= len(short_line) <= 32
+            and not any(token in short_line for token in ["문서", "근거", "출처"])
+            and re.fullmatch(r"[A-Za-z0-9가-힣][A-Za-z0-9\-_/.,%() ]{0,31}", short_line)
+        ):
             return short_line.strip("`")
         return ""
 
@@ -5129,7 +5197,7 @@ class RAGChatbotV17:
         question_plan: QuestionPlan | None = None,
     ) -> str:
         """질의 성질에 따라 답변 스타일(concise/guide)을 선택합니다."""
-        if self._should_bypass_short_circuit_for_query(query):
+        if self._is_summary_focus_query(query):
             return "guide"
         if self._is_descriptive_query(query):
             return "guide"
@@ -5773,7 +5841,7 @@ class RAGChatbotV17:
         wants_unit_quantity = any(token in q_norm for token in ["단위", "수량", "개수", "명", "건", "몇"])
         wants_charset = any(token in q_norm for token in ["문자셋", "인코딩", "utf", "charset"])
         wants_deadline = any(token in q_norm for token in ["복구", "기한", "이내", "시간", "장애", "마감"])
-        summary_content_query = self._should_bypass_short_circuit_for_query(query)
+        summary_content_query = self._is_summary_focus_query(query)
         req_mode = bool(re.search(r"[a-z]{2,5}\s*[-_ ]?\s*\d{2,3}", q_norm, flags=re.IGNORECASE))
         req_code_patterns: list[re.Pattern[str]] = []
         for code in re.findall(r"[a-z]{2,5}\s*[-_ ]?\s*\d{2,3}", q_norm, flags=re.IGNORECASE):
@@ -6351,6 +6419,10 @@ class RAGChatbotV17:
         wants_cpu_spec = any(token in normalized_query for token in ["cpu", "서버", "코어", "ghz", "사양"])
         wants_type1 = bool(re.search(r"type\s*[-_ ]?\s*1", normalized_query, flags=re.IGNORECASE))
         wants_dimension = any(token in normalized_query for token in ["규격", "치수", "가로", "세로", "도면", "mm"])
+        wants_identifier = any(
+            token in normalized_query
+            for token in ["번호", "요청번호", "확정요청번호", "공고번호", "코드", "아이디", " id", "id "]
+        )
         wants_goal = any(token in normalized_query for token in ["추진 목표", "추진목표", "목표는", "목적은"])
         wants_text_value = any(token in normalized_query for token in ["문자셋", "인코딩", "utf", "charset"])
         wants_list_fact = any(token in normalized_query for token in ["서류", "준수사항", "절차", "제재", "증명", "요건"])
@@ -6426,6 +6498,10 @@ class RAGChatbotV17:
             r"(금\s*)?\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:천원|백만원|만원|억원|원)",
             re.IGNORECASE,
         )
+        identifier_value_pattern = re.compile(
+            r"([A-Za-z0-9]{2,}(?:[-/][A-Za-z0-9]{1,})+|[A-Za-z]?\d{3,})",
+            re.IGNORECASE,
+        )
         charset_pattern = re.compile(r"(UTF[-\s]?8|EUC[-\s]?KR|CP949|UTF[-\s]?16|ASCII)", re.IGNORECASE)
         owner_subject_pattern = re.compile(
             r"([가-힣A-Za-z0-9()/_\-\s]{2,30})\s*(?:이|가|은|는)?\s*(?:책임|부담|귀속|소유권)",
@@ -6489,7 +6565,7 @@ class RAGChatbotV17:
                 is_metadata_summary = any(marker in line for marker in metadata_summary_markers)
                 has_dimension_marker = any(
                     marker in line_lower
-                    for marker in ["최소규격", "최대규격", "가로", "세로", "치수", "도면", "평면도", "상단 분할", "가운데 문"]
+                    for marker in ["최소규격", "최대규격", "가로", "세로", "치수", "평면도", "상단 분할", "가운데 문", "전체 가로 길이"]
                 )
                 has_dimension_value = bool(
                     re.search(r"\d{1,2},?\d{3}\s*[|/]\s*\d{1,2},?\d{3}\s*[|/]\s*\d{1,2},?\d{3}", line)
@@ -6544,6 +6620,14 @@ class RAGChatbotV17:
                         continue
                 if wants_dimension and not (has_dimension_marker or has_dimension_value) and score < 2:
                     continue
+                if wants_identifier:
+                    has_identifier_marker = any(
+                        marker in line_lower for marker in ["확정요청번호", "요청번호", "공고번호", "번호", "코드", "id", "아이디"]
+                    )
+                    if not has_identifier_marker:
+                        continue
+                    if not identifier_value_pattern.search(line):
+                        continue
                 if wants_capacity:
                     if not has_number or not re.search(r"(mb|gb|kb|용량)", line, re.IGNORECASE):
                         continue
@@ -7218,7 +7302,7 @@ class RAGChatbotV17:
             dim_lines = [
                 line
                 for line, _src in ranked
-                if any(marker in line for marker in ["최소규격", "최대규격", "가로", "세로", "치수", "도면", "평면도", "상단 분할"])
+                if any(marker in line for marker in ["최소규격", "최대규격", "가로", "세로", "치수", "평면도", "상단 분할", "전체 가로 길이"])
                 or re.search(r"\d{1,2},?\d{3}\s*[|/]\s*\d{1,2},?\d{3}\s*[|/]\s*\d{1,2},?\d{3}", line)
                 or (
                     len(re.findall(r"\d{1,2},?\d{3}", line)) >= 8
@@ -7230,7 +7314,7 @@ class RAGChatbotV17:
                     [
                         line
                         for line, _src in fallback_lines
-                        if any(marker in line for marker in ["최소규격", "최대규격", "가로", "세로", "치수", "도면", "평면도", "상단 분할"])
+                        if any(marker in line for marker in ["최소규격", "최대규격", "가로", "세로", "치수", "평면도", "상단 분할", "전체 가로 길이"])
                         or re.search(r"\d{1,2},?\d{3}\s*[|/]\s*\d{1,2},?\d{3}\s*[|/]\s*\d{1,2},?\d{3}", line)
                         or (
                             len(re.findall(r"\d{1,2},?\d{3}", line)) >= 8
@@ -7243,7 +7327,7 @@ class RAGChatbotV17:
                     [
                         line
                         for line, _src in _ensure_source_wide_lines(max_sources=2, max_lines_per_source=2600)
-                        if any(marker in line for marker in ["최소규격", "최대규격", "가로", "세로", "치수", "도면", "평면도", "상단 분할"])
+                        if any(marker in line for marker in ["최소규격", "최대규격", "가로", "세로", "치수", "평면도", "상단 분할", "전체 가로 길이"])
                         or re.search(r"\d{1,2},?\d{3}\s*[|/]\s*\d{1,2},?\d{3}\s*[|/]\s*\d{1,2},?\d{3}", line)
                         or (
                             len(re.findall(r"\d{1,2},?\d{3}", line)) >= 8
@@ -7426,8 +7510,51 @@ class RAGChatbotV17:
                         )
                     answer = f"문서 기준 가로 세부 치수는 `{'; '.join(parts)}`입니다."
                 else:
+                    if asks_left or asks_right:
+                        return None
                     answer = f"문서 기준 치수 관련 직접 근거는 `{dim_lines[0]}`입니다."
                 return (answer, evidence_dim_lines, best_source)
+            return None
+
+        if wants_identifier:
+            identifier_markers = ["확정요청번호", "요청번호", "공고번호", "번호", "코드", "id", "아이디"]
+            target_markers: list[str] = []
+            if "확정요청번호" in normalized_query:
+                target_markers = ["확정요청번호"]
+            elif "요청번호" in normalized_query:
+                target_markers = ["요청번호"]
+            elif "공고번호" in normalized_query:
+                target_markers = ["공고번호"]
+            elif "코드" in normalized_query:
+                target_markers = ["코드"]
+            marker_pool = target_markers or identifier_markers
+            identifier_line = next(
+                (
+                    line
+                    for line, _src in ranked
+                    if any(marker in unicodedata.normalize("NFKC", line.lower()) for marker in marker_pool)
+                    and identifier_value_pattern.search(line)
+                ),
+                "",
+            )
+            if not identifier_line:
+                identifier_line = next(
+                    (
+                        line
+                        for line, _src in fallback_lines
+                        if any(marker in unicodedata.normalize("NFKC", line.lower()) for marker in marker_pool)
+                        and identifier_value_pattern.search(line)
+                    ),
+                    "",
+                )
+            if not identifier_line:
+                return None
+            id_match = identifier_value_pattern.search(identifier_line)
+            if not id_match:
+                return None
+            value = id_match.group(1).strip()
+            answer = f"문서 기준 값은 `{value}`입니다."
+            return (answer, [identifier_line], best_source)
 
         if wants_goal:
             goal_scored: list[tuple[int, str]] = []
