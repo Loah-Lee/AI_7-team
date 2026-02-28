@@ -1716,6 +1716,186 @@ class RAGChatbotV17:
         return output
 
     @staticmethod
+    def _strip_outline_prefix(text: str) -> str:
+        """라인 앞의 목차/번호 접두(예: 나., 3), Ⅱ-)를 제거합니다."""
+        cleaned = unicodedata.normalize("NFKC", str(text or "")).strip()
+        if not cleaned:
+            return ""
+        patterns = [
+            r"^\s*(?:[0-9]{1,3}|[ivxlcdm]+|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+|[가-힣])\s*[\)\.\-:]\s*",
+            r"^\s*[\(\[]\s*(?:[0-9]{1,3}|[ivxlcdm]+|[가-힣])\s*[\)\]]\s*",
+            r"^\s*[□○●▪▫■▶▷]+\s*",
+        ]
+        prior = cleaned
+        for _ in range(2):
+            for pat in patterns:
+                cleaned = re.sub(pat, "", cleaned, flags=re.IGNORECASE).strip()
+            if cleaned == prior:
+                break
+            prior = cleaned
+        return cleaned
+
+    def _normalize_summary_line(self, slot: str, line: str) -> str:
+        """요약 라인을 사용자 출력용으로 정돈합니다."""
+        text = self._strip_outline_prefix(self._clean_extracted_line(line))
+        if not text:
+            return ""
+        text = re.sub(r"\s+", " ", text).strip()
+        lower = unicodedata.normalize("NFKC", text.lower())
+
+        label_patterns: list[tuple[str, str]] = []
+        if slot == "overview":
+            label_patterns = [
+                (r"^(사업명|과업명)\s*[:：\-]?\s*", "사업명: "),
+                (r"^(사업기간|계약기간|기간)\s*[:：\-]?\s*", "사업기간: "),
+                (r"^(무상\s*유지보수\s*기간|무상유지보수기간|무상유지보수|유지보수기간|하자보수기간)\s*[:：\-]?\s*", "무상유지보수기간: "),
+                (r"^(사업예산|사업비|총사업비|예산)\s*[:：\-]?\s*", "사업예산: "),
+                (r"^(입찰\s*및\s*계약방법|입찰방법|계약방법)\s*[:：\-]?\s*", "입찰/계약방법: "),
+            ]
+        elif slot == "background":
+            label_patterns = [
+                (r"^(추진배경|배경|필요성)\s*[:：\-]?\s*", "추진배경: "),
+            ]
+        elif slot == "scope":
+            label_patterns = [
+                (r"^(사업범위|과업범위|범위)\s*[:：\-]?\s*", "사업범위: "),
+            ]
+        elif slot == "effect":
+            label_patterns = [
+                (r"^(기대효과|효과)\s*[:：\-]?\s*", "기대효과: "),
+            ]
+        elif slot == "goal":
+            label_patterns = [
+                (r"^(추진목표|사업목적|목표|목적)\s*[:：\-]?\s*", "추진목표: "),
+            ]
+
+        for pattern, normalized_label in label_patterns:
+            matched = re.match(pattern, text, flags=re.IGNORECASE)
+            if not matched:
+                continue
+            rest = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
+            updated = f"{normalized_label}{rest}".strip() if rest else normalized_label.strip()
+            if updated:
+                return updated
+
+        # 라벨이 없이 값만 왔더라도 핵심 키워드가 있으면 라벨을 부여한다.
+        if slot == "overview":
+            if (
+                any(token in lower for token in ["계약일", "개월", "사업기간"])
+                and not re.match(r"^(사업기간|계약기간|기간)\s*[:：]", text, flags=re.IGNORECASE)
+            ):
+                return f"사업기간: {text}"
+            if (
+                any(token in lower for token in ["유지보수", "하자보수"])
+                and not re.match(r"^(무상\s*유지보수\s*기간|무상유지보수기간|무상유지보수|유지보수기간|하자보수기간)\s*[:：]", text, flags=re.IGNORECASE)
+            ):
+                return f"무상유지보수기간: {text}"
+            if (
+                any(token in lower for token in ["예산", "사업비", "원", "억원", "만원"])
+                and not re.match(r"^(사업예산|사업비|총사업비|예산)\s*[:：]", text, flags=re.IGNORECASE)
+            ):
+                return f"사업예산: {text}"
+            if (
+                any(token in lower for token in ["입찰", "계약", "협상"])
+                and not re.match(r"^(입찰\s*및\s*계약방법|입찰방법|계약방법|입찰/계약방법)\s*[:：]", text, flags=re.IGNORECASE)
+            ):
+                return f"입찰/계약방법: {text}"
+        return text
+
+    @staticmethod
+    def _summary_line_priority(slot: str, line: str) -> int:
+        """요약 라인 정렬 우선순위를 반환합니다."""
+        lowered = unicodedata.normalize("NFKC", str(line or "").lower())
+        if slot != "overview":
+            return 50
+        if "사업명" in lowered or "과업명" in lowered:
+            return 10
+        if "사업기간" in lowered or "계약기간" in lowered or "계약일로부터" in lowered:
+            return 20
+        if "무상유지보수" in lowered or "유지보수" in lowered or "하자보수" in lowered:
+            return 30
+        if "사업예산" in lowered or "사업비" in lowered or "예산" in lowered:
+            return 40
+        if "입찰" in lowered or "계약방법" in lowered:
+            return 50
+        return 90
+
+    def _format_summary_lines_for_output(
+        self,
+        query: str,
+        lines: list[str],
+        max_lines: int = 4,
+    ) -> list[str]:
+        """요약 라인 목록을 노이즈 제거/정규화/우선순위 정렬 후 반환합니다."""
+        slot = self._resolve_summary_focus_slot(query)
+        cleaned_rows: list[tuple[int, int, str]] = []
+        seen: set[str] = set()
+        for idx, raw in enumerate(lines):
+            text = unicodedata.normalize("NFKC", str(raw or "")).strip()
+            if not text:
+                continue
+            if re.match(r"^\[?\s*출처\s*\]?\s*$", text, flags=re.IGNORECASE):
+                continue
+            text = re.sub(r"^\s*[-*•]\s*", "", text).strip()
+            normalized = self._normalize_summary_line(slot, text)
+            if not normalized:
+                continue
+            key = unicodedata.normalize("NFKC", normalized.lower()).strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            priority = self._summary_line_priority(slot, normalized)
+            cleaned_rows.append((priority, idx, normalized))
+
+        cleaned_rows.sort(key=lambda item: (item[0], item[1]))
+        return [line for _, __, line in cleaned_rows[: max(max_lines, 1)]]
+
+    def _format_summary_draft_for_output(
+        self,
+        query: str,
+        draft_text: str,
+    ) -> str:
+        """extractive draft 문자열을 사용자 표시용 요약 문장으로 정돈합니다."""
+        raw = unicodedata.normalize("NFKC", str(draft_text or "")).strip()
+        if not raw:
+            return ""
+
+        heading = ""
+        raw_lines: list[str] = []
+        for line in raw.splitlines():
+            cleaned = unicodedata.normalize("NFKC", line).strip()
+            if not cleaned:
+                continue
+            if re.match(r"^\[?\s*출처\s*\]?\s*$", cleaned, flags=re.IGNORECASE):
+                break
+            if cleaned.startswith("-"):
+                raw_lines.append(cleaned)
+                continue
+            if not heading:
+                heading = self._strip_outline_prefix(cleaned)
+                continue
+            raw_lines.append(cleaned)
+
+        formatted_lines = self._format_summary_lines_for_output(query, raw_lines, max_lines=4)
+        if not heading:
+            slot = self._resolve_summary_focus_slot(query)
+            label = {
+                "overview": "사업개요",
+                "background": "추진배경",
+                "scope": "사업범위",
+                "effect": "기대효과",
+                "goal": "추진목표",
+            }.get(slot, "요약")
+            org_candidates = self._extract_org_names_from_query(query, limit=1, allow_project_fallback=False)
+            org_prefix = f"{org_candidates[0]} " if org_candidates else ""
+            heading = f"{org_prefix}{label}는 다음과 같습니다."
+
+        if not formatted_lines:
+            return heading
+        detail = "\n".join(f"- {line}" for line in formatted_lines)
+        return f"{heading}\n\n{detail}".strip()
+
+    @staticmethod
     def _is_low_information_overview_value(value: str, row: dict[str, Any]) -> bool:
         """사업개요 값이 사실상 사업명 재진술인지 판별합니다."""
         overview_text = unicodedata.normalize("NFKC", str(value or "")).strip()
@@ -3792,6 +3972,7 @@ class RAGChatbotV17:
                     and query
                     and not is_csv_short
                     and answer_mode == "generative"
+                    and not self._is_summary_focus_query(query)
                 )
                 if use_llm_polish:
                     polished_answer = self._polish_answer_with_llm(
@@ -3817,12 +3998,13 @@ class RAGChatbotV17:
                         formatted_answer,
                         style=style_hint,
                     )
-                if answer_mode == "generative":
+                if answer_mode == "generative" and not self._is_summary_focus_query(query):
                     polished_answer = self._restrict_answer_to_evidence(
                         polished_answer,
                         payload.get("evidence"),
                         query=query,
                     )
+
                 if self._is_single_value_query(query):
                     candidate_answer = polished_answer or answer_text
                     single_value = self._extract_single_value_from_fact_answer(candidate_answer, query=query)
@@ -4510,6 +4692,7 @@ class RAGChatbotV17:
         if query_is_comparison_like and not resolved_targets:
             resolved_targets = self._resolve_query_target_orgs(query, min_targets=2)
         is_multi_target = len(resolved_targets) >= 2
+        is_summary_focus_query = self._is_summary_focus_query(query)
         extractive_draft = ""
         if query_is_comparison_like and is_multi_target:
             if not self._has_comparison_coverage(
@@ -4570,7 +4753,7 @@ class RAGChatbotV17:
 
         # 추출 초안이 확보되면 LLM 재생성을 건너뛰고 그대로 정리해서 반환한다.
         # (생성 모델은 "보기 좋게 정리" 용도로만 제한)
-        if extractive_draft:
+        if extractive_draft and not is_summary_focus_query:
             self.conversation.add_exchange(query, extractive_draft, intent)
             slot_fill_rate = self._estimate_slot_fill_rate(question_plan, extractive_draft, evidence_spans)
             confidence = self._estimate_confidence(slot_fill_rate, evidence_spans, answer_mode="extractive")
@@ -4658,8 +4841,18 @@ class RAGChatbotV17:
             ):
                 answer = fallback
                 answer_mode = "hybrid"
+        if (
+            is_summary_focus_query
+            and extractive_draft
+            and self._should_fallback_to_extractive_draft(query, answer, extractive_draft)
+        ):
+            answer = self._format_summary_draft_for_output(query, extractive_draft) or extractive_draft
+            answer_mode = "hybrid"
         if "오류:" in answer and extractive_draft:
-            answer = extractive_draft
+            if is_summary_focus_query:
+                answer = self._format_summary_draft_for_output(query, extractive_draft) or extractive_draft
+            else:
+                answer = extractive_draft
             answer_mode = "hybrid"
         if answer and "오류:" not in answer:
             self.conversation.add_exchange(query, answer, intent)
@@ -4736,6 +4929,7 @@ class RAGChatbotV17:
         if is_summary_focus_query and single_org:
             summary_lines = self._extract_summary_focus_lines(query, results, max_lines=3)
             if summary_lines:
+                summary_lines = self._format_summary_lines_for_output(query, summary_lines, max_lines=4)
                 slot = self._resolve_summary_focus_slot(query)
                 slot_label_map = {
                     "overview": "사업개요",
@@ -5341,9 +5535,8 @@ class RAGChatbotV17:
             evidence_refs=evidence_spans,
             answer_mode=answer_mode,
         )
-        formatted_answer = RAGChatbotV17._format_answer_for_readability(draft.final_answer)
         return {
-            "answer": formatted_answer,
+            "answer": str(draft.final_answer or "").strip(),
             "found": found,
             "source_type": source_type,
             "answer_mode": draft.answer_mode,
@@ -8250,6 +8443,106 @@ class RAGChatbotV17:
         return (f"문서의 직접 근거 문구는 `{best_line}`입니다.", evidence, best_source)
 
     @staticmethod
+    def _collect_answer_content_lines(answer: str) -> list[str]:
+        """답변 텍스트에서 품질 비교용 본문 라인만 추립니다."""
+        text = unicodedata.normalize("NFKC", str(answer or ""))
+        content_lines: list[str] = []
+        for raw_line in text.splitlines():
+            line = re.sub(r"^\s*[-*•]\s*", "", str(raw_line or "")).strip()
+            if not line:
+                continue
+            lowered = line.lower()
+            if re.match(r"^\[[^\]]+\]$", line):
+                continue
+            if re.match(r"^(근거|출처|source)\s*[:：]?$", line, flags=re.IGNORECASE):
+                continue
+            if re.match(r"^#?\d+\s+.+\.(pdf|hwp|docx?)\b", lowered):
+                continue
+            content_lines.append(line)
+        return content_lines
+
+    @classmethod
+    def _should_fallback_to_extractive_draft(
+        cls,
+        query: str,
+        generated_answer: str,
+        extractive_draft: str,
+    ) -> bool:
+        """요약 질의에서 생성 결과가 초안 대비 약하면 초안으로 되돌립니다."""
+        if not cls._is_summary_focus_query(query):
+            return False
+        draft = str(extractive_draft or "").strip()
+        if not draft:
+            return False
+        generated = str(generated_answer or "").strip()
+        if not generated:
+            return True
+        if cls._looks_uncertain_answer(generated) and not cls._looks_uncertain_answer(draft):
+            return True
+
+        draft_lines = cls._collect_answer_content_lines(draft)
+        generated_lines = cls._collect_answer_content_lines(generated)
+        if not draft_lines:
+            return False
+        if not generated_lines:
+            return True
+
+        stop_tokens = {
+            "문서",
+            "기준",
+            "관련",
+            "질문",
+            "답변",
+            "다음",
+            "있습니다",
+            "합니다",
+            "대한",
+            "사업",
+            "내용",
+            "확인",
+            "요약",
+            "개요",
+            "배경",
+            "범위",
+            "효과",
+            "목표",
+        }
+
+        def _token_set(lines: list[str]) -> set[str]:
+            merged = unicodedata.normalize("NFKC", " ".join(lines).lower())
+            return {
+                tok
+                for tok in re.findall(r"[0-9a-zA-Z가-힣]{2,}", merged)
+                if tok and not tok.isdigit() and tok not in stop_tokens
+            }
+
+        draft_tokens = _token_set(draft_lines)
+        generated_tokens = _token_set(generated_lines)
+        if draft_tokens:
+            overlap_ratio = len(draft_tokens & generated_tokens) / max(len(draft_tokens), 1)
+            min_overlap = 0.35 if len(draft_tokens) >= 6 else 0.25
+            if overlap_ratio < min_overlap and len(generated_lines) < len(draft_lines):
+                return True
+
+        draft_numbers: set[str] = set()
+        for value in re.findall(r"\d{2,}(?:[.,]\d+)?", " ".join(draft_lines)):
+            digits = re.sub(r"[^0-9]", "", value)
+            if len(digits) >= 2:
+                draft_numbers.add(digits)
+        if draft_numbers:
+            generated_digits = re.sub(r"[^0-9]", "", generated)
+            matched = sum(1 for digits in draft_numbers if digits and digits in generated_digits)
+            required = max(1, (len(draft_numbers) + 1) // 2)
+            if matched < required:
+                return True
+
+        generated_len = len(re.sub(r"\s+", "", " ".join(generated_lines)))
+        draft_len = len(re.sub(r"\s+", "", " ".join(draft_lines)))
+        if generated_len < max(18, draft_len // 3):
+            return True
+        return False
+
+    @staticmethod
     def _looks_uncertain_answer(answer: str) -> bool:
         """답변이 과도한 보수적 거절 형태인지 판별."""
         if not answer:
@@ -10371,6 +10664,7 @@ class RAGChatbotV17:
         query_key = self._normalize_text_for_match(normalized_query)
         query_key_relaxed = self._normalize_text_for_match(_strip_legal_prefix(normalized_query))
         query_tokens = set(re.findall(r"[0-9a-zA-Z가-힣]{2,}", normalized_query.lower()))
+        query_ascii_tokens = set(re.findall(r"[a-z]{2,12}", normalized_query.lower()))
         project_hints = self._extract_project_hints_from_query(normalized_query)
 
         # 1) 원문 기반 포함 매칭
@@ -10413,6 +10707,21 @@ class RAGChatbotV17:
                 overlap = len(org_tokens.intersection(query_tokens))
                 if overlap >= 2:
                     score = overlap * 100 + len(org_name)
+                    candidates.append((score, org_name))
+
+        # 4.5) 영문 약어(예: KOICA) 기반 기관 복원
+        if query_ascii_tokens:
+            for org_name in self.vector_store.org_registry.keys():
+                normalized_org_name = self._normalize_legal_name_tokens(org_name)
+                org_ascii_tokens = set(re.findall(r"[a-z]{2,12}", normalized_org_name.lower()))
+                overlap_ascii = query_ascii_tokens.intersection(org_ascii_tokens)
+                if overlap_ascii:
+                    score = 720 + len(org_name) + (len(overlap_ascii) * 40)
+                    candidates.append((score, org_name))
+                    continue
+                org_key = self._normalize_text_for_match(normalized_org_name)
+                if any(token in org_key for token in query_ascii_tokens if len(token) >= 3):
+                    score = 660 + len(org_name)
                     candidates.append((score, org_name))
 
         # 5) 기관명 직접 매칭 실패 시 프로젝트명/소스명을 힌트로 기관 후보를 복원한다.
