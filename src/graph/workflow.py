@@ -1575,7 +1575,11 @@ class RAGChatbotV17:
                 return
             if len(line) >= 90 and line.count(",") >= 8:
                 return
-            if re.match(r"^(사업명|공고번호|공고 번호|파일명|발주기관|발주 기관)\s*[:：]", line):
+            if re.match(r"^(공고번호|공고 번호|파일명|발주기관|발주 기관)\s*[:：]", line):
+                return
+            leading_item_pattern = r"(?:[0-9]{1,3}|[ivxlcdm]+|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+|[가-힣])\s*[\)\.\-:]\s*"
+            name_line_pattern = rf"^(?:{leading_item_pattern})?(사업명|과업명)\s*[:：]"
+            if slot != "overview" and re.match(name_line_pattern, line, flags=re.IGNORECASE):
                 return
             line_lower = unicodedata.normalize("NFKC", line.lower())
             if exclude_markers and any(marker in line_lower for marker in exclude_markers):
@@ -1586,6 +1590,8 @@ class RAGChatbotV17:
                 score += 3 + focus_hits
             if any(marker in line_lower for marker in action_markers):
                 score += 1
+            if slot == "overview" and re.match(name_line_pattern, line, flags=re.IGNORECASE):
+                score += 4
             if re.search(r"\d", line):
                 score += 1
             if 16 <= len(line) <= 220:
@@ -1750,7 +1756,7 @@ class RAGChatbotV17:
                 (r"^(사업기간|계약기간|기간)\s*[:：\-]?\s*", "사업기간: "),
                 (r"^(무상\s*유지보수\s*기간|무상유지보수기간|무상유지보수|유지보수기간|하자보수기간)\s*[:：\-]?\s*", "무상유지보수기간: "),
                 (r"^(사업예산|사업비|총사업비|예산)\s*[:：\-]?\s*", "사업예산: "),
-                (r"^(입찰\s*및\s*계약방법|입찰방법|계약방법)\s*[:：\-]?\s*", "입찰/계약방법: "),
+                (r"^(입찰\s*및\s*계약\s*방법|입찰및계약\s*방법|입찰\s*및\s*계약방법|입찰/계약방법|입찰방법|계약방법)\s*[:：\-]?\s*", "입찰/계약방법: "),
             ]
         elif slot == "background":
             label_patterns = [
@@ -1800,6 +1806,11 @@ class RAGChatbotV17:
                 and not re.match(r"^(입찰\s*및\s*계약방법|입찰방법|계약방법|입찰/계약방법)\s*[:：]", text, flags=re.IGNORECASE)
             ):
                 return f"입찰/계약방법: {text}"
+            if (
+                any(token in lower for token in ["다년", "3개년", "분할 지급", "분할지급"])
+                and not re.match(r"^(사업형태/대가지급|사업형태|대가지급)\s*[:：]", text, flags=re.IGNORECASE)
+            ):
+                return f"사업형태/대가지급: {text}"
         return text
 
     @staticmethod
@@ -1818,6 +1829,8 @@ class RAGChatbotV17:
             return 40
         if "입찰" in lowered or "계약방법" in lowered:
             return 50
+        if "사업형태/대가지급" in lowered or "다년" in lowered or "분할지급" in lowered or "분할 지급" in lowered:
+            return 60
         return 90
 
     def _format_summary_lines_for_output(
@@ -1837,8 +1850,12 @@ class RAGChatbotV17:
             if re.match(r"^\[?\s*출처\s*\]?\s*$", text, flags=re.IGNORECASE):
                 continue
             text = re.sub(r"^\s*[-*•]\s*", "", text).strip()
+            if re.search(r"(계약번호\s*계약일자\s*계약기간|사업명\s*사업기간\s*계약금액|업체명\s*지분율)", text):
+                continue
             normalized = self._normalize_summary_line(slot, text)
             if not normalized:
+                continue
+            if re.search(r"(계약번호\s*계약일자\s*계약기간|사업명\s*사업기간\s*계약금액|업체명\s*지분율)", normalized):
                 continue
             key = unicodedata.normalize("NFKC", normalized.lower()).strip()
             if not key or key in seen:
@@ -1848,7 +1865,10 @@ class RAGChatbotV17:
             cleaned_rows.append((priority, idx, normalized))
 
         cleaned_rows.sort(key=lambda item: (item[0], item[1]))
-        return [line for _, __, line in cleaned_rows[: max(max_lines, 1)]]
+        limit = max(max_lines, 1)
+        if slot == "overview":
+            limit = max(limit, 6)
+        return [line for _, __, line in cleaned_rows[:limit]]
 
     def _format_summary_draft_for_output(
         self,
@@ -1876,9 +1896,10 @@ class RAGChatbotV17:
                 continue
             raw_lines.append(cleaned)
 
-        formatted_lines = self._format_summary_lines_for_output(query, raw_lines, max_lines=4)
+        slot = self._resolve_summary_focus_slot(query)
+        line_limit = 6 if slot == "overview" else 4
+        formatted_lines = self._format_summary_lines_for_output(query, raw_lines, max_lines=line_limit)
         if not heading:
-            slot = self._resolve_summary_focus_slot(query)
             label = {
                 "overview": "사업개요",
                 "background": "추진배경",
@@ -4927,10 +4948,23 @@ class RAGChatbotV17:
         is_summary_focus_query = self._is_summary_focus_query(query)
 
         if is_summary_focus_query and single_org:
-            summary_lines = self._extract_summary_focus_lines(query, results, max_lines=3)
+            slot = self._resolve_summary_focus_slot(query)
+            source_line_limit = 8 if slot == "overview" else 3
+            display_line_limit = 6 if slot == "overview" else 4
+            summary_lines = self._extract_summary_focus_lines(query, results, max_lines=source_line_limit)
             if summary_lines:
-                summary_lines = self._format_summary_lines_for_output(query, summary_lines, max_lines=4)
-                slot = self._resolve_summary_focus_slot(query)
+                summary_lines = self._format_summary_lines_for_output(
+                    query,
+                    summary_lines,
+                    max_lines=display_line_limit,
+                )
+                if slot == "overview" and not any(
+                    re.match(r"^사업명\s*[:：]", line, flags=re.IGNORECASE) for line in summary_lines
+                ):
+                    project_name = self._infer_project_name_from_results(results)
+                    if project_name:
+                        summary_lines = [f"사업명: {project_name}", *summary_lines]
+                summary_lines = summary_lines[:display_line_limit]
                 slot_label_map = {
                     "overview": "사업개요",
                     "background": "추진배경",
@@ -5043,6 +5077,28 @@ class RAGChatbotV17:
         src = md.get("source", "Unknown")
         page = md.get("page")
         return f"{src} p.{page}" if page is not None else str(src)
+
+    def _infer_project_name_from_results(self, results: list[dict[str, Any]]) -> str:
+        """검색 결과 메타데이터/CSV를 통해 사업명을 추정합니다."""
+        for item in results[:8]:
+            md = item.get("metadata", {}) or {}
+            for key in ("project_name", "사업명", "document_title"):
+                value = unicodedata.normalize("NFKC", str(md.get(key, "") or "")).strip()
+                if value:
+                    return value
+            source = unicodedata.normalize("NFKC", str(md.get("source", "") or "")).strip()
+            if not source:
+                continue
+            stem = unicodedata.normalize("NFKC", Path(source).stem).strip()
+            csv_row = self._lookup_csv_row_by_stem(stem)
+            csv_project = unicodedata.normalize("NFKC", str(csv_row.get("project_name", "") or "")).strip()
+            if csv_project:
+                return csv_project
+            if "_" in stem:
+                inferred = stem.split("_", 1)[1].strip()
+                if inferred:
+                    return inferred
+        return ""
 
     @staticmethod
     def _pick_slot_for_evidence(question_plan: QuestionPlan, idx: int) -> str:
@@ -5902,7 +5958,7 @@ class RAGChatbotV17:
             return deduped
 
         core_limit = 3 if answer_style == "guide" else 2
-        evidence_limit = 4 if answer_style == "guide" else 1
+        evidence_limit = 6 if answer_style == "guide" else 1
         core_items = [_trim_item(item, 320 if answer_style == "guide" else 220) for item in _dedupe(sections["핵심 답변"])][:core_limit]
         evidence_items = [_trim_item(item, 240 if answer_style == "guide" else 180) for item in _dedupe(sections["근거 요약"])][:evidence_limit]
         source_items_all = _dedupe(sections["출처"])
@@ -5929,7 +5985,7 @@ class RAGChatbotV17:
                     continue
                 guide_points.append(cleaned)
             if guide_points:
-                rendered.extend([f"- {point}" for point in guide_points[:4]])
+                rendered.extend([f"- {point}" for point in guide_points[:6]])
             return "\n".join(rendered).strip()
 
         if "확인되지 않습니다" not in primary and evidence_items:
