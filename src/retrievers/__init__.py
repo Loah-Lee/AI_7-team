@@ -5,12 +5,10 @@
 검색 관련 클래스들을 내보냅니다.
 """
 
-from src.retrievers.retrieval_service import RetrievalService
 from src.retrievers.vectorstore import VectorStore
 from src.graph.state import OrgInfo
 
 __all__ = [
-    "RetrievalService",
     "VectorStore",
     "OrgInfo",
 ]
