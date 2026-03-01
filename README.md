@@ -79,18 +79,18 @@ flowchart LR
 ```bash
 # 20문항 평가 (chunk synced dataset)
 python scripts/eval_retrieval.py \
-  --label full20_chunk_synced_after_honorific_dedupe_fix_20260301 \
+  --label full20_chunk_synced_after_module_split_phase2_20260301 \
   --dataset eval_resources/eval_dataset_chunk_synced.yaml \
   --top_k 5
 
 # HTML 리포트 생성
 python scripts/build_eval_report.py \
-  eval_resources/eval_results_full20_chunk_synced_after_honorific_dedupe_fix_20260301.json
+  eval_resources/eval_results_full20_chunk_synced_after_module_split_phase2_20260301.json
 ```
 
 생성 리포트:
 
-- `eval_resources/eval_report_full20_chunk_synced_after_honorific_dedupe_fix_20260301.html`
+- `eval_resources/eval_report_full20_chunk_synced_after_module_split_phase2_20260301.html`
 
 ## 5) 트러블슈팅
 
@@ -98,3 +98,13 @@ python scripts/build_eval_report.py \
 - CSV 직접응답 실패: `data_index/data/data_list.csv` 경로 확인
 - DB 품질 급락: DB/CSV 세트가 기존 실험과 동일한지 먼저 확인
 - 평가 점수 소폭 변동: LLM Judge 호출 특성상 재실행 변동이 일부 발생할 수 있음
+
+## 6) 보고서
+
+
+## 7) 개인 협업일지
+- 김경태 : https://www.notion.so/2fd8dd9ffeba80f59e03f68178656069?v=2fd8dd9ffeba80f0b023000ce1ea1652&source=copy_link
+- 김재혁 : https://band-napkin-cd4.notion.site/2fdea78d0e418055a659ecd37a9ea3ea?v=2fdea78d0e4180299677000c7f758f65&source=copy_link
+- 문진우 :
+- 신유철 :
+- 이소윤 : https://www.notion.so/a6bfe536d3cf832783f0811f0276c5c0
