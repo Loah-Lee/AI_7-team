@@ -54,6 +54,42 @@ from src.retrievers.result_postprocess import (
     extract_chunk_index_value as retriever_extract_chunk_index_value,
     merge_results as retriever_merge_results,
 )
+from src.utils.text_ops import (
+    clean_extracted_line as util_clean_extracted_line,
+    clip_text_safely as util_clip_text_safely,
+    is_noise_line as util_is_noise_line,
+    looks_incomplete_clause as util_looks_incomplete_clause,
+    normalize_text_for_match as util_normalize_text_for_match,
+)
+from src.parsers.csv_runtime_utils import (
+    clean_csv_value as parser_clean_csv_value,
+    extract_markdown_meta_value as parser_extract_markdown_meta_value,
+    extract_metadata_org as parser_extract_metadata_org,
+    extract_metadata_page as parser_extract_metadata_page,
+    extract_metadata_source as parser_extract_metadata_source,
+    extract_notice_num_from_query as parser_extract_notice_num_from_query,
+    extract_vat_note_from_text as parser_extract_vat_note_from_text,
+    first_non_empty as parser_first_non_empty,
+    format_csv_datetime_for_answer as parser_format_csv_datetime_for_answer,
+    normalize_csv_datetime_value as parser_normalize_csv_datetime_value,
+    normalize_notice_number as parser_normalize_notice_number,
+    query_requests_time_detail as parser_query_requests_time_detail,
+    query_requests_vat as parser_query_requests_vat,
+    source_to_stem as parser_source_to_stem,
+)
+from src.prompts.answer_postprocess import (
+    compact_answer_sections as prompt_compact_answer_sections,
+    enforce_honorific_tone as prompt_enforce_honorific_tone,
+    format_answer_for_readability as prompt_format_answer_for_readability,
+    normalize_answer_for_compare as prompt_normalize_answer_for_compare,
+)
+from src.evaluation.runtime_diagnostics import (
+    collect_answer_content_lines as eval_collect_answer_content_lines,
+    estimate_confidence as eval_estimate_confidence,
+    estimate_slot_fill_rate as eval_estimate_slot_fill_rate,
+    looks_uncertain_answer as eval_looks_uncertain_answer,
+    should_fallback_to_extractive_draft as eval_should_fallback_to_extractive_draft,
+)
 
 # ============================================================================
 # LangSmith 트레이싱 활성화
@@ -527,98 +563,32 @@ class RAGChatbotV17:
     @staticmethod
     def _first_non_empty(*values: Any) -> str:
         """첫 번째 유효 문자열 값을 반환합니다."""
-        for value in values:
-            if value is None:
-                continue
-            text = str(value).strip()
-            if text:
-                return text
-        return ""
+        return parser_first_non_empty(*values)
 
     @staticmethod
     def _clean_csv_value(value: Any) -> str:
         """CSV 메타데이터에서 공란/NaN/정보없음을 정리합니다."""
-        text = str(value or "").strip()
-        if not text:
-            return ""
-        lowered = unicodedata.normalize("NFKC", text).lower()
-        if lowered in {"nan", "none", "null", "-", "정보 없음", "정보없음"}:
-            return ""
-        return text
+        return parser_clean_csv_value(value)
 
     @staticmethod
     def _normalize_csv_datetime_value(value: Any) -> str:
         """CSV 날짜/시간 문자열을 일관된 표현으로 정규화합니다."""
-        text = str(value or "").strip()
-        if not text:
-            return ""
-
-        normalized = text.replace("T", " ").replace("Z", "").strip()
-        normalized = re.sub(r"\s+", " ", normalized)
-        patterns = [
-            ("%Y-%m-%d %H:%M:%S", True),
-            ("%Y-%m-%d %H:%M", True),
-            ("%Y.%m.%d %H:%M:%S", True),
-            ("%Y.%m.%d %H:%M", True),
-            ("%Y/%m/%d %H:%M:%S", True),
-            ("%Y/%m/%d %H:%M", True),
-            ("%Y-%m-%d", False),
-            ("%Y.%m.%d", False),
-            ("%Y/%m/%d", False),
-        ]
-        for fmt, has_time in patterns:
-            try:
-                parsed = datetime.strptime(normalized, fmt)
-            except ValueError:
-                continue
-            if has_time:
-                if parsed.hour == 0 and parsed.minute == 0:
-                    return parsed.strftime("%Y-%m-%d")
-                return parsed.strftime("%Y-%m-%d %H:%M")
-            return parsed.strftime("%Y-%m-%d")
-        return normalized
+        return parser_normalize_csv_datetime_value(value)
 
     @staticmethod
     def _extract_vat_note_from_text(text: str) -> str:
         """문맥 텍스트에서 부가가치세 포함/별도 정보를 추출합니다."""
-        normalized = unicodedata.normalize("NFKC", str(text or "").lower())
-        if not normalized:
-            return ""
-        vat_pattern = r"(부가가치세|부가세|vat)"
-        include_patterns = [
-            rf"{vat_pattern}.{{0,12}}(포함|포함금액|포함조건)",
-            rf"(포함|포함금액|포함조건).{{0,12}}{vat_pattern}",
-        ]
-        exclude_patterns = [
-            rf"{vat_pattern}.{{0,12}}(별도|제외|미포함)",
-            rf"(별도|제외|미포함).{{0,12}}{vat_pattern}",
-        ]
-        if any(re.search(pattern, normalized) for pattern in include_patterns):
-            return "부가가치세 포함"
-        if any(re.search(pattern, normalized) for pattern in exclude_patterns):
-            return "부가가치세 별도"
-        if "면세" in normalized and re.search(vat_pattern, normalized):
-            return "부가가치세 면세"
-        return ""
+        return parser_extract_vat_note_from_text(text)
 
     @staticmethod
     def _extract_markdown_meta_value(markdown: str, label: str) -> str:
         """CSV 마크다운 라벨(`- **라벨**: 값`)에서 값을 추출합니다."""
-        if not markdown or not label:
-            return ""
-        pattern = rf"-\s*\*\*{re.escape(label)}\*\*:\s*(.+)"
-        match = re.search(pattern, markdown)
-        if not match:
-            return ""
-        value = match.group(1).strip()
-        if value.startswith("**") and value.endswith("**"):
-            value = value[2:-2].strip()
-        return value
+        return parser_extract_markdown_meta_value(markdown, label)
 
     @staticmethod
     def _normalize_notice_number(value: Any) -> str:
         """공고번호를 숫자 문자열로 정규화합니다."""
-        return re.sub(r"[^0-9]", "", str(value or ""))
+        return parser_normalize_notice_number(value)
 
     def _lookup_csv_metadata(self, source_file: Path, org_name: str) -> dict[str, Any]:
         """원본 파일에 대응되는 CSV 메타데이터를 조회합니다."""
@@ -637,23 +607,11 @@ class RAGChatbotV17:
 
     @staticmethod
     def _extract_metadata_source(metadata: dict[str, Any]) -> str:
-        for key in ("source", "source_file", "filename", "파일명"):
-            value = metadata.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        return ""
+        return parser_extract_metadata_source(metadata)
 
     @staticmethod
     def _source_to_stem(source: str | None) -> str:
-        raw = str(source or "").strip()
-        if not raw:
-            return ""
-        normalized = unicodedata.normalize("NFC", raw)
-        base_name = Path(normalized).name or normalized
-        suffix = Path(base_name).suffix.lower()
-        if suffix in {".pdf", ".hwp", ".hwpx", ".csv"}:
-            return Path(base_name).stem.strip()
-        return base_name.strip()
+        return parser_source_to_stem(source)
 
     def _build_source_candidate_keys(self, file_path: Path) -> set[str]:
         values = {
@@ -672,32 +630,11 @@ class RAGChatbotV17:
 
     @staticmethod
     def _extract_metadata_page(metadata: dict[str, Any]) -> int | None:
-        for key in ("page", "page_start", "page_no"):
-            value = metadata.get(key)
-            try:
-                page = int(value)
-            except Exception:
-                continue
-            if page > 0:
-                return page
-        refs = metadata.get("page_refs")
-        if isinstance(refs, list):
-            for ref in refs:
-                try:
-                    page = int(ref)
-                except Exception:
-                    continue
-                if page > 0:
-                    return page
-        return None
+        return parser_extract_metadata_page(metadata)
 
     @staticmethod
     def _extract_metadata_org(metadata: dict[str, Any]) -> str:
-        for key in ("org", "org_name", "institution", "발주 기관", "발주기관", "기관명"):
-            value = metadata.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        return ""
+        return parser_extract_metadata_org(metadata)
 
     def _infer_metadata_doc_type(self, metadata: dict[str, Any]) -> str:
         raw_type = str(metadata.get("type", "") or "").strip().lower()
@@ -1358,14 +1295,12 @@ class RAGChatbotV17:
     @staticmethod
     def _query_requests_vat(query: str) -> bool:
         """질문이 부가가치세 포함/별도 정보를 요구하는지 판별합니다."""
-        normalized = unicodedata.normalize("NFKC", (query or "").lower())
-        return any(token in normalized for token in ["부가가치세", "부가세", "vat", "세금 포함", "세 포함"])
+        return parser_query_requests_vat(query)
 
     @staticmethod
     def _query_requests_time_detail(query: str) -> bool:
         """질문이 시간 단위(시/분)까지 요구하는지 판별합니다."""
-        normalized = unicodedata.normalize("NFKC", (query or "").lower())
-        return any(token in normalized for token in ["시간", "시각", "몇시", "몇 시", "오전", "오후", "시분"])
+        return parser_query_requests_time_detail(query)
 
     @staticmethod
     def _resolve_summary_focus_slot(query: str) -> str:
@@ -2062,30 +1997,11 @@ class RAGChatbotV17:
 
     def _format_csv_datetime_for_answer(self, value: Any, query: str = "") -> str:
         """답변용 날짜/시간 문자열을 정리합니다."""
-        normalized = self._normalize_csv_datetime_value(value)
-        if not normalized:
-            return ""
-        if not self._query_requests_time_detail(query):
-            return normalized
-
-        try:
-            parsed = datetime.strptime(normalized, "%Y-%m-%d %H:%M")
-        except ValueError:
-            return normalized
-
-        period = "오전" if parsed.hour < 12 else "오후"
-        hour_12 = parsed.hour % 12 or 12
-        if parsed.minute == 0:
-            return f"{parsed.strftime('%Y-%m-%d')} {period} {hour_12}시"
-        return f"{parsed.strftime('%Y-%m-%d')} {period} {hour_12}시 {parsed.minute}분"
+        return parser_format_csv_datetime_for_answer(value, query=query)
 
     def _extract_notice_num_from_query(self, query: str) -> str:
         """질문에서 공고번호 후보를 추출합니다."""
-        normalized = unicodedata.normalize("NFKC", (query or ""))
-        matches = re.findall(r"\d{8,14}", normalized)
-        if not matches:
-            return ""
-        return self._normalize_notice_number(matches[0])
+        return parser_extract_notice_num_from_query(query)
 
     def _score_csv_row_for_query(
         self,
@@ -4575,9 +4491,7 @@ class RAGChatbotV17:
 
     @staticmethod
     def _normalize_answer_for_compare(answer: str) -> str:
-        normalized = unicodedata.normalize("NFKC", str(answer or "").lower())
-        normalized = re.sub(r"\s+", " ", normalized).strip()
-        return normalized
+        return prompt_normalize_answer_for_compare(answer)
 
     @staticmethod
     def _restrict_answer_to_evidence(
@@ -4709,51 +4623,15 @@ class RAGChatbotV17:
     @staticmethod
     def _compact_answer_sections(answer: str, style: str = "concise") -> str:
         """답변을 자연문장 중심으로 1~3줄 요약 형태로 압축한다."""
-        normalized_style = str(style).lower()
-        answer_style = "guide" if normalized_style in {"guide", "descriptive"} else "concise"
-        text = RAGChatbotV17._format_answer_for_readability(answer, style=answer_style)
-        lines = [
-            unicodedata.normalize("NFKC", str(raw_line or "")).strip()
-            for raw_line in text.splitlines()
-        ]
-        lines = [
-            line
-            for line in lines
-            if line
-            and not re.match(
-                r"^(근거|출처|source|핵심\s*결론|결론|요약|핵심\s*답변|근거\s*요약|설명|핵심\s*포인트|가이드)\s*[:：]?$",
-                line,
-                flags=re.IGNORECASE,
-            )
-        ]
-        if not lines:
-            return ""
-
-        if answer_style == "guide":
-            trimmed = [re.sub(r"\s+", " ", line).strip() for line in lines if line.strip()]
-            deduped: list[str] = []
-            seen: set[str] = set()
-            for line in trimmed:
-                key = line.lower()
-                if key in seen:
-                    continue
-                seen.add(key)
-                deduped.append(line)
-            if len(deduped) > 6:
-                deduped = deduped[:6]
-            return "\n".join(deduped).strip()
-
-        def _trim_line(value: str, max_chars: int) -> str:
-            value = re.sub(r"\s+", " ", value).strip()
-            if len(value) <= max_chars:
-                return value
-            return value[: max_chars - 1].rstrip() + "…"
-
-        core_line = _trim_line(lines[0], 300)
-        rendered = [core_line]
-        if len(lines) > 1:
-            rendered.append(_trim_line(lines[1], 360))
-        return "\n".join(rendered).strip()
+        return prompt_compact_answer_sections(
+            answer=answer,
+            style=style,
+            format_answer_for_readability_fn=lambda text, text_style: prompt_format_answer_for_readability(
+                answer=text,
+                style=text_style,
+                looks_incomplete_clause_fn=util_looks_incomplete_clause,
+            ),
+        )
 
     @staticmethod
     def _log_perf_stats(query: str, perf_stats: dict[str, float | int | bool], total_elapsed: float) -> None:
@@ -5462,64 +5340,7 @@ class RAGChatbotV17:
     @staticmethod
     def _enforce_honorific_tone(answer: str) -> str:
         """최종 답변의 문장 어미를 존댓말 중심으로 정규화합니다."""
-        text = unicodedata.normalize("NFKC", str(answer or "")).strip()
-        if not text:
-            return ""
-        converted_lines: list[str] = []
-        for raw in text.splitlines():
-            line = unicodedata.normalize("NFKC", raw).strip()
-            if not line:
-                continue
-
-            line = line.replace("할수있음", "할 수 있습니다")
-            line = line.replace("할수 있음", "할 수 있습니다")
-            line = line.replace("할 수 있음", "할 수 있습니다")
-            line = line.replace("조정함", "조정합니다")
-            line = line.replace("가능함", "가능합니다")
-            line = line.replace("확인됨", "확인됩니다")
-            if line.endswith("하며"):
-                line = line[:-2] + "합니다"
-            if line.endswith("이며"):
-                line = line[:-2] + "입니다"
-            if line.endswith("이고"):
-                line = line[:-2] + "입니다"
-
-            if line.startswith("- "):
-                content = line[2:].strip()
-                if content and re.search(r"[가-힣]$", content):
-                    if not re.search(r"(습니다|입니다|합니다|됩니다|있습니다|없습니다|하세요|해 주세요)[.!?]?$", content):
-                        if content.endswith("함"):
-                            content = content[:-1] + "합니다"
-                        elif content.endswith("됨"):
-                            content = content[:-1] + "됩니다"
-                        elif content.endswith("가능"):
-                            content += "합니다"
-                        elif content.endswith("다") and not content.endswith("니다"):
-                            content = content[:-1] + "입니다"
-                        elif not content.endswith("."):
-                            content += "입니다"
-                if content and not content.endswith((".", "!", "?")):
-                    content += "."
-                line = f"- {content}" if content else line
-            else:
-                if re.search(r"[가-힣]$", line):
-                    if not re.search(r"(습니다|입니다|합니다|됩니다|있습니다|없습니다|하세요|해 주세요)[.!?]?$", line):
-                        if line.endswith("함"):
-                            line = line[:-1] + "합니다"
-                        elif line.endswith("됨"):
-                            line = line[:-1] + "됩니다"
-                        elif line.endswith("가능"):
-                            line += "합니다"
-                        elif line.endswith("다") and not line.endswith("니다"):
-                            line = line[:-1] + "입니다"
-                        else:
-                            line += "입니다"
-                if not line.endswith((".", "!", "?")):
-                    line += "."
-
-            converted_lines.append(line)
-
-        return "\n".join(converted_lines).strip()
+        return prompt_enforce_honorific_tone(answer)
 
     @staticmethod
     def _augment_answer_from_evidence_context(
@@ -7139,288 +6960,11 @@ class RAGChatbotV17:
     @staticmethod
     def _format_answer_for_readability(answer: str, style: str = "concise") -> str:
         """답변을 읽기 쉬운 자연문장(최종 사용자용)으로 정규화합니다."""
-        text = (answer or "").replace("\r\n", "\n").strip()
-        if not text:
-            return ""
-        normalized_style = str(style).lower()
-        answer_style = "guide" if normalized_style in {"guide", "descriptive"} else "concise"
-
-        # 마크다운 표 블록은 섹션 분해 전에 원자적으로 보존한다.
-        # (CSV 랭킹/카테고리 표가 후처리에서 잘리는 문제 방지)
-        def _has_markdown_table(raw_text: str) -> bool:
-            consecutive = 0
-            for line in raw_text.split("\n"):
-                if unicodedata.normalize("NFKC", line).strip().count("|") >= 2:
-                    consecutive += 1
-                    if consecutive >= 3:
-                        return True
-                else:
-                    consecutive = 0
-            return False
-
-        if _has_markdown_table(text):
-            preserved: list[str] = []
-            for raw_line in text.split("\n"):
-                stripped = unicodedata.normalize("NFKC", raw_line).strip()
-                if not stripped:
-                    continue
-                if stripped.count("|") >= 2:
-                    preserved.append(stripped)
-                else:
-                    cleaned = re.sub(
-                        r"^(?:핵심\s*결론|결론|요약|핵심\s*답변|근거\s*요약|설명|핵심\s*포인트|가이드)\s*[:：]\s*",
-                        "",
-                        stripped,
-                        flags=re.IGNORECASE,
-                    ).strip()
-                    if cleaned:
-                        preserved.append(cleaned)
-            return "\n".join(preserved).strip()
-
-        def _normalize_line(value: str) -> str:
-            return unicodedata.normalize("NFKC", value or "").strip()
-
-        def _is_source_line(value: str) -> bool:
-            raw = _normalize_line(value)
-            lowered = raw.lower()
-            if not raw:
-                return False
-            if lowered.startswith("출처:") or lowered.startswith("source:"):
-                return True
-            if re.search(r"\.(pdf|hwp|hwpx|docx?|xlsx?|csv)\b", lowered):
-                return True
-            if "data_list" in lowered and "csv" in lowered:
-                return True
-            if "|" in raw and re.search(r"(pdf|hwp|hwpx|csv)", lowered):
-                return True
-            if re.search(r"\bp\.\s*\d+\b", lowered) and ("|" in raw or ":" in raw):
-                return True
-            return False
-
-        section_alias = {
-            "핵심 답변": "핵심 답변",
-            "근거 요약": "근거 요약",
-            "근거": "근거 요약",
-            "출처": "출처",
-        }
-        sections: dict[str, list[str]] = {"핵심 답변": [], "근거 요약": [], "출처": []}
-        preamble: list[str] = []
-        current_section: str | None = None
-
-        for raw_line in text.split("\n"):
-            line = _normalize_line(raw_line)
-            if not line:
-                continue
-
-            bracket_heading = re.match(r"^\[(핵심 답변|근거 요약|근거|출처)\]\s*(.*)$", line)
-            plain_heading = re.match(r"^(?:#{1,6}\s*)?(핵심 답변|근거 요약|근거|출처)\s*:?\s*(.*)$", line)
-            heading_match = bracket_heading or plain_heading
-
-            if heading_match:
-                current_section = section_alias[heading_match.group(1)]
-                trailing = heading_match.group(2).strip()
-                if trailing:
-                    sections[current_section].append(trailing)
-                continue
-
-            if current_section:
-                sections[current_section].append(line)
-            else:
-                preamble.append(line)
-
-        if not any(sections.values()):
-            content_lines = [_normalize_line(line) for line in text.split("\n") if _normalize_line(line)]
-            source_lines = [line for line in content_lines if _is_source_line(line)]
-            non_source_lines = [line for line in content_lines if not _is_source_line(line)]
-            if non_source_lines:
-                sections["핵심 답변"].append(non_source_lines[0])
-                sections["근거 요약"].extend(non_source_lines[1:])
-            sections["출처"].extend(source_lines)
-        else:
-            if preamble:
-                if not sections["핵심 답변"]:
-                    sections["핵심 답변"].append(preamble[0])
-                    sections["근거 요약"].extend(preamble[1:])
-                else:
-                    sections["근거 요약"].extend(preamble)
-
-        if not sections["출처"]:
-            inferred_sources: list[str] = []
-            for line in sections["근거 요약"]:
-                if _is_source_line(line):
-                    inferred_sources.append(line)
-            if inferred_sources:
-                sections["출처"].extend(inferred_sources)
-                sections["근거 요약"] = [line for line in sections["근거 요약"] if not _is_source_line(line)]
-
-        def _soften_tone(value: str) -> str:
-            softened = _normalize_line(value)
-            if not softened:
-                return softened
-
-            # LLM이 종종 붙이는 라벨 접두어는 최종 사용자 답변에서 제거한다.
-            softened = re.sub(
-                r"^(?:핵심\s*결론|결론|요약|핵심\s*답변|근거\s*요약|설명|핵심\s*포인트|가이드)\s*[:：]\s*",
-                "",
-                softened,
-                flags=re.IGNORECASE,
-            )
-            softened = softened.replace("문서 기준으로 ", "")
-            softened = softened.replace("문서 기준으로", "")
-            softened = softened.replace("문서 기준 ", "")
-            softened = softened.replace("문서 기준", "")
-            softened = softened.replace("관련 직접 근거는", "관련 근거는")
-            softened = softened.replace("직접 근거 문구는", "근거 문구는")
-            softened = softened.replace("직접 근거(예산/금액 표기)", "근거(예산/금액 표기)")
-            softened = softened.replace("단정 답변을 생략합니다.", "단정하지 않겠습니다.")
-
-            softened = re.sub(r"\s{2,}", " ", softened).strip()
-            softened = re.sub(r"^[,.:;]\s*", "", softened)
-            return softened
-
-        def _trim_item(value: str, max_len: int) -> str:
-            if len(value) <= max_len:
-                return value
-            return value[: max_len - 1].rstrip() + "…"
-
-        def _overlap_ratio(left: str, right: str) -> float:
-            l_tokens = {
-                tok
-                for tok in re.findall(r"[0-9a-zA-Z가-힣]{2,}", unicodedata.normalize("NFKC", left.lower()))
-                if tok
-            }
-            r_tokens = {
-                tok
-                for tok in re.findall(r"[0-9a-zA-Z가-힣]{2,}", unicodedata.normalize("NFKC", right.lower()))
-                if tok
-            }
-            if not l_tokens or not r_tokens:
-                return 0.0
-            inter = len(l_tokens & r_tokens)
-            base = max(1, min(len(l_tokens), len(r_tokens)))
-            return inter / base
-
-        def _norm_compact(value: str) -> str:
-            return re.sub(r"[^0-9a-zA-Z가-힣]+", "", unicodedata.normalize("NFKC", value or "").lower())
-
-        def _extract_numeric_markers(value: str) -> set[str]:
-            normalized = unicodedata.normalize("NFKC", value or "")
-            markers = {
-                re.sub(r"\s+", "", m).lower()
-                for m in re.findall(
-                    r"\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:%|원|만원|억원|명|건|개|회|시간|일|주|개월|년|MB|GB|KB)?",
-                    normalized,
-                    flags=re.IGNORECASE,
-                )
-                if m and re.search(r"\d", m)
-            }
-            return {m for m in markers if m}
-
-        def _clean_item(value: str) -> str:
-            item = _normalize_line(value)
-            item = re.sub(r"^[-*•]\s*", "", item)
-            item = re.sub(r"^(?:출처|source)\s*:\s*", "", item, flags=re.IGNORECASE)
-            item = re.sub(
-                r"^(?:핵심\s*결론|결론|요약|핵심\s*답변|근거\s*요약|설명|핵심\s*포인트|가이드)\s*[:：]\s*",
-                "",
-                item,
-                flags=re.IGNORECASE,
-            )
-            return _soften_tone(item).strip()
-
-        def _dedupe(values: list[str]) -> list[str]:
-            seen: set[str] = set()
-            deduped: list[str] = []
-            for value in values:
-                cleaned = _clean_item(value)
-                if not cleaned:
-                    continue
-                key = cleaned.lower()
-                if key in seen:
-                    continue
-                seen.add(key)
-                deduped.append(cleaned)
-            return deduped
-
-        core_limit = 3 if answer_style == "guide" else 2
-        evidence_limit = 6 if answer_style == "guide" else 2
-        core_items = [_trim_item(item, 320 if answer_style == "guide" else 280) for item in _dedupe(sections["핵심 답변"])][:core_limit]
-        evidence_items = [_trim_item(item, 240 if answer_style == "guide" else 320) for item in _dedupe(sections["근거 요약"])][:evidence_limit]
-        source_items_all = _dedupe(sections["출처"])
-        source_items_filtered = [item for item in source_items_all if _is_source_line(item)]
-        source_items = source_items_filtered if source_items_filtered else source_items_all
-        source_items = [_trim_item(item, 240) for item in source_items][:2]
-
-        if not core_items:
-            core_items = ["요청하신 항목은 문서에서 확인되지 않습니다."]
-
-        primary = core_items[0] if core_items else "요청하신 항목에 대해 문서에서 확인 가능한 내용을 정리했습니다."
-        primary = _trim_item(primary, 320 if answer_style == "guide" else 280)
-
-        rendered: list[str] = [primary]
-        if answer_style == "guide":
-            for extra in core_items[1:2]:
-                rendered.append(extra)
-            guide_points: list[str] = []
-            for item in evidence_items:
-                cleaned = item.strip()
-                if not cleaned:
-                    continue
-                if re.match(r"^(근거|출처|source)\s*:", cleaned, flags=re.IGNORECASE):
-                    continue
-                guide_points.append(cleaned)
-            if guide_points:
-                rendered.extend([f"- {point}" for point in guide_points[:6]])
-            return "\n".join(rendered).strip()
-
-        if "확인되지 않습니다" not in primary and evidence_items:
-            follow = ""
-            needs_follow = RAGChatbotV17._looks_incomplete_clause(primary)
-            for candidate in evidence_items:
-                cand = candidate.strip()
-                if not cand:
-                    continue
-                if re.match(r"^(근거|출처|source)\s*:", cand, flags=re.IGNORECASE):
-                    continue
-                cand_lower = unicodedata.normalize("NFKC", cand.lower())
-                has_context_marker = any(
-                    marker in cand_lower
-                    for marker in ["경우", "다만", "단 ", "단,", "예외", "초과", "협의", "허용", "가능"]
-                )
-                if not needs_follow and not has_context_marker:
-                    continue
-                primary_norm = _norm_compact(primary)
-                cand_norm = _norm_compact(cand)
-                if (primary_norm and cand_norm and (primary_norm in cand_norm or cand_norm in primary_norm)) or _overlap_ratio(primary, cand) >= 0.45:
-                    continue
-                primary_nums = _extract_numeric_markers(primary)
-                cand_nums = _extract_numeric_markers(cand)
-                if primary_nums and cand_nums and (primary_nums & cand_nums):
-                    continue
-                if RAGChatbotV17._looks_incomplete_clause(cand):
-                    continuation = ""
-                    for nxt in evidence_items:
-                        nxt_line = nxt.strip()
-                        if not nxt_line or nxt_line == cand:
-                            continue
-                        if RAGChatbotV17._looks_incomplete_clause(nxt_line):
-                            continue
-                        if nxt_line.startswith(("경우", "이 경우", "으로", "로", "및", "또는", "단", "다만")):
-                            continuation = nxt_line
-                            break
-                    if continuation:
-                        cand = f"{cand} {continuation}".strip()
-                    else:
-                        continue
-                cand = cand.rstrip(",;: ")
-                if not cand:
-                    continue
-                follow = cand
-                break
-            if follow:
-                rendered.append(_trim_item(follow, 320))
-
-        return "\n".join(rendered).strip()
+        return prompt_format_answer_for_readability(
+            answer=answer,
+            style=style,
+            looks_incomplete_clause_fn=util_looks_incomplete_clause,
+        )
 
     def _estimate_slot_fill_rate(
         self,
@@ -7428,47 +6972,11 @@ class RAGChatbotV17:
         answer: str,
         evidence_spans: list[EvidenceSpan],
     ) -> float:
-        required = question_plan.required_slots or []
-        if not required:
-            return 1.0 if answer.strip() else 0.0
-
-        lowered = unicodedata.normalize("NFKC", answer.lower())
-        filled = 0
-        for slot in required:
-            if slot in {"value", "unit"}:
-                has_number = bool(re.search(r"\d", answer))
-                has_unit = any(u in answer for u in ["원", "억", "만", "명", "건", "개", "일", "시간", "MB", "GB", "%", "회"])
-                if slot == "value" and has_number:
-                    filled += 1
-                if slot == "unit" and has_unit:
-                    filled += 1
-                continue
-            if slot == "owner":
-                if any(k in lowered for k in ["발주", "제안", "수급", "계약상대", "사업자", "주관기관"]):
-                    filled += 1
-                continue
-            if slot in {"docA_claim", "docB_claim"}:
-                has_a = any(k in answer for k in ["A 문서", "문서 A", "첫 번째"])
-                has_b = any(k in answer for k in ["B 문서", "문서 B", "두 번째"])
-                if slot == "docA_claim" and has_a:
-                    filled += 1
-                if slot == "docB_claim" and has_b:
-                    filled += 1
-                continue
-            if slot == "comparison_point":
-                if any(k in lowered for k in ["차이", "공통", "반면", "각각", "비교"]):
-                    filled += 1
-                continue
-            if slot == "evidence":
-                if evidence_spans:
-                    filled += 1
-                continue
-            if slot == "key_points":
-                if len(answer.strip()) >= 24:
-                    filled += 1
-                continue
-
-        return min(1.0, max(0.0, filled / max(1, len(required))))
+        return eval_estimate_slot_fill_rate(
+            required_slots=question_plan.required_slots or [],
+            answer=answer,
+            evidence_spans=evidence_spans,
+        )
 
     @staticmethod
     def _estimate_confidence(
@@ -7476,14 +6984,11 @@ class RAGChatbotV17:
         evidence_spans: list[EvidenceSpan],
         answer_mode: str,
     ) -> float:
-        base = 0.35
-        base += slot_fill_rate * 0.45
-        base += min(0.2, len(evidence_spans) * 0.06)
-        if answer_mode == "extractive":
-            base += 0.05
-        if answer_mode == "hybrid":
-            base += 0.03
-        return round(min(1.0, max(0.0, base)), 3)
+        return eval_estimate_confidence(
+            slot_fill_rate=slot_fill_rate,
+            evidence_spans=evidence_spans,
+            answer_mode=answer_mode,
+        )
 
     def _extract_evidence_lines(
         self,
@@ -7849,43 +7354,16 @@ class RAGChatbotV17:
 
     @staticmethod
     def _normalize_text_for_match(text: str) -> str:
-        normalized = unicodedata.normalize("NFC", unicodedata.normalize("NFKC", (text or "").lower()))
-        return re.sub(r"[^0-9a-zA-Z가-힣]+", "", normalized)
+        return util_normalize_text_for_match(text)
 
     @staticmethod
     def _clip_text_safely(text: str, max_len: int = 360) -> str:
         """문장 경계를 최대한 보존하면서 긴 텍스트를 잘라냅니다."""
-        value = unicodedata.normalize("NFKC", str(text or "")).strip()
-        if not value:
-            return ""
-        if len(value) <= max_len:
-            return value
-
-        min_idx = max(20, int(max_len * 0.6))
-        for idx in range(max_len, min_idx, -1):
-            prev = value[idx - 1]
-            nxt = value[idx] if idx < len(value) else ""
-            if prev in ".!?;:)]}\"'”’":
-                return value[:idx].rstrip()
-            if prev in "다됨요함" and (not nxt or nxt.isspace()):
-                return value[:idx].rstrip()
-        return value[: max_len - 1].rstrip() + "…"
+        return util_clip_text_safely(text, max_len=max_len)
 
     @staticmethod
     def _looks_incomplete_clause(text: str) -> bool:
-        value = unicodedata.normalize("NFKC", str(text or "")).strip()
-        if not value:
-            return False
-        if re.search(r"(?:\bCD\b|\bDVD\b|\bUSB\b|파일|문서|자료)$", value, flags=re.IGNORECASE):
-            return True
-        if value.endswith(("…", "...", ".", "!", "?", "다", "다.", "입니다.", "합니다.", "됨.", "함.")):
-            return False
-        return bool(
-            re.search(
-                r"(하는|이며|하고|하여|되는|발생하는|경우|때|또는|및|으로|와|과|에서|에게|관련|대해)$",
-                value,
-            )
-        )
+        return util_looks_incomplete_clause(text)
 
     def _expand_line_with_context(
         self,
@@ -7969,95 +7447,11 @@ class RAGChatbotV17:
     @staticmethod
     def _clean_extracted_line(line: str) -> str:
         """OCR/표 파편/반복 토큰을 제거해 답변 근거에 쓰기 좋은 한 줄로 정규화합니다."""
-        cleaned = unicodedata.normalize("NFKC", (line or "").replace("\r", " ").replace("\t", " ").strip())
-        if not cleaned:
-            return ""
-
-        cleaned = re.sub(r"^\s*(?:[-*•]\s*)+", "", cleaned)
-        cleaned = re.sub(r"^\s*#+\s*", "", cleaned)
-        cleaned = cleaned.replace("**", "")
-        cleaned = re.sub(r"\bCol\s*\d+\s*:\s*", "", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r"요구\s*사항\s*(?:고유번호|상세설명)?\s*[:：]?\s*", "", cleaned)
-        cleaned = re.sub(r"세부\s*내용\s*[:：]?\s*", "", cleaned)
-        cleaned = re.sub(r"\b(?:상세\s*설명|세부\s*내용)\b\s*,?\s*", "", cleaned)
-        cleaned = re.sub(r"\[\s*(\d{4})\s*\[\s*\1", r"[\1", cleaned)
-        cleaned = re.sub(r"(\S+)\s+\1(\s+\1)+", r"\1", cleaned)
-        cleaned = re.sub(r"[ᄀ-ᇿ]+", "", cleaned)
-        cleaned = re.sub(r",\s*,+", ", ", cleaned)
-        cleaned = re.sub(r"^[,;:]+\s*", "", cleaned)
-        cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" -|;")
-        return cleaned
+        return util_clean_extracted_line(line)
 
     @staticmethod
     def _is_noise_line(line: str) -> bool:
-        stripped = RAGChatbotV17._clean_extracted_line(line)
-        if len(stripped) < 6:
-            return True
-        if re.match(r"^col\s*\d+\s*:\s*$", stripped, flags=re.IGNORECASE):
-            return True
-        valid_chars = len(re.findall(r"[0-9A-Za-z가-힣\s\.\,\-\:\;\(\)\/%_]", stripped))
-        if len(stripped) >= 24 and valid_chars / max(1, len(stripped)) < 0.65:
-            return True
-        compact_no_space = stripped.replace(" ", "")
-        if len(compact_no_space) > 140 and " " not in stripped and not re.search(r"\d{2,}", compact_no_space):
-            return True
-        if len(compact_no_space) > 80 and stripped.count(" ") <= 1 and re.search(r"[가-힣]{30,}", compact_no_space):
-            return True
-        metadata_markers = [
-            "사업명",
-            "사 업 명",
-            "공고번호",
-            "공고 번호",
-            "발주기관",
-            "발주 기관",
-            "입찰마감",
-            "입찰 마감",
-            "과업명",
-            "용역명",
-            "파일명",
-            "파일 형식",
-            "사업 요약",
-            "사업 개요",
-            "추진배경",
-            "기대효과",
-        ]
-        compact = stripped.replace(" ", "")
-        if any(compact.startswith(marker.replace(" ", "")) for marker in metadata_markers):
-            return True
-        noise_prefixes = [
-            "파일명",
-            "사업명",
-            "공고 번호",
-            "공개 일자",
-            "기본 정보",
-            "원본 문서 정보",
-            "파일 정보",
-            "페이지",
-            "□ 사업명",
-            "○ 사업명",
-            "가. 사업명",
-            "나. 사업명",
-        ]
-        if any(stripped.startswith(prefix) for prefix in noise_prefixes):
-            return True
-        if re.match(r"^(파일명|파일 형식|사업 요약|사업 개요|추진배경|기대효과)\s*[:：]", stripped):
-            return True
-        lowered = stripped.lower()
-        if lowered.startswith("source:") or "logical page" in lowered:
-            return True
-        if stripped.startswith("| ---"):
-            return True
-        # 마크다운 표 구분선(---)은 노이즈로 처리하되, 실제 표 본문 행은 유지한다.
-        if re.fullmatch(r"\|?\s*[:\-]+\s*(\|\s*[:\-]+\s*)+\|?", stripped):
-            return True
-        if stripped.count("|") >= 3:
-            cells = [c.strip() for c in stripped.strip("|").split("|")]
-            non_empty = [c for c in cells if c]
-            if non_empty and all(cell in {"-", "--", "---", ":"} for cell in non_empty):
-                return True
-        if stripped.count("  ") >= 4 and any(token in stripped for token in ["제안서", "제출", "목차"]):
-            return True
-        return False
+        return util_is_noise_line(line)
 
     def _extract_query_keywords(self, query: str, max_keywords: int = 10) -> list[str]:
         raw = unicodedata.normalize("NFKC", query.lower())
@@ -10222,21 +9616,7 @@ class RAGChatbotV17:
     @staticmethod
     def _collect_answer_content_lines(answer: str) -> list[str]:
         """답변 텍스트에서 품질 비교용 본문 라인만 추립니다."""
-        text = unicodedata.normalize("NFKC", str(answer or ""))
-        content_lines: list[str] = []
-        for raw_line in text.splitlines():
-            line = re.sub(r"^\s*[-*•]\s*", "", str(raw_line or "")).strip()
-            if not line:
-                continue
-            lowered = line.lower()
-            if re.match(r"^\[[^\]]+\]$", line):
-                continue
-            if re.match(r"^(근거|출처|source)\s*[:：]?$", line, flags=re.IGNORECASE):
-                continue
-            if re.match(r"^#?\d+\s+.+\.(pdf|hwp|docx?)\b", lowered):
-                continue
-            content_lines.append(line)
-        return content_lines
+        return eval_collect_answer_content_lines(answer)
 
     @classmethod
     def _should_fallback_to_extractive_draft(
@@ -10246,98 +9626,19 @@ class RAGChatbotV17:
         extractive_draft: str,
     ) -> bool:
         """요약 질의에서 생성 결과가 초안 대비 약하면 초안으로 되돌립니다."""
-        if not cls._is_summary_focus_query(query):
-            return False
-        draft = str(extractive_draft or "").strip()
-        if not draft:
-            return False
-        generated = str(generated_answer or "").strip()
-        if not generated:
-            return True
-        if cls._looks_uncertain_answer(generated) and not cls._looks_uncertain_answer(draft):
-            return True
-
-        draft_lines = cls._collect_answer_content_lines(draft)
-        generated_lines = cls._collect_answer_content_lines(generated)
-        if not draft_lines:
-            return False
-        if not generated_lines:
-            return True
-
-        stop_tokens = {
-            "문서",
-            "기준",
-            "관련",
-            "질문",
-            "답변",
-            "다음",
-            "있습니다",
-            "합니다",
-            "대한",
-            "사업",
-            "내용",
-            "확인",
-            "요약",
-            "개요",
-            "배경",
-            "범위",
-            "효과",
-            "목표",
-        }
-
-        def _token_set(lines: list[str]) -> set[str]:
-            merged = unicodedata.normalize("NFKC", " ".join(lines).lower())
-            return {
-                tok
-                for tok in re.findall(r"[0-9a-zA-Z가-힣]{2,}", merged)
-                if tok and not tok.isdigit() and tok not in stop_tokens
-            }
-
-        draft_tokens = _token_set(draft_lines)
-        generated_tokens = _token_set(generated_lines)
-        if draft_tokens:
-            overlap_ratio = len(draft_tokens & generated_tokens) / max(len(draft_tokens), 1)
-            min_overlap = 0.35 if len(draft_tokens) >= 6 else 0.25
-            if overlap_ratio < min_overlap and len(generated_lines) < len(draft_lines):
-                return True
-
-        draft_numbers: set[str] = set()
-        for value in re.findall(r"\d{2,}(?:[.,]\d+)?", " ".join(draft_lines)):
-            digits = re.sub(r"[^0-9]", "", value)
-            if len(digits) >= 2:
-                draft_numbers.add(digits)
-        if draft_numbers:
-            generated_digits = re.sub(r"[^0-9]", "", generated)
-            matched = sum(1 for digits in draft_numbers if digits and digits in generated_digits)
-            required = max(1, (len(draft_numbers) + 1) // 2)
-            if matched < required:
-                return True
-
-        generated_len = len(re.sub(r"\s+", "", " ".join(generated_lines)))
-        draft_len = len(re.sub(r"\s+", "", " ".join(draft_lines)))
-        if generated_len < max(18, draft_len // 3):
-            return True
-        return False
+        return eval_should_fallback_to_extractive_draft(
+            query=query,
+            generated_answer=generated_answer,
+            extractive_draft=extractive_draft,
+            is_summary_focus_query_fn=cls._is_summary_focus_query,
+            looks_uncertain_answer_fn=cls._looks_uncertain_answer,
+            collect_answer_content_lines_fn=cls._collect_answer_content_lines,
+        )
 
     @staticmethod
     def _looks_uncertain_answer(answer: str) -> bool:
         """답변이 과도한 보수적 거절 형태인지 판별."""
-        if not answer:
-            return True
-        lowered = answer.lower()
-        signals = [
-            "문서에 명시되어 있지",
-            "찾지 못했",
-            "확인되지 않",
-            "단정할 수 없",
-            "직접 명시한 조항을 찾지 못",
-            "명시적 언급이 없",
-            "본문 미제공",
-            "첨부된 hwp",
-            "파일 본문 텍스트가 전달되지",
-            "원문(또는 해당 조항 텍스트)을 붙여",
-        ]
-        return any(sig in lowered for sig in signals)
+        return eval_looks_uncertain_answer(answer)
 
     @staticmethod
     def _infer_responsibility_owner(evidence_lines: list[str]) -> str:

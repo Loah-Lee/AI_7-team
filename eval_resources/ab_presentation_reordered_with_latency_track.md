@@ -303,14 +303,14 @@
 ---
 
 ## 7) 최종 정리: 기준선 대비 최종 운영 지표
-핵심: "실험 1의 기준선(current_patch)에서 최종 운영(full20_chunk_synced_after_honorific_dedupe_fix_20260301)까지의 순증."
+핵심: "실험 1의 기준선(current_patch)에서 최종 운영(full20_chunk_synced_after_module_split_phase2_20260301)까지의 순증."
 
-| 지표 | A (current_patch) | B (full20_chunk_synced_after_honorific_dedupe_fix_20260301) | 변화율 |
+| 지표 | A (current_patch) | B (full20_chunk_synced_after_module_split_phase2_20260301) | 변화율 |
 |---|---:|---:|---:|
-| Correctness | 3.75 | 4.10 | +9.33% |
-| Answer Coverage | 3.35 | 4.00 | +19.40% |
-| Faithfulness | 4.35 | 4.35 | +0.00% |
+| Correctness | 3.75 | 4.20 | +12.00% |
+| Answer Coverage | 3.35 | 4.20 | +25.37% |
+| Faithfulness | 4.35 | 4.45 | +2.30% |
 | Context Relevance | 4.65 | 4.75 | +2.15% |
 | Recall@5 (source) | 0.90 | 1.00 | +11.11% |
 | MRR (source) | 0.90 | 0.95 | +5.56% |
-| 매크로(C/AC/F/CR) | 4.0250 | 4.3000 | +6.83% |
+| 매크로(C/AC/F/CR) | 4.0250 | 4.4000 | +9.32% |
