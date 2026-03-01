@@ -35,6 +35,25 @@ sys.path.insert(0, 'src')
 from src.utils.config import *
 from src.utils.helpers import *
 from src.graph.state import QueryIntent, QuestionPlan, EvidenceSpan, AnswerDraft
+from src.retrievers.query_heuristics import (
+    has_budget_evidence as retriever_has_budget_evidence,
+    has_owner_anchor_evidence as retriever_has_owner_anchor_evidence,
+    is_accuracy_mode_enabled as retriever_is_accuracy_mode_enabled,
+    is_budget_query as retriever_is_budget_query,
+    is_comparison_query as retriever_is_comparison_query,
+    is_implicit_follow_up_query as retriever_is_implicit_follow_up_query,
+    is_precision_fact_query as retriever_is_precision_fact_query,
+    is_single_doc_focus_query as retriever_is_single_doc_focus_query,
+    looks_like_project_phrase as retriever_looks_like_project_phrase,
+    needs_original_priority as retriever_needs_original_priority,
+    should_fallback_to_original as retriever_should_fallback_to_original,
+)
+from src.retrievers.result_postprocess import (
+    apply_source_cluster_penalty as retriever_apply_source_cluster_penalty,
+    diversify_comparison_results as retriever_diversify_comparison_results,
+    extract_chunk_index_value as retriever_extract_chunk_index_value,
+    merge_results as retriever_merge_results,
+)
 
 # ============================================================================
 # LangSmith 트레이싱 활성화
@@ -10974,51 +10993,7 @@ class RAGChatbotV17:
 
     @staticmethod
     def _diversify_comparison_results(results: list[dict[str, Any]], top_window: int = 10) -> list[dict[str, Any]]:
-        """비교 질의에서 상위 구간의 기관 편중을 완화합니다."""
-        if len(results) <= 2:
-            return results
-
-        buckets: dict[str, list[dict[str, Any]]] = {}
-        for item in results:
-            org = str((item.get("metadata", {}) or {}).get("org", "")).strip()
-            key = org or str((item.get("metadata", {}) or {}).get("source", "")).strip()
-            buckets.setdefault(key, []).append(item)
-
-        if len(buckets) < 2:
-            return results
-
-        top_orgs = sorted(
-            buckets.keys(),
-            key=lambda k: len(buckets[k]),
-            reverse=True,
-        )[:2]
-        selected: list[dict[str, Any]] = []
-        used_ids: set[int] = set()
-        round_limit = min(max(2, top_window), len(results))
-        while len(selected) < round_limit:
-            progressed = False
-            for org in top_orgs:
-                while buckets[org]:
-                    candidate = buckets[org].pop(0)
-                    cid = id(candidate)
-                    if cid in used_ids:
-                        continue
-                    selected.append(candidate)
-                    used_ids.add(cid)
-                    progressed = True
-                    break
-                if len(selected) >= round_limit:
-                    break
-            if not progressed:
-                break
-
-        for item in results:
-            cid = id(item)
-            if cid in used_ids:
-                continue
-            selected.append(item)
-            used_ids.add(cid)
-        return selected
+        return retriever_diversify_comparison_results(results, top_window=top_window)
 
     def _rerank_results(
         self,
@@ -11051,68 +11026,18 @@ class RAGChatbotV17:
 
     @staticmethod
     def _extract_chunk_index_value(item: dict[str, Any]) -> int | None:
-        md = item.get("metadata", {}) or {}
-        for key in ("chunk_index", "chunk_order"):
-            value = md.get(key)
-            try:
-                parsed = int(value)
-            except Exception:
-                continue
-            if parsed >= 0:
-                return parsed
-        value = item.get("chunk_index")
-        try:
-            parsed = int(value)
-        except Exception:
-            return None
-        return parsed if parsed >= 0 else None
+        return retriever_extract_chunk_index_value(item)
 
     def _apply_source_cluster_penalty(
         self,
         scored: list[tuple[float, int, dict[str, Any]]],
         top_window: int,
     ) -> list[tuple[float, int, dict[str, Any]]]:
-        """동일 source의 인접 청크 과밀 노출을 완화합니다."""
-        if len(scored) <= 2:
-            return scored
-
-        scored_sorted = sorted(scored, key=lambda x: (x[0], -x[1]), reverse=True)
-        window = min(max(4, top_window), len(scored_sorted))
-        head = list(scored_sorted[:window])
-        tail = list(scored_sorted[window:])
-        selected: list[tuple[float, int, dict[str, Any]]] = []
-
-        while head:
-            best_idx = 0
-            best_adjusted = float("-inf")
-            for idx, (base_score, original_idx, item) in enumerate(head):
-                md = item.get("metadata", {}) or {}
-                source_key = self._normalize_text_for_match(str(md.get("source", "") or ""))
-                chunk_index = self._extract_chunk_index_value(item)
-                penalty = 0.0
-                for _s, _i, picked in selected[-6:]:
-                    pmd = picked.get("metadata", {}) or {}
-                    picked_source_key = self._normalize_text_for_match(str(pmd.get("source", "") or ""))
-                    if not source_key or source_key != picked_source_key:
-                        continue
-                    picked_chunk_index = self._extract_chunk_index_value(picked)
-                    if chunk_index is not None and picked_chunk_index is not None:
-                        distance = abs(chunk_index - picked_chunk_index)
-                        if distance <= 2:
-                            penalty += 1.6
-                        elif distance <= 5:
-                            penalty += 0.6
-                        else:
-                            penalty += 0.15
-                    else:
-                        penalty += 0.25
-                adjusted = base_score - penalty
-                if adjusted > best_adjusted:
-                    best_adjusted = adjusted
-                    best_idx = idx
-            selected.append(head.pop(best_idx))
-
-        return selected + tail
+        return retriever_apply_source_cluster_penalty(
+            scored=scored,
+            top_window=top_window,
+            normalize_text_for_match=self._normalize_text_for_match,
+        )
 
     def _probe_source_local_candidates(
         self,
@@ -11601,70 +11526,28 @@ class RAGChatbotV17:
         incoming: list[dict[str, Any]],
         top_k: int,
     ) -> list[dict[str, Any]]:
-        """중복 제거하며 검색 결과를 병합합니다."""
-        merged: list[dict[str, Any]] = []
-        seen: set[tuple[str, str, int | None, str, str, str]] = set()
-        for item in [*base, *incoming]:
-            key = self._result_key(item)
-            if key in seen:
-                continue
-            seen.add(key)
-            merged.append(item)
-            if len(merged) >= top_k:
-                break
-        return merged
+        return retriever_merge_results(
+            base=base,
+            incoming=incoming,
+            top_k=top_k,
+            result_key_fn=self._result_key,
+        )
 
     @staticmethod
     def _needs_original_priority(query: str) -> bool:
-        """원본 문서 기반 검색을 우선해야 하는 질의인지 판단합니다."""
-        q = query.lower()
-        keywords = [
-            "사업비", "총사업비", "예산", "금액", "부가가치세",
-            "저작권", "라이선스", "사용권", "책임", "부담", "지적재산", "이미지", "글꼴",
-            "요구사항", "평가기준", "제안요청", "과업", "조항", "문구", "근거", "표",
-            "단위", "수량", "주기", "횟수", "자주", "기한", "복구", "용량", "가이드",
-        ]
-        return any(k in q for k in keywords)
+        return retriever_needs_original_priority(query)
 
     @staticmethod
     def _is_budget_query(query: str) -> bool:
-        normalized = unicodedata.normalize("NFKC", (query or "").lower())
-        hard_markers = ["사업비", "총사업비", "사 업 비", "사업 금액", "부가가치세"]
-        if any(marker in normalized for marker in hard_markers):
-            return True
-
-        if "금액" in normalized and any(token in normalized for token in ["얼마", "금액은", "금액이", "예산"]):
-            return True
-        if "예산" in normalized:
-            if re.search(r"예산\s*(은|는|이|가|규모|금액|얼마)", normalized):
-                return True
-            if "얼마" in normalized and "예산회계" not in normalized:
-                return True
-        return False
+        return retriever_is_budget_query(query)
 
     @staticmethod
     def _is_accuracy_mode_enabled() -> bool:
-        """정확도 우선 모드 활성 여부를 반환합니다."""
-        mode = unicodedata.normalize("NFKC", str(ANSWER_QUALITY_MODE or "").strip().lower())
-        return mode in {"accurate", "quality", "high_accuracy", "high-accuracy"}
+        return retriever_is_accuracy_mode_enabled(ANSWER_QUALITY_MODE)
 
     @staticmethod
     def _is_precision_fact_query(query: str) -> bool:
-        """숫자/단위/문자셋/복구기한/요구사항 코드 등 정밀 사실 질의 여부."""
-        normalized = unicodedata.normalize("NFKC", (query or "").lower())
-        if re.search(r"[a-z]{2,5}\s*[-_ ]?\s*\d{2,3}", normalized, flags=re.IGNORECASE):
-            return True
-        precision_tokens = [
-            "복구", "장애", "문자셋", "인코딩", "utf", "charset",
-            "용량", "mb", "gb", "kb", "단위", "수량",
-            "직무교육", "핵심투입인력", "핵심 인력", "사업관리자", "pm",
-            "가이드", "guideline", "guide",
-            "가용성", "무중단", "요구사항", "요건",
-            "규격", "치수", "가로", "세로", "도면", "mm",
-            "cpu", "xeon", "ghz", "core", "사양",
-            "협상적격", "배점한도", "85%",
-        ]
-        return any(token in normalized for token in precision_tokens)
+        return retriever_is_precision_fact_query(query)
 
     def _has_precision_anchor_evidence(
         self,
@@ -11732,157 +11615,35 @@ class RAGChatbotV17:
 
     @staticmethod
     def _has_owner_anchor_evidence(results: list[dict[str, Any]], top_n: int = 12) -> bool:
-        """책임/부담 질의에서 주체+의무 표현이 있는 근거가 확보됐는지 판별합니다."""
-        if not results:
-            return False
-        owner_pair_patterns = [
-            re.compile(
-                r"(저작권|지식재산|지적재산|소유권|귀속|라이선스|사용권).{0,48}(부담|책임|주체|귀속|의무|제안사|사업자|주사업자|계약상대자|발주기관)",
-                re.IGNORECASE,
-            ),
-            re.compile(
-                r"(부담|책임|주체|귀속|의무|제안사|사업자|주사업자|계약상대자|발주기관).{0,48}(저작권|지식재산|지적재산|소유권|귀속|라이선스|사용권)",
-                re.IGNORECASE,
-            ),
-        ]
-        for item in results[: max(1, top_n)]:
-            text = str(item.get("text", "") or "")
-            if not text:
-                continue
-            if any(pattern.search(text) for pattern in owner_pair_patterns):
-                return True
-        return False
+        return retriever_has_owner_anchor_evidence(results, top_n=top_n)
 
     @staticmethod
     def _has_budget_evidence(results: list[dict[str, Any]], top_n: int = 12) -> bool:
-        if not results:
-            return False
-        budget_markers = ["사업비", "총사업비", "예산", "사업 금액", "사 업 비", "금액"]
-        budget_value_pattern = re.compile(
-            r"(금\s*)?\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:천원|백만원|만원|억원|원)",
-            re.IGNORECASE,
-        )
-        for item in results[: max(1, top_n)]:
-            text = str(item.get("text", "") or "")
-            if not text:
-                continue
-            if any(marker in text for marker in budget_markers) and budget_value_pattern.search(text):
-                return True
-        return False
+        return retriever_has_budget_evidence(results, top_n=top_n)
 
     @staticmethod
     def _is_comparison_query(query: str) -> bool:
-        """다문서 비교형 질의 여부를 판별합니다."""
-        q = unicodedata.normalize("NFKC", query.lower())
-        # "비교과시스템"처럼 단어 내부의 "비교"는 비교 질의로 보지 않는다.
-        has_compare_token = bool(re.search(r"비교(?!과)", q))
-        strong_markers = ["차이", "공통", "모두 고려", "동시에", "두 문서", "서로 다른", "어떻게 다른"]
-        has_doc_a = bool(re.search(r"(?<![a-z0-9])a\s*문서", q))
-        has_doc_b = bool(re.search(r"(?<![a-z0-9])b\s*문서", q))
-        if has_compare_token or any(marker in q for marker in strong_markers) or (has_doc_a and has_doc_b):
-            return True
-        if "각각" in q and (any(marker in q for marker in ["각 문서", "기관별", "두 문서"]) or has_doc_a or has_doc_b):
-            return True
-        return False
+        return retriever_is_comparison_query(query)
 
     @staticmethod
     def _is_single_doc_focus_query(query: str, target_org_count: int = 0) -> bool:
-        """단일 문서 중심 질의인지 판별합니다."""
-        q = unicodedata.normalize("NFKC", (query or "").lower())
-        if not q:
-            return False
-        if RAGChatbotV17._is_comparison_query(q):
-            return False
-        if target_org_count >= 2:
-            return False
-        multi_doc_markers = [
-            "사업들과",
-            "사업들",
-            "각 사업",
-            "각각",
-            "동시에",
-            "모두",
-            "목록",
-            "식별",
-            "종합",
-            "추진하는 사업 중",
-        ]
-        if any(marker in q for marker in multi_doc_markers):
-            return False
-        return True
+        return retriever_is_single_doc_focus_query(query, target_org_count=target_org_count)
 
     @staticmethod
     def _is_implicit_follow_up_query(query: str) -> bool:
-        """주어 생략형 후속 질문(예: '마감일은?', '사업명은?')을 판별합니다."""
-        q = unicodedata.normalize("NFKC", (query or "").lower()).strip()
-        if not q:
-            return False
-
-        # 새로운 탐색 질의(카테고리/랭킹/범위검색)는 후속질문으로 간주하지 않는다.
-        fresh_query_markers = [
-            "가장",
-            "top",
-            "순위",
-            "랭킹",
-            "기관 찾아",
-            "관련 사업",
-            "어떤 것이",
-            "추천",
-            "목록",
-        ]
-        if any(marker in q for marker in fresh_query_markers):
-            return False
-
-        follow_up_slots = [
-            "마감일",
-            "마감",
-            "사업명",
-            "사업비",
-            "예산",
-            "금액",
-            "기한",
-            "기간",
-            "일정",
-            "제출",
-            "요건",
-            "요구사항",
-            "담당",
-            "연락처",
-            "주소",
-            "위치",
-            "언제",
-            "얼마",
-            "누가",
-        ]
-        if any(slot in q for slot in follow_up_slots):
-            return True
-
-        # 짧은 의문문은 직전 문맥을 잇는 경우가 많다.
-        return len(q) <= 12 and q.endswith(("?", "요", "줘", "봐", "가요", "인가요"))
+        return retriever_is_implicit_follow_up_query(query)
 
     @staticmethod
     def _looks_like_project_phrase(text: str) -> bool:
-        """기관명이 아니라 사업/문서명으로 보이는 문구인지 판별합니다."""
-        normalized = unicodedata.normalize("NFKC", (text or "").lower())
-        if not normalized:
-            return False
-        project_markers = [
-            "시스템", "사업", "구축", "고도화", "용역", "재구축", "개선",
-            "포털", "플랫폼", "조사", "연계", "기능",
-        ]
-        return any(marker in normalized for marker in project_markers)
+        return retriever_looks_like_project_phrase(text)
 
     def _should_fallback_to_original(self, query: str, results: list[dict[str, Any]]) -> bool:
-        """CSV에만 치우친 결과면 원본 문서 재검색을 강제합니다."""
-        if not results:
-            return True
-        if not self._needs_original_priority(query):
-            return False
-        has_original = any(
-            self._infer_metadata_doc_type(item.get("metadata", {}) or {}) in {"pdf", "hwp"}
-            for item in results[:8]
+        return retriever_should_fallback_to_original(
+            query=query,
+            results=results,
+            infer_metadata_doc_type=self._infer_metadata_doc_type,
+            needs_original_priority_fn=self._needs_original_priority,
         )
-        return not has_original
 
     def _build_context(self, query: str, results: list[dict[str, Any]]) -> str:
         """LLM 입력용 컨텍스트를 구성합니다."""
