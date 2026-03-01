@@ -163,6 +163,8 @@ class RAGChatbotV17:
         self._asset_sidecar_by_source_key: dict[str, list[dict[str, Any]]] = {}
         self._asset_sidecar_by_org_key: dict[str, list[dict[str, Any]]] = {}
         self._visual_intent_cache: dict[str, tuple[bool, float]] = {}
+        self._visual_presence_intent_cache: dict[str, tuple[bool, float]] = {}
+        self._image_ocr_cache: dict[str, str] = {}
         self.csv_question_field_map: dict[str, tuple[str, ...]] = {
             "amount": ("사업비", "예산", "사업 금액", "사 업 비", "사 업 금 액"),
             "notice_num": ("공고번호", "공고 번호", "notice"),
@@ -4164,6 +4166,16 @@ class RAGChatbotV17:
             )
             payload["attachments"] = visual_attachments
             payload["attachment_count"] = len(visual_attachments)
+            if self._is_visual_intent_query(query) and self._is_visual_asset_presence_query(query):
+                visual_focus = str(payload.get("_visual_focus", "") or "").strip()
+                presence_answer = self._build_visual_presence_answer(
+                    query=query,
+                    attachments=visual_attachments,
+                    visual_focus=visual_focus,
+                )
+                if presence_answer:
+                    payload["answer"] = self._enforce_honorific_tone(presence_answer)
+                    payload["answer_mode"] = "extractive"
             return payload
 
         query = query.strip()
@@ -5009,8 +5021,9 @@ class RAGChatbotV17:
         target_org = unique_orgs[0] if unique_orgs else (intent.org_name or "")
 
         q = unicodedata.normalize("NFKC", query.lower())
-        is_responsibility_query = any(
-            k in q for k in ["저작권", "라이선스", "사용권", "글꼴", "이미지", "부담", "책임", "지적재산"]
+        is_responsibility_query = (
+            any(k in q for k in ["저작권", "라이선스", "사용권", "글꼴", "부담", "책임", "지적재산"])
+            or ("이미지" in q and any(k in q for k in ["저작권", "라이선스", "사용권", "부담", "책임", "지적재산"]))
         )
         is_security_requirement_query = bool(
             re.search(r"[a-z]{2,5}\s*[-_ ]?\s*\d{2,3}", q, flags=re.IGNORECASE)
@@ -6121,6 +6134,135 @@ class RAGChatbotV17:
             self._visual_intent_cache.pop(first_key, None)
         return bool(result)
 
+    def _is_visual_asset_presence_query(self, query: str) -> bool:
+        """시각 자료의 '존재 여부/노출 요청' 질의인지 동적으로 판별합니다."""
+        normalized_query = unicodedata.normalize("NFKC", str(query or "").strip().lower())
+        if not normalized_query:
+            return False
+        cache_key = re.sub(r"\s+", " ", normalized_query)
+        cached = self._visual_presence_intent_cache.get(cache_key)
+        if cached is not None:
+            return bool(cached[0])
+
+        presence_markers = [
+            "있어",
+            "있나",
+            "있나요",
+            "보여",
+            "보여줘",
+            "보여주세요",
+            "첨부",
+            "자료",
+            "원본",
+            "캡처",
+            "파일",
+        ]
+        analysis_markers = [
+            "치수",
+            "규격",
+            "가로",
+            "세로",
+            "길이",
+            "얼마",
+            "몇",
+            "누가",
+            "책임",
+            "부담",
+            "기준",
+            "요건",
+            "설명",
+            "해석",
+            "분석",
+            "의미",
+            "내용",
+        ]
+        regex_guess = (
+            self._is_visual_intent_query(query)
+            and any(marker in normalized_query for marker in presence_markers)
+            and not any(marker in normalized_query for marker in analysis_markers)
+        )
+
+        llm = self.intent_llm or self.llm
+        result = bool(regex_guess)
+        confidence = 0.0
+        if llm is not None and self._is_visual_intent_query(query):
+            prompt = (
+                "다음 질문이 시각 자료(이미지/표)의 '존재 여부를 묻거나 보여달라는 요청'인지 분류하세요.\n"
+                "- true: 이미지/로고/표 자료가 있는지, 보여줄 수 있는지 묻는 질문\n"
+                "- false: 이미지 내용을 해석해 사실값/의미를 설명해달라는 질문\n"
+                "반드시 JSON 객체 하나만 출력하세요.\n"
+                "{\"asset_presence_query\": boolean, \"confidence\": number, \"reason\": \"짧은 근거\"}\n\n"
+                f"[질문]\n{query}"
+            )
+            try:
+                from langchain_core.messages import HumanMessage, SystemMessage
+
+                response = llm.invoke(
+                    [
+                        SystemMessage(
+                            content=(
+                                "너는 시각 질의의 응답 타입 분류기다. "
+                                "질문이 자료 존재/노출 요청인지, 내용 해석 요청인지 구분한다."
+                            )
+                        ),
+                        HumanMessage(content=prompt),
+                    ]
+                )
+                parsed = self._safe_load_json_object(getattr(response, "content", ""))
+                if parsed:
+                    llm_guess = self._to_bool(parsed.get("asset_presence_query", False))
+                    try:
+                        confidence = float(parsed.get("confidence", 0.0) or 0.0)
+                    except (TypeError, ValueError):
+                        confidence = 0.0
+                    confidence = max(0.0, min(1.0, confidence))
+                    if confidence >= 0.58:
+                        result = llm_guess
+                    elif confidence >= 0.45:
+                        result = bool(llm_guess or regex_guess)
+            except Exception:
+                result = bool(regex_guess)
+
+        self._visual_presence_intent_cache[cache_key] = (bool(result), float(confidence))
+        while len(self._visual_presence_intent_cache) > 512:
+            first_key = next(iter(self._visual_presence_intent_cache))
+            self._visual_presence_intent_cache.pop(first_key, None)
+        return bool(result)
+
+    def _build_visual_presence_answer(
+        self,
+        query: str,
+        attachments: list[dict[str, Any]],
+        visual_focus: str = "",
+    ) -> str:
+        if not attachments:
+            return "질문 관련 시각 자료를 찾지 못했습니다."
+
+        org_name = str(self._extract_org_name_from_query(query) or "").strip()
+        org_prefix = f"{org_name} " if org_name else ""
+        images = [att for att in attachments if str(att.get("kind", "")).lower() == "image"]
+        tables = [att for att in attachments if str(att.get("kind", "")).lower() == "table"]
+
+        if visual_focus == "identity_logo" and images:
+            return (
+                f"{org_prefix}로고/상징 이미지 {len(images)}건을 찾았습니다. "
+                "아래 '이미지/표 자료'에서 바로 확인하실 수 있습니다."
+            )
+        if images and tables:
+            return (
+                f"{org_prefix}질문 관련 이미지 {len(images)}건과 표 {len(tables)}건을 찾았습니다. "
+                "아래 '이미지/표 자료'에서 확인하실 수 있습니다."
+            )
+        if images:
+            return (
+                f"{org_prefix}질문 관련 이미지 자료 {len(images)}건을 찾았습니다. "
+                "아래 '이미지/표 자료'에서 확인하실 수 있습니다."
+            )
+        return (
+            f"{org_prefix}질문 관련 표 자료 {len(tables)}건을 찾았습니다. "
+            "아래 '이미지/표 자료'에서 확인하실 수 있습니다."
+        )
+
     def _build_visual_intent_context(
         self,
         retrieval_results: list[dict[str, Any]],
@@ -6573,6 +6715,169 @@ class RAGChatbotV17:
             score += 1.5
         return score
 
+    def _extract_source_image_attachments(
+        self,
+        source_name: str,
+        limit: int = 48,
+    ) -> list[dict[str, Any]]:
+        """source 전체 sidecar에서 이미지 첨부 후보를 보강 수집합니다."""
+        source = str(source_name or "").strip()
+        if not source:
+            return []
+        self._load_asset_sidecar_index()
+        source_key = self._normalize_text_for_match(source)
+        if not source_key:
+            return []
+        records = self._asset_sidecar_by_source_key.get(source_key, [])
+        if not records:
+            return []
+
+        collected: list[dict[str, Any]] = []
+        seen_paths: set[str] = set()
+        for row in records[: max(limit * 8, 160)]:
+            md = row.get("metadata", {}) or {}
+            if not isinstance(md, dict):
+                md = {}
+            text = str(row.get("text", "") or "")
+            page = row.get("page")
+            if page is None:
+                page = self._extract_metadata_page(md)
+            image_entries = self._extract_markdown_image_entries(text)
+            image_caption_map: dict[str, str] = {}
+            for alt_text, img_path in image_entries:
+                key = self._normalize_text_for_match(Path(img_path).name or img_path)
+                if key and key not in image_caption_map and alt_text:
+                    image_caption_map[key] = alt_text
+
+            assets = md.get("assets")
+            if not isinstance(assets, list):
+                assets = []
+            merged_assets = [str(path or "").strip() for path in assets if str(path or "").strip()]
+            for _alt_text, img_path in image_entries:
+                if img_path not in merged_assets:
+                    merged_assets.append(img_path)
+
+            for img_path in merged_assets:
+                resolved = self._resolve_attachment_path(img_path)
+                if not resolved:
+                    continue
+                if not resolved.startswith(("http://", "https://")) and not Path(resolved).exists():
+                    continue
+                dedupe_key = resolved.lower()
+                if dedupe_key in seen_paths:
+                    continue
+                seen_paths.add(dedupe_key)
+                caption_key = self._normalize_text_for_match(Path(img_path).name or img_path)
+                collected.append(
+                    {
+                        "kind": "image",
+                        "path": resolved,
+                        "caption": image_caption_map.get(caption_key, ""),
+                        "source": source,
+                        "page": page,
+                    }
+                )
+                if len(collected) >= limit:
+                    return collected
+        return collected
+
+    def _read_image_ocr_text(self, image_path: str, max_chars: int = 2400) -> str:
+        """이미지 OCR 텍스트를 캐시 기반으로 추출합니다."""
+        path = str(image_path or "").strip()
+        if not path or path.startswith(("http://", "https://")):
+            return ""
+        cached = self._image_ocr_cache.get(path)
+        if cached is not None:
+            return cached
+        text = ""
+        try:
+            from PIL import Image
+            import pytesseract
+
+            with Image.open(path) as image:
+                text = pytesseract.image_to_string(image, lang="kor+eng")
+        except Exception:
+            text = ""
+        normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+        if len(normalized) > max_chars:
+            normalized = normalized[:max_chars]
+        self._image_ocr_cache[path] = normalized
+        if len(self._image_ocr_cache) > 2048:
+            first_key = next(iter(self._image_ocr_cache))
+            self._image_ocr_cache.pop(first_key, None)
+        return normalized
+
+    def _score_visual_image_attachment(
+        self,
+        query: str,
+        attachment: dict[str, Any],
+        visual_focus: str,
+        use_ocr: bool = False,
+    ) -> float:
+        path = str(attachment.get("path", "") or "")
+        caption = str(attachment.get("caption", "") or "")
+        source = str(attachment.get("source", "") or "")
+        joined = " ".join(
+            [
+                unicodedata.normalize("NFKC", path.lower()),
+                unicodedata.normalize("NFKC", caption.lower()),
+                unicodedata.normalize("NFKC", source.lower()),
+            ]
+        )
+        query_terms = self._extract_query_keywords(query, max_keywords=12)
+        focus_terms = self._extract_focus_terms_for_fact(query, max_terms=8)
+        score = 0.0
+        for token in query_terms:
+            if token and token in self._normalize_text_for_match(joined):
+                score += 0.55
+        for term in focus_terms:
+            if term and term in joined:
+                score += 0.35
+
+        if visual_focus == "diagram_flow":
+            flow_markers = ["흐름", "flow", "process", "절차", "단계", "일정", "timeline", "roadmap", "업무"]
+            if any(marker in joined for marker in flow_markers):
+                score += 2.6
+            if any(marker in joined for marker in ["구성도", "architecture", "네트워크", "topology"]):
+                score -= 0.6
+        elif visual_focus == "table_data":
+            table_markers = ["표", "table", "rows", "headers", "검토항목", "소요", "기간", "일정"]
+            if any(marker in joined for marker in table_markers):
+                score += 2.1
+        elif visual_focus == "document_photo":
+            if any(marker in joined for marker in ["사진", "photo", "image", "캡처"]):
+                score += 1.4
+
+        page = attachment.get("page")
+        try:
+            page_num = int(page)
+        except Exception:
+            page_num = None
+        if page_num is not None:
+            if page_num <= 12:
+                score += 0.3
+            elif page_num >= 80:
+                score -= 0.2
+
+        if use_ocr and path and not path.startswith(("http://", "https://")):
+            ocr_text = self._read_image_ocr_text(path, max_chars=2800)
+            if ocr_text:
+                ocr_norm = unicodedata.normalize("NFKC", ocr_text.lower())
+                ocr_key = self._normalize_text_for_match(ocr_norm)
+                for token in query_terms:
+                    if token and token in ocr_key:
+                        score += 0.8
+                if visual_focus == "diagram_flow":
+                    if re.search(r"(업\s*무\s*흐\s*름|소\s*요\s*일\s*수|입\s*찰\s*공\s*고|협\s*상|준\s*공)", ocr_text):
+                        score += 4.0
+                    if re.search(r"(사\s*업\s*추\s*진\s*일\s*정|일\s*정)", ocr_text):
+                        score += 2.0
+                elif visual_focus == "table_data":
+                    if re.search(r"(검토항목|추정\s*사업기간|소요일수)", ocr_text):
+                        score += 2.0
+
+        return float(score)
+
     def _build_visual_attachments(
         self,
         query: str,
@@ -6609,6 +6914,7 @@ class RAGChatbotV17:
             payload=payload,
             retrieval_results=candidates,
         )
+        payload["_visual_focus"] = visual_focus
         query_visual_intent = self._is_visual_intent_query(query)
 
         # 상위 rerank 결과에 asset chunk가 남지 않는 경우를 보완하기 위해,
@@ -6641,6 +6947,7 @@ class RAGChatbotV17:
                         payload=payload,
                         retrieval_results=candidates,
                     )
+                    payload["_visual_focus"] = visual_focus
 
         if not wants_image and not wants_table:
             return []
@@ -6734,6 +7041,38 @@ class RAGChatbotV17:
                         }
                     )
 
+        # 시각 존재형 질의에서 상위 검색 결과가 특정 이미지에 치우치면 source 전체 이미지 후보를 보강 수집한다.
+        if wants_image and self._is_visual_asset_presence_query(query):
+            current_image_count = sum(1 for item in attachments if item.get("kind") == "image")
+            if current_image_count < min(3, max_items):
+                primary_source = ""
+                for item in candidates:
+                    md = item.get("metadata", {}) or {}
+                    if not isinstance(md, dict):
+                        md = {}
+                    source_name = str(md.get("source") or item.get("source") or "").strip()
+                    if source_name:
+                        primary_source = source_name
+                        break
+                if primary_source:
+                    existing_image_keys = {
+                        str(item.get("path", "") or "").strip().lower()
+                        for item in attachments
+                        if str(item.get("kind", "")).lower() == "image"
+                    }
+                    extra_images = self._extract_source_image_attachments(
+                        source_name=primary_source,
+                        limit=max(max_items * 8, 32),
+                    )
+                    for image_item in extra_images:
+                        key = str(image_item.get("path", "") or "").strip().lower()
+                        if not key or key in existing_image_keys:
+                            continue
+                        existing_image_keys.add(key)
+                        attachments.append(image_item)
+                        if len(existing_image_keys) >= max(max_items * 2, 12):
+                            break
+
         if visual_focus == "identity_logo":
             image_items = [item for item in attachments if item.get("kind") == "image"]
             non_image_items = [item for item in attachments if item.get("kind") != "image"]
@@ -6743,6 +7082,32 @@ class RAGChatbotV17:
                 reverse=True,
             )
             image_limit = min(max_items, 2)
+            selected = ranked_images[:image_limit] + non_image_items
+            for item in selected:
+                item.pop("_logo_score", None)
+            return selected[:max_items]
+
+        image_items = [item for item in attachments if item.get("kind") == "image"]
+        non_image_items = [item for item in attachments if item.get("kind") != "image"]
+        if image_items:
+            use_ocr_rerank = bool(
+                self._is_visual_asset_presence_query(query)
+                and visual_focus in {"diagram_flow", "table_data", "generic_visual"}
+            )
+            ranked_images = sorted(
+                image_items,
+                key=lambda item: self._score_visual_image_attachment(
+                    query=query,
+                    attachment=item,
+                    visual_focus=visual_focus,
+                    use_ocr=use_ocr_rerank,
+                ),
+                reverse=True,
+            )
+            if self._is_visual_asset_presence_query(query):
+                image_limit = min(max_items, 3)
+            else:
+                image_limit = max_items
             selected = ranked_images[:image_limit] + non_image_items
             for item in selected:
                 item.pop("_logo_score", None)
