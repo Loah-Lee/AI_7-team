@@ -30,11 +30,6 @@ def format_amount(amount_value: float) -> str:
         return f"{amount_value:,.0f}원"
 
 
-def normalize_newlines(text: str) -> str:
-    """연속된 줄바꿈을 정리합니다."""
-    return re.sub(r'\n{3,}', '\n\n', text)
-
-
 def parse_amount(amount_str: str) -> int:
     """문자열 금액을 정수로 변환합니다."""
     if not amount_str:

@@ -51,7 +51,6 @@ from src.retrievers.query_heuristics import (
 from src.retrievers.result_postprocess import (
     apply_source_cluster_penalty as retriever_apply_source_cluster_penalty,
     diversify_comparison_results as retriever_diversify_comparison_results,
-    extract_chunk_index_value as retriever_extract_chunk_index_value,
     merge_results as retriever_merge_results,
 )
 from src.utils.text_ops import (
@@ -73,7 +72,6 @@ from src.parsers.csv_runtime_utils import (
     format_csv_datetime_for_answer as parser_format_csv_datetime_for_answer,
     normalize_csv_datetime_value as parser_normalize_csv_datetime_value,
     normalize_notice_number as parser_normalize_notice_number,
-    query_requests_time_detail as parser_query_requests_time_detail,
     query_requests_vat as parser_query_requests_vat,
     source_to_stem as parser_source_to_stem,
 )
@@ -1296,11 +1294,6 @@ class RAGChatbotV17:
     def _query_requests_vat(query: str) -> bool:
         """질문이 부가가치세 포함/별도 정보를 요구하는지 판별합니다."""
         return parser_query_requests_vat(query)
-
-    @staticmethod
-    def _query_requests_time_detail(query: str) -> bool:
-        """질문이 시간 단위(시/분)까지 요구하는지 판별합니다."""
-        return parser_query_requests_time_detail(query)
 
     @staticmethod
     def _resolve_summary_focus_slot(query: str) -> str:
@@ -10324,10 +10317,6 @@ class RAGChatbotV17:
 
         scored.sort(key=lambda x: (x[0], -x[1]), reverse=True)
         return [item for _, _, item in scored]
-
-    @staticmethod
-    def _extract_chunk_index_value(item: dict[str, Any]) -> int | None:
-        return retriever_extract_chunk_index_value(item)
 
     def _apply_source_cluster_penalty(
         self,

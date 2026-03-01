@@ -595,15 +595,3 @@ class RFPAnswerGenerator:
             if indicator in answer:
                 return answer.split(indicator)[-1].strip()
         return answer
-
-
-def _token_limit_arg(model: str, max_tokens: int) -> dict[str, int]:
-    """모델별 토큰 파라미터 키를 반환합니다."""
-    normalized = (model or "").lower()
-    if normalized.startswith("gpt-5"):
-        return {"max_completion_tokens": max_tokens}
-    return {"max_tokens": max_tokens}
-
-
-def _is_gpt5_model(model: str) -> bool:
-    return (model or "").lower().startswith("gpt-5")
