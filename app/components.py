@@ -681,6 +681,9 @@ def render_answer_sections(result: dict[str, Any]) -> None:
     evidence: list[dict[str, Any]] = result.get("evidence", [])
     if not isinstance(evidence, list):
         evidence = []
+    attachments: list[dict[str, Any]] = result.get("attachments", [])
+    if not isinstance(attachments, list):
+        attachments = []
 
     st.markdown('<div class="answer-box">', unsafe_allow_html=True)
 
@@ -714,6 +717,81 @@ def render_answer_sections(result: dict[str, Any]) -> None:
                 st.markdown(f"<div class='answer-caption'>{text}</div>", unsafe_allow_html=True)
     else:
         st.markdown("<div class='answer-caption'>근거 정보가 제공되지 않았습니다.</div>", unsafe_allow_html=True)
+
+    if attachments:
+        st.markdown("<div class='section-title'>🖼️ 이미지/표 자료</div>", unsafe_allow_html=True)
+        for idx, att in enumerate(attachments, start=1):
+            if not isinstance(att, dict):
+                continue
+            kind = str(att.get("kind", "") or "").strip().lower()
+            source = str(att.get("source", "") or "unknown").strip() or "unknown"
+            page = att.get("page")
+            page_val = str(page).strip() if page not in (None, "", "-", "None") else ""
+            page_badge = (
+                f" <span style='font-size:0.75rem;background:#ECFDF5;border:1px solid #10A37F;"
+                f"border-radius:4px;padding:1px 6px;color:#10A37F;font-weight:600;"
+                f"vertical-align:middle;'>p.{page_val}</span>"
+                if page_val else ""
+            )
+            st.markdown(
+                f"<div class='answer-evidence'>"
+                f"<strong>#{idx}</strong> &nbsp; {source}{page_badge} "
+                f"(<em>{kind or 'attachment'}</em>)"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+            if kind == "image":
+                image_path = str(att.get("path", "") or "").strip()
+                caption = str(att.get("caption", "") or "").strip()
+                if not image_path:
+                    st.markdown("<div class='answer-caption'>이미지 경로가 없습니다.</div>", unsafe_allow_html=True)
+                    continue
+                is_web = image_path.startswith(("http://", "https://"))
+                if not is_web and not Path(image_path).exists():
+                    st.markdown(
+                        f"<div class='answer-caption'>이미지 파일을 찾을 수 없습니다: {image_path}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    continue
+                st.image(image_path, caption=caption or None, use_container_width=True)
+                continue
+
+            if kind == "table":
+                title = str(att.get("title", "") or "").strip()
+                summary = str(att.get("summary", "") or "").strip()
+                headers = att.get("headers", [])
+                rows = att.get("rows", [])
+
+                if title:
+                    st.markdown(f"**{title}**")
+                if summary:
+                    st.markdown(f"<div class='answer-caption'>{summary}</div>", unsafe_allow_html=True)
+
+                if isinstance(headers, list) and isinstance(rows, list) and headers and rows:
+                    normalized_headers = [str(cell or "").strip() for cell in headers]
+                    normalized_rows: list[list[str]] = []
+                    for row in rows:
+                        if not isinstance(row, list):
+                            continue
+                        cells = [str(cell or "").strip() for cell in row]
+                        if len(cells) < len(normalized_headers):
+                            cells.extend([""] * (len(normalized_headers) - len(cells)))
+                        elif len(cells) > len(normalized_headers):
+                            cells = cells[: len(normalized_headers)]
+                        if any(cells):
+                            normalized_rows.append(cells)
+                    if normalized_rows:
+                        st.dataframe(
+                            pd.DataFrame(normalized_rows, columns=normalized_headers),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                        continue
+                st.markdown("<div class='answer-caption'>표 데이터를 해석할 수 없습니다.</div>", unsafe_allow_html=True)
+                continue
+
+            st.markdown("<div class='answer-caption'>지원되지 않는 첨부 형식입니다.</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 
