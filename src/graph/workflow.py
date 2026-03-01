@@ -162,6 +162,7 @@ class RAGChatbotV17:
         self._asset_sidecar_loaded = False
         self._asset_sidecar_by_source_key: dict[str, list[dict[str, Any]]] = {}
         self._asset_sidecar_by_org_key: dict[str, list[dict[str, Any]]] = {}
+        self._visual_intent_cache: dict[str, tuple[bool, float]] = {}
         self.csv_question_field_map: dict[str, tuple[str, ...]] = {
             "amount": ("사업비", "예산", "사업 금액", "사 업 비", "사 업 금 액"),
             "notice_num": ("공고번호", "공고 번호", "notice"),
@@ -1064,7 +1065,7 @@ class RAGChatbotV17:
         focus_terms = self._extract_focus_terms_for_fact(query, max_terms=8)
         normalized_query = unicodedata.normalize("NFKC", (query or "").lower())
         is_dimension_query = any(token in normalized_query for token in ["규격", "치수", "가로", "세로", "도면", "mm"])
-        is_visual_query = self._is_visual_layout_query(query)
+        is_visual_query = self._is_visual_intent_query(query)
         ranked: list[dict[str, Any]] = []
         candidate_source_set = set(candidate_source_keys)
         for item in candidates:
@@ -3364,7 +3365,7 @@ class RAGChatbotV17:
         """기관 단일 질의의 정밀 사실 질문은 기관 전 청크를 스캔해 즉답을 시도합니다."""
         if not org_name or not self._needs_org_fact_scan(query):
             return None
-        if self._asset_sidecar_enabled and self._is_visual_layout_query(query):
+        if self._asset_sidecar_enabled and self._is_visual_intent_query(query):
             # 도면/표/이미지 질의는 sidecar 검색 경로를 우선 보장한다.
             return None
         if self._is_comparison_query(query):
@@ -4155,6 +4156,14 @@ class RAGChatbotV17:
                 payload["retrieved_docs"] = self._serialize_retrieved_docs(
                     self.vector_store.last_search_results,
                 )
+            visual_attachments = self._build_visual_attachments(
+                query=query,
+                payload=payload,
+                retrieval_results=self.vector_store.last_search_results,
+                max_items=8,
+            )
+            payload["attachments"] = visual_attachments
+            payload["attachment_count"] = len(visual_attachments)
             return payload
 
         query = query.strip()
@@ -4241,7 +4250,7 @@ class RAGChatbotV17:
             and not self._is_comparison_query(query)
         )
         is_single_org_visual_query = (
-            self._is_visual_layout_query(query)
+            self._is_visual_intent_query(query)
             and len(direct_explicit_orgs) <= 1
             and not self._is_comparison_query(query)
         )
@@ -4767,7 +4776,7 @@ class RAGChatbotV17:
         direct_orgs = self._extract_org_names_from_query(query, limit=2, allow_project_fallback=False)
         if self._is_budget_query(query) and len(direct_orgs) <= 1:
             query_is_comparison_like = False
-        if self._is_visual_layout_query(query) and len(direct_orgs) <= 1 and not self._is_comparison_query(query):
+        if self._is_visual_intent_query(query) and len(direct_orgs) <= 1 and not self._is_comparison_query(query):
             query_is_comparison_like = False
         if intent.org_name and len(direct_orgs) <= 1 and not self._is_comparison_query(query):
             query_is_comparison_like = False
@@ -5053,7 +5062,7 @@ class RAGChatbotV17:
                     return single_value
             q_norm = unicodedata.normalize("NFKC", query.lower())
             concise_visual_fact = (
-                self._is_visual_layout_query(query)
+                self._is_visual_intent_query(query)
                 and any(token in q_norm for token in ["왼쪽", "오른쪽", "좌측", "우측", "가로", "세로", "치수", "길이"])
             )
             if concise_visual_fact:
@@ -6020,6 +6029,730 @@ class RAGChatbotV17:
         return docs
 
     @staticmethod
+    def _safe_load_json_object(payload: Any) -> dict[str, Any] | None:
+        text = str(payload or "").strip()
+        if not text:
+            return None
+        try:
+            data = json.loads(text)
+            return data if isinstance(data, dict) else None
+        except Exception:
+            pass
+        match = re.search(r"\{[\s\S]*\}", text)
+        if not match:
+            return None
+        try:
+            data = json.loads(match.group(0))
+            return data if isinstance(data, dict) else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _to_bool(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return value != 0
+        normalized = unicodedata.normalize("NFKC", str(value or "").strip().lower())
+        return normalized in {"1", "true", "yes", "y", "t"}
+
+    def _is_visual_intent_query(self, query: str) -> bool:
+        """질문 문맥을 기반으로 시각 자료(이미지/표) 요청 의도를 동적으로 판별합니다."""
+        normalized_query = unicodedata.normalize("NFKC", str(query or "").strip().lower())
+        if not normalized_query:
+            return False
+        cache_key = re.sub(r"\s+", " ", normalized_query)
+        cached = self._visual_intent_cache.get(cache_key)
+        if cached is not None:
+            return bool(cached[0])
+
+        regex_guess = self._is_visual_layout_query(query)
+        llm = self.intent_llm or self.llm
+        result = regex_guess
+        confidence = 0.0
+
+        if llm is not None:
+            prompt = (
+                "사용자 질문이 '텍스트 설명'만 원하는지, 아니면 '이미지/표 같은 시각 자료 첨부'를 "
+                "함께 기대하는지를 분류하세요.\n"
+                "- 질문이 '있어?', '보여줘', '자료', '근거 화면', '원본 그림/도표' 맥락이면 true 가능성이 높습니다.\n"
+                "- 단순 사실 질의(금액/기한/요건 확인)면 false입니다.\n"
+                "JSON 객체 하나만 출력하세요.\n"
+                "{\"visual_needed\": boolean, \"confidence\": number, \"reason\": \"짧은 근거\"}\n\n"
+                f"[질문]\n{query}"
+            )
+            try:
+                from langchain_core.messages import HumanMessage, SystemMessage
+
+                response = llm.invoke(
+                    [
+                        SystemMessage(
+                            content=(
+                                "너는 RFP 질의 의도 분류기다. "
+                                "질문의 의미만 보고 시각 자료 첨부 필요 여부를 판단한다."
+                            )
+                        ),
+                        HumanMessage(content=prompt),
+                    ]
+                )
+                parsed = self._safe_load_json_object(getattr(response, "content", ""))
+                if parsed:
+                    llm_guess = self._to_bool(parsed.get("visual_needed", False))
+                    try:
+                        confidence = float(parsed.get("confidence", 0.0) or 0.0)
+                    except (TypeError, ValueError):
+                        confidence = 0.0
+                    confidence = max(0.0, min(1.0, confidence))
+                    if confidence >= 0.58:
+                        result = llm_guess
+                    elif confidence >= 0.45:
+                        result = bool(llm_guess or regex_guess)
+            except Exception:
+                result = regex_guess
+
+        # 명시적 키워드 판정은 최후 안전장치로만 사용한다.
+        if not result and (self._query_requests_image_assets(query) or self._query_requests_table_assets(query)):
+            result = True
+            confidence = max(confidence, 0.55)
+
+        self._visual_intent_cache[cache_key] = (bool(result), float(confidence))
+        while len(self._visual_intent_cache) > 512:
+            first_key = next(iter(self._visual_intent_cache))
+            self._visual_intent_cache.pop(first_key, None)
+        return bool(result)
+
+    def _build_visual_intent_context(
+        self,
+        retrieval_results: list[dict[str, Any]],
+        max_items: int = 6,
+        max_chars: int = 180,
+    ) -> str:
+        """시각 의도 분류용으로 검색 결과를 짧게 요약합니다."""
+        lines: list[str] = []
+        for item in retrieval_results[: max_items * 2]:
+            md = item.get("metadata", {}) or {}
+            if not isinstance(md, dict):
+                md = {}
+            source = str(md.get("source") or item.get("source") or "").strip() or "unknown"
+            page = item.get("page")
+            if page is None:
+                page = self._extract_metadata_page(md)
+            text = str(item.get("text", "") or "").strip()
+            if not text:
+                continue
+            image_entries = self._extract_markdown_image_entries(text)
+            has_table_json = any(self._extract_table_from_alt_json(alt) for alt, _ in image_entries)
+            has_pipe_table = bool(self._extract_pipe_tables(text, max_tables=1))
+            assets = md.get("assets") if isinstance(md.get("assets"), list) else []
+            has_visual = bool(image_entries or assets or has_table_json or has_pipe_table)
+            if not has_visual and len(lines) >= 2:
+                continue
+
+            snippet = ""
+            for raw_line in text.splitlines():
+                line = str(raw_line or "").strip()
+                if not line:
+                    continue
+                if line.startswith("![") or "../data_assets/" in line or "|" in line:
+                    snippet = line
+                    break
+            if not snippet:
+                snippet = text[:max_chars]
+            snippet = re.sub(r"\s+", " ", snippet).strip()
+            if len(snippet) > max_chars:
+                snippet = snippet[: max_chars - 1].rstrip() + "…"
+            lines.append(
+                f"- source={source} page={page} visual={has_visual} snippet={snippet}"
+            )
+            if len(lines) >= max_items:
+                break
+        return "\n".join(lines)
+
+    def _infer_visual_asset_need(
+        self,
+        query: str,
+        payload: dict[str, Any],
+        retrieval_results: list[dict[str, Any]],
+    ) -> tuple[bool, bool, float, str, str]:
+        """질의/검색 문맥을 함께 사용해 이미지/표 첨부 필요를 판정합니다."""
+        explicit_image = self._query_requests_image_assets(query)
+        explicit_table = self._query_requests_table_assets(query)
+        query_visual_intent = self._is_visual_intent_query(query)
+
+        candidates = list(retrieval_results or [])
+        if not candidates:
+            retrieved_docs = payload.get("retrieved_docs")
+            if isinstance(retrieved_docs, list):
+                for doc in retrieved_docs:
+                    if not isinstance(doc, dict):
+                        continue
+                    candidates.append(
+                        {
+                            "text": str(doc.get("content", "") or ""),
+                            "metadata": {
+                                "source": str(doc.get("source", "") or ""),
+                                "page": doc.get("page"),
+                            },
+                            "source": str(doc.get("source", "") or ""),
+                            "page": doc.get("page"),
+                            "score": float(doc.get("score", 0.0) or 0.0),
+                        }
+                    )
+
+        has_image_signal = False
+        has_table_signal = False
+        for item in candidates[:16]:
+            md = item.get("metadata", {}) or {}
+            if not isinstance(md, dict):
+                md = {}
+            text = str(item.get("text", "") or "")
+            image_entries = self._extract_markdown_image_entries(text) if text else []
+            assets = md.get("assets")
+            if isinstance(assets, list) and assets:
+                has_image_signal = True
+            if image_entries:
+                has_image_signal = True
+                if any(self._extract_table_from_alt_json(alt) for alt, _ in image_entries):
+                    has_table_signal = True
+            if self._extract_pipe_tables(text, max_tables=1):
+                has_table_signal = True
+            if has_image_signal and has_table_signal:
+                break
+
+        llm = self.intent_llm or self.llm
+        if llm is not None and (query_visual_intent or explicit_image or explicit_table or has_image_signal or has_table_signal):
+            context_preview = self._build_visual_intent_context(candidates, max_items=6, max_chars=180)
+            prompt = (
+                "질문과 문맥을 보고 이미지/표 첨부 필요를 판정하세요.\n"
+                "반드시 JSON 객체 하나만 출력하세요.\n"
+                "{\"visual_needed\": boolean, \"image_needed\": boolean, \"table_needed\": boolean, "
+                "\"visual_focus\": \"generic_visual|identity_logo|diagram_flow|table_data|document_photo|ui_screenshot\", "
+                "\"confidence\": number, \"reason\": \"짧은 근거\"}\n\n"
+                f"[질문]\n{query}\n\n"
+                f"[검색 문맥]\n{context_preview or '(없음)'}"
+            )
+            try:
+                from langchain_core.messages import HumanMessage, SystemMessage
+
+                response = llm.invoke(
+                    [
+                        SystemMessage(
+                            content=(
+                                "너는 RFP 응답 포맷 설계자다. "
+                                "질문자가 시각 자료를 원하면 image/table 첨부를 활성화한다."
+                            )
+                        ),
+                        HumanMessage(content=prompt),
+                    ]
+                )
+                parsed = self._safe_load_json_object(getattr(response, "content", ""))
+                if parsed:
+                    visual_needed = self._to_bool(parsed.get("visual_needed", False))
+                    image_needed = self._to_bool(parsed.get("image_needed", False))
+                    table_needed = self._to_bool(parsed.get("table_needed", False))
+                    visual_focus = self._normalize_visual_focus(parsed.get("visual_focus", ""))
+                    try:
+                        confidence = float(parsed.get("confidence", 0.0) or 0.0)
+                    except (TypeError, ValueError):
+                        confidence = 0.0
+                    confidence = max(0.0, min(1.0, confidence))
+                    if visual_needed and not (image_needed or table_needed):
+                        image_needed = bool(has_image_signal or explicit_image)
+                        table_needed = bool((not image_needed and has_table_signal) or explicit_table)
+
+                    image_needed = bool(image_needed or explicit_image)
+                    table_needed = bool(table_needed or explicit_table)
+                    if visual_focus == "identity_logo":
+                        image_needed = True
+                    if confidence >= 0.58:
+                        return image_needed, table_needed, confidence, "llm", visual_focus
+                    if confidence >= 0.45:
+                        fallback_image = bool(explicit_image or (query_visual_intent and has_image_signal))
+                        fallback_table = bool(explicit_table or (query_visual_intent and has_table_signal))
+                        fallback_focus = visual_focus
+                        if fallback_focus == "generic_visual" and fallback_table and not fallback_image:
+                            fallback_focus = "table_data"
+                        return (
+                            bool(image_needed or fallback_image),
+                            bool(table_needed or fallback_table),
+                            confidence,
+                            "llm+fallback",
+                            fallback_focus,
+                        )
+            except Exception:
+                pass
+
+        wants_image = bool(explicit_image or (query_visual_intent and has_image_signal))
+        wants_table = bool(explicit_table or (query_visual_intent and has_table_signal))
+        fallback_focus = "table_data" if wants_table and not wants_image else "generic_visual"
+        return wants_image, wants_table, 0.0, "fallback", fallback_focus
+
+    @staticmethod
+    def _query_requests_image_assets(query: str) -> bool:
+        normalized = unicodedata.normalize("NFKC", (query or "").lower())
+        if not normalized:
+            return False
+        markers = [
+            "이미지",
+            "그림",
+            "도면",
+            "사진",
+            "캡션",
+            "구성도",
+            "다이어그램",
+            "스크린샷",
+            "시각 자료",
+            "image",
+            "figure",
+            "img",
+        ]
+        return any(marker in normalized for marker in markers)
+
+    @staticmethod
+    def _query_requests_table_assets(query: str) -> bool:
+        normalized = unicodedata.normalize("NFKC", (query or "").lower())
+        if not normalized:
+            return False
+        markers = [
+            "테이블",
+            "table",
+            "도표",
+            "표 형식",
+            "표로",
+            "표를",
+            "표랑",
+            "표와",
+            "표도",
+            "행열",
+        ]
+        if any(marker in normalized for marker in markers):
+            return True
+        return bool(re.search(r"(\b표\b|표\s*자료|표\s*정리)", normalized))
+
+    @staticmethod
+    def _extract_markdown_image_entries(text: str) -> list[tuple[str, str]]:
+        entries: list[tuple[str, str]] = []
+        if not text:
+            return entries
+
+        # 경로 안에 괄호가 포함된 경우(예: ...(BIS).../p1_img1.png)도 안정적으로 추출한다.
+        pattern = re.compile(
+            r"!\[(.*?)\]\(([^\\n]*?\.(?:png|jpg|jpeg|webp|gif)(?:\?[^\\s)]*)?)\)",
+            re.IGNORECASE,
+        )
+        for alt_text, raw_path in pattern.findall(text):
+            candidate = str(raw_path or "").strip().strip("'\"")
+            if not candidate:
+                continue
+            entries.append((str(alt_text or "").strip(), candidate))
+        return entries
+
+    @staticmethod
+    def _extract_table_from_alt_json(alt_text: str) -> dict[str, Any] | None:
+        raw = str(alt_text or "").strip()
+        if not raw.startswith("{") or not raw.endswith("}"):
+            return None
+        try:
+            data = json.loads(raw)
+        except Exception:
+            return None
+        if not isinstance(data, dict):
+            return None
+        if str(data.get("type", "")).strip().lower() != "table":
+            return None
+
+        headers_raw = data.get("headers", [])
+        rows_raw = data.get("rows", [])
+        if not isinstance(headers_raw, list) or not isinstance(rows_raw, list):
+            return None
+        headers = [str(cell or "").strip() for cell in headers_raw if str(cell or "").strip()]
+        if not headers:
+            return None
+
+        rows: list[list[str]] = []
+        for row in rows_raw:
+            if not isinstance(row, list):
+                continue
+            cells = [str(cell or "").strip() for cell in row]
+            if not any(cells):
+                continue
+            if len(cells) < len(headers):
+                cells = cells + [""] * (len(headers) - len(cells))
+            elif len(cells) > len(headers):
+                cells = cells[: len(headers)]
+            rows.append(cells)
+        if not rows:
+            return None
+
+        title = str(data.get("title", "") or "").strip()
+        summary = str(data.get("summary", "") or "").strip()
+        return {
+            "title": title,
+            "summary": summary,
+            "headers": headers,
+            "rows": rows,
+        }
+
+    @staticmethod
+    def _extract_pipe_tables(text: str, max_tables: int = 2) -> list[dict[str, Any]]:
+        if not text:
+            return []
+
+        def _is_separator(line: str) -> bool:
+            stripped = line.strip()
+            return bool(
+                re.fullmatch(r"\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?", stripped)
+            )
+
+        lines = [str(line or "").strip() for line in text.splitlines()]
+        blocks: list[list[str]] = []
+        current: list[str] = []
+        for line in lines:
+            if line.count("|") >= 2:
+                current.append(line)
+                continue
+            if len(current) >= 2:
+                blocks.append(current)
+            current = []
+        if len(current) >= 2:
+            blocks.append(current)
+
+        tables: list[dict[str, Any]] = []
+        for block in blocks:
+            if len(tables) >= max_tables:
+                break
+            header_cells = [cell.strip() for cell in block[0].strip("|").split("|")]
+            if len(header_cells) < 2:
+                continue
+            header_cells = [cell if cell else f"col_{idx+1}" for idx, cell in enumerate(header_cells)]
+
+            data_start = 1
+            if len(block) >= 2 and _is_separator(block[1]):
+                data_start = 2
+
+            rows: list[list[str]] = []
+            for raw_row in block[data_start:]:
+                cells = [cell.strip() for cell in raw_row.strip("|").split("|")]
+                if len(cells) < 2:
+                    continue
+                if len(cells) < len(header_cells):
+                    cells = cells + [""] * (len(header_cells) - len(cells))
+                elif len(cells) > len(header_cells):
+                    cells = cells[: len(header_cells)]
+                if any(cells):
+                    rows.append(cells)
+            if not rows:
+                continue
+            tables.append(
+                {
+                    "title": "문서 표",
+                    "summary": "",
+                    "headers": header_cells,
+                    "rows": rows[:20],
+                }
+            )
+        return tables
+
+    def _resolve_attachment_path(self, raw_path: str) -> str:
+        candidate = str(raw_path or "").strip().strip("'\"")
+        if not candidate:
+            return ""
+        if candidate.startswith(("http://", "https://")):
+            return candidate
+
+        path_obj = Path(candidate).expanduser()
+        if path_obj.is_absolute():
+            return str(path_obj.resolve())
+
+        project_root = Path(__file__).resolve().parents[2]
+        search_roots = [
+            self.asset_sidecar_dir,
+            self.asset_sidecar_dir.parent,
+            project_root,
+        ]
+        for root in search_roots:
+            resolved = (root / path_obj).resolve()
+            if resolved.exists():
+                return str(resolved)
+
+        # 존재 확인 실패 시에도 sidecar 기준 절대경로 형태로 정규화해 반환한다.
+        return str((self.asset_sidecar_dir / path_obj).resolve())
+
+    @staticmethod
+    def _normalize_visual_focus(value: Any) -> str:
+        normalized = unicodedata.normalize("NFKC", str(value or "").strip().lower())
+        if not normalized:
+            return "generic_visual"
+        key = re.sub(r"[^0-9a-z가-힣]+", "", normalized)
+        if key in {
+            "identitylogo",
+            "logo",
+            "brandlogo",
+            "brandidentity",
+            "ci",
+            "bi",
+            "symbol",
+            "emblem",
+            "logomark",
+            "logotype",
+            "브랜드로고",
+            "심볼",
+            "엠블럼",
+            "휘장",
+            "상징",
+        }:
+            return "identity_logo"
+        if key in {"diagramflow", "diagram", "flowchart", "processdiagram", "구성도", "흐름도", "프로세스"}:
+            return "diagram_flow"
+        if key in {"tabledata", "table", "tabular", "tabulardata", "datatable", "표", "도표"}:
+            return "table_data"
+        if key in {"documentscreenshot", "uiscreenshot", "screenshot", "screen", "화면", "캡처"}:
+            return "ui_screenshot"
+        if key in {"documentphoto", "photo", "image", "사진", "그림"}:
+            return "document_photo"
+        return "generic_visual"
+
+    @staticmethod
+    def _score_logo_attachment_candidate(path: str, caption: str, source: str) -> float:
+        filename = unicodedata.normalize("NFKC", Path(str(path or "")).name.lower())
+        caption_norm = unicodedata.normalize("NFKC", str(caption or "").lower())
+        source_norm = unicodedata.normalize("NFKC", str(source or "").lower())
+        joined = " ".join(part for part in [filename, caption_norm, source_norm] if part).strip()
+        if not joined:
+            return 0.0
+
+        score = 0.0
+        strong_markers = [
+            "logo",
+            "logotype",
+            "logomark",
+            "wordmark",
+            "brandmark",
+            "identity logo",
+            "ci",
+            "bi",
+            "symbol",
+            "emblem",
+            "crest",
+            "seal",
+            "브랜드 로고",
+            "로고",
+            "심볼",
+            "엠블럼",
+            "휘장",
+        ]
+        weak_markers = ["brand", "identity", "아이덴티티", "브랜드", "마크"]
+        negative_markers = [
+            "표",
+            "도표",
+            "테이블",
+            "chart",
+            "graph",
+            "일정",
+            "flow",
+            "diagram",
+            "구성도",
+            "흐름도",
+            "스크린샷",
+            "사진",
+        ]
+
+        for marker in strong_markers:
+            if marker in joined:
+                score += 2.0
+        for marker in weak_markers:
+            if marker in joined:
+                score += 0.6
+        for marker in negative_markers:
+            if marker in joined:
+                score -= 0.8
+
+        if re.search(r"(?:^|[_\-\s])(ci|bi)(?:[_\-\s]|$)", filename):
+            score += 1.5
+        if "logo" in filename:
+            score += 1.5
+        return score
+
+    def _build_visual_attachments(
+        self,
+        query: str,
+        payload: dict[str, Any],
+        retrieval_results: list[dict[str, Any]],
+        max_items: int = 8,
+    ) -> list[dict[str, Any]]:
+        attachments: list[dict[str, Any]] = []
+        seen_image_keys: set[str] = set()
+        seen_table_keys: set[str] = set()
+        candidates = list(retrieval_results or [])
+
+        if not candidates:
+            retrieved_docs = payload.get("retrieved_docs")
+            if isinstance(retrieved_docs, list):
+                for doc in retrieved_docs:
+                    if not isinstance(doc, dict):
+                        continue
+                    candidates.append(
+                        {
+                            "text": str(doc.get("content", "") or ""),
+                            "metadata": {
+                                "source": str(doc.get("source", "") or ""),
+                                "page": doc.get("page"),
+                            },
+                            "source": str(doc.get("source", "") or ""),
+                            "page": doc.get("page"),
+                            "score": float(doc.get("score", 0.0) or 0.0),
+                        }
+                    )
+
+        wants_image, wants_table, _intent_conf, _intent_reason, visual_focus = self._infer_visual_asset_need(
+            query=query,
+            payload=payload,
+            retrieval_results=candidates,
+        )
+        query_visual_intent = self._is_visual_intent_query(query)
+
+        # 상위 rerank 결과에 asset chunk가 남지 않는 경우를 보완하기 위해,
+        # 이미지/표 질의에서는 sidecar를 첨부용으로 1회 추가 조회한다.
+        if self._asset_sidecar_enabled and (wants_image or wants_table or query_visual_intent):
+            org_hint = ""
+            for item in candidates[:12]:
+                md = item.get("metadata", {}) or {}
+                if not isinstance(md, dict):
+                    md = {}
+                candidate_org = str(md.get("org", "") or "").strip()
+                if candidate_org:
+                    org_hint = candidate_org
+                    break
+            if not org_hint:
+                org_hint = str(self._extract_org_name_from_query(query) or "").strip()
+
+            sidecar_hints = self._collect_asset_source_hints(query, candidates, max_hints=max(10, max_items * 2))
+            sidecar_candidates = self._search_asset_sidecar(
+                query,
+                source_hints=sidecar_hints,
+                org_name=org_hint or None,
+                top_k=max(12, max_items * 4),
+            )
+            if sidecar_candidates:
+                candidates = list(sidecar_candidates) + candidates
+                if not (wants_image or wants_table):
+                    wants_image, wants_table, _intent_conf, _intent_reason, visual_focus = self._infer_visual_asset_need(
+                        query=query,
+                        payload=payload,
+                        retrieval_results=candidates,
+                    )
+
+        if not wants_image and not wants_table:
+            return []
+
+        for item in candidates[: max(16, max_items * 2)]:
+            md = item.get("metadata", {}) or {}
+            if not isinstance(md, dict):
+                md = {}
+            source = str(md.get("source") or item.get("source") or "unknown").strip() or "unknown"
+            page = item.get("page")
+            if page is None:
+                page = self._extract_metadata_page(md)
+            text = str(item.get("text", "") or "")
+
+            image_entries = self._extract_markdown_image_entries(text) if text else []
+            image_caption_map: dict[str, str] = {}
+            for alt_text, img_path in image_entries:
+                key = self._normalize_text_for_match(Path(img_path).name or img_path)
+                if key and key not in image_caption_map and alt_text:
+                    image_caption_map[key] = alt_text
+
+            if wants_image:
+                assets = md.get("assets")
+                if not isinstance(assets, list):
+                    assets = []
+                # metadata 자산 경로를 우선 사용하고, 본문 이미지 링크를 보완으로 추가한다.
+                merged_assets = [str(path or "").strip() for path in assets if str(path or "").strip()]
+                for _alt_text, img_path in image_entries:
+                    if img_path not in merged_assets:
+                        merged_assets.append(img_path)
+
+                for img_path in merged_assets:
+                    resolved_path = self._resolve_attachment_path(img_path)
+                    if not resolved_path:
+                        continue
+                    if not resolved_path.startswith(("http://", "https://")) and not Path(resolved_path).exists():
+                        continue
+                    key = resolved_path.lower()
+                    if key in seen_image_keys:
+                        continue
+                    seen_image_keys.add(key)
+                    caption_key = self._normalize_text_for_match(Path(img_path).name or img_path)
+                    caption = image_caption_map.get(caption_key, "")
+                    attachments.append(
+                        {
+                            "kind": "image",
+                            "path": resolved_path,
+                            "caption": caption,
+                            "source": source,
+                            "page": page,
+                            "_logo_score": self._score_logo_attachment_candidate(
+                                path=resolved_path,
+                                caption=caption,
+                                source=source,
+                            ),
+                        }
+                    )
+
+            if wants_table:
+                table_payloads: list[dict[str, Any]] = []
+                for alt_text, _img_path in image_entries:
+                    parsed = self._extract_table_from_alt_json(alt_text)
+                    if parsed:
+                        table_payloads.append(parsed)
+                table_payloads.extend(self._extract_pipe_tables(text, max_tables=2))
+
+                for table in table_payloads:
+                    headers = table.get("headers", [])
+                    rows = table.get("rows", [])
+                    if not isinstance(headers, list) or not isinstance(rows, list):
+                        continue
+                    if not headers or not rows:
+                        continue
+                    table_key = self._normalize_text_for_match(
+                        "|".join(headers[:8]) + "|" + str(source) + "|" + str(page)
+                    )
+                    if not table_key or table_key in seen_table_keys:
+                        continue
+                    seen_table_keys.add(table_key)
+                    attachments.append(
+                        {
+                            "kind": "table",
+                            "title": str(table.get("title", "") or "").strip(),
+                            "summary": str(table.get("summary", "") or "").strip(),
+                            "headers": [str(cell or "").strip() for cell in headers],
+                            "rows": [
+                                [str(cell or "").strip() for cell in row] for row in rows if isinstance(row, list)
+                            ][:20],
+                            "source": source,
+                            "page": page,
+                        }
+                    )
+
+        if visual_focus == "identity_logo":
+            image_items = [item for item in attachments if item.get("kind") == "image"]
+            non_image_items = [item for item in attachments if item.get("kind") != "image"]
+            ranked_images = sorted(
+                image_items,
+                key=lambda item: float(item.get("_logo_score", 0.0) or 0.0),
+                reverse=True,
+            )
+            image_limit = min(max_items, 2)
+            selected = ranked_images[:image_limit] + non_image_items
+            for item in selected:
+                item.pop("_logo_score", None)
+            return selected[:max_items]
+
+        for item in attachments:
+            item.pop("_logo_score", None)
+        return attachments[:max_items]
+
+    @staticmethod
     def _format_answer_for_readability(answer: str, style: str = "concise") -> str:
         """답변을 읽기 쉬운 자연문장(최종 사용자용)으로 정규화합니다."""
         text = (answer or "").replace("\r\n", "\n").strip()
@@ -6378,7 +7111,7 @@ class RAGChatbotV17:
         keywords = self._extract_query_keywords(query, max_keywords=18)
         q_norm = unicodedata.normalize("NFKC", query.lower())
         focus_terms = self._extract_focus_terms_for_fact(query)
-        is_visual_query = self._is_visual_layout_query(query)
+        is_visual_query = self._is_visual_intent_query(query)
         wants_status_plus_improvement = (
             any(token in q_norm for token in ["현황", "as-is", "asis", "현재", "기존"])
             and any(token in q_norm for token in ["개선", "개선사항", "개선방안", "to-be", "tobe", "고도화"])
@@ -9438,6 +10171,8 @@ class RAGChatbotV17:
             "평면도",
             "표",
             "이미지",
+            "사진",
+            "로고",
             "그림",
             "캡션",
             "세부 치수",
@@ -9481,7 +10216,7 @@ class RAGChatbotV17:
         """질문 유형/타깃 범위에 따라 검색 전략 파라미터를 동적으로 계산합니다."""
         q_norm = unicodedata.normalize("NFKC", (query or "").lower())
         precision_fact_query = self._is_precision_fact_query(query)
-        visual_fact_query = self._is_visual_layout_query(query)
+        visual_fact_query = self._is_visual_intent_query(query)
         guide_reference_query = self._is_guide_reference_query(query)
         resolved_targets = self._resolve_query_target_orgs(query, explicit_orgs=target_orgs or [], min_targets=2)
         comparison_like = (
@@ -9803,15 +10538,20 @@ class RAGChatbotV17:
                 )
 
         missing_precision_anchor = not self._has_precision_anchor_evidence(query, merged, top_n=max(top_k, 14))
+        asset_force = bool(strategy.get("asset_force"))
         should_run_asset_sidecar = (
             bool(strategy.get("asset_sidecar_candidate"))
-            and not early_stopped
             and not doc_types
             and (
-                bool(strategy.get("asset_force"))
-                or missing_precision_anchor
-                or len(merged) < max(4, top_k // 2)
-                or not self._has_source_diversity(merged, min_unique_sources=2, top_n=top_k)
+                asset_force
+                or (
+                    not early_stopped
+                    and (
+                        missing_precision_anchor
+                        or len(merged) < max(4, top_k // 2)
+                        or not self._has_source_diversity(merged, min_unique_sources=2, top_n=top_k)
+                    )
+                )
             )
         )
         if should_run_asset_sidecar:
@@ -10440,7 +11180,7 @@ class RAGChatbotV17:
             if any(marker in t for marker in ["평면도", "도면", "상단 분할", "가운데 문"]):
                 score += 1.0
 
-        if self._is_visual_layout_query(query):
+        if self._is_visual_intent_query(query):
             if any(marker in t for marker in ["표", "그림", "table", "image", "caption", "img"]):
                 score += 1.2
 
