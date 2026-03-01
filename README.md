@@ -103,7 +103,7 @@ python scripts/build_eval_report.py \
 
 
 ## 7) 개인 협업일지
-- 김경태 : 
+- 김경태 : https://www.notion.so/2fd8dd9ffeba80f59e03f68178656069?v=2fd8dd9ffeba80f0b023000ce1ea1652&source=copy_link
 - 김재혁 :
 - 문진우 :
 - 신유철 :
