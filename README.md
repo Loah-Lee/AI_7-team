@@ -104,7 +104,7 @@ python scripts/build_eval_report.py \
 
 ## 7) 개인 협업일지
 - 김경태 : https://www.notion.so/2fd8dd9ffeba80f59e03f68178656069?v=2fd8dd9ffeba80f0b023000ce1ea1652&source=copy_link
-- 김재혁 :
+- 김재혁 : https://band-napkin-cd4.notion.site/2fdea78d0e418055a659ecd37a9ea3ea?v=2fdea78d0e4180299677000c7f758f65&source=copy_link
 - 문진우 :
 - 신유철 :
 - 이소윤 : https://www.notion.so/a6bfe536d3cf832783f0811f0276c5c0
