@@ -141,7 +141,7 @@
     <h1>BiddingMate RAG 평가 리포트</h1>
     <p class="subtitle">LLM-as-Judge 기반 End-to-End 평가 결과</p>
     <div>
-      <span class="badge badge-blue">label: full20_chunk_synced_after_honorific_dedupe_fix_20260301</span>
+      <span class="badge badge-blue">label: full20_chunk_synced_after_module_split_phase2_20260301</span>
       <span class="badge badge-green">20개 질문</span>
       <span class="badge badge-purple">top_k: 5</span>
     </div>
@@ -195,7 +195,7 @@
           <span><strong>검색된 문서:</strong> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">data_list.csv</code> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">수협중앙회_강릉어선안전조업국 상황관제시스템 구축.hwp</code> </span>
         </div>
         <div class="meta-row latency-row">
-          <span><strong>지연시간:</strong> analyze=0.0s | retrieve=0.00s | generate=0.0s</span>
+          <span><strong>지연시간:</strong> analyze=7.0s | retrieve=0.00s | generate=0.0s</span>
         </div>
         <div class="answer-grid">
           <div class="answer-box expected">
@@ -213,28 +213,28 @@
               <span class="j-label">Correctness <span class="j-label-ko">정확성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">생성된 답변이 기대 답변과 정확히 일치하여 올바른 금액을 제시함.</div>
+            <div class="j-reason">답변이 기대 답변과 동일한 금액(210,000,000원, VAT 포함)을 정확히 제시하고 있습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Answer Coverage <span class="j-label-ko">커버리지</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">금액(210,000,000원)과 VAT 포함 여부 등 핵심 정보를 빠짐없이 포함하고 있음.</div>
+            <div class="j-reason">총사업비 금액(210,000,000원)과 부가가치세 포함 여부 등 기대 답변의 핵심 정보를 빠짐없이 포함하고 있습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Faithfulness <span class="j-label-ko">충실성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">답변의 내용이 제공된 검색된 context에 직접 근거하고 있음.</div>
+            <div class="j-reason">검색된 컨텍스트에 동일한 금액이 명시되어 있어 답변 내용이 전적으로 컨텍스트에 근거하고 있습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Context Relevance <span class="j-label-ko">검색관련성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">검색된 context가 질문에 정확히 관련된 사업비 금액 정보를 포함하고 있음.</div>
+            <div class="j-reason">제공된 컨텍스트가 질문에 직접 관련된 총사업비 수치(210,000,000원)를 명확히 포함하고 있습니다.</div>
           </div>
         </div>
       </div>
@@ -267,7 +267,7 @@
           <span><strong>검색된 문서:</strong> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">data_list.csv</code> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">한국수자원공사_건설통합시스템(CMS) 고도화.hwp</code> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">한국수자원공사_용인 첨단 시스템반도체 국가산단 용수공급사업 타당성.hwp</code> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">한국수자원공사_수도사업장 통합 사고분석솔루션 시범구축 용역.hwp</code> </span>
         </div>
         <div class="meta-row latency-row">
-          <span><strong>지연시간:</strong> analyze=0.0s | retrieve=0.00s | generate=0.0s</span>
+          <span><strong>지연시간:</strong> analyze=5.5s | retrieve=0.00s | generate=0.0s</span>
         </div>
         <div class="answer-grid">
           <div class="answer-box expected">
@@ -288,28 +288,28 @@
               <span class="j-label">Correctness <span class="j-label-ko">정확성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">제시된 3개 사업명과 총 사업 수를 정확히 포함하고 있음.</div>
+            <div class="j-reason">생성 답변은 총 3개라는 사실과 세 사업명을 기대답변 및 검색된 context와 정확히 일치하게 제시하고 있습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Answer Coverage <span class="j-label-ko">커버리지</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">기대 답변의 모든 핵심 사업명 세 개를 빠짐없이 포함함.</div>
+            <div class="j-reason">기대 답변의 모든 핵심 포인트(사업 수와 세 사업명)를 빠짐없이 포함하고 있습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Faithfulness <span class="j-label-ko">충실성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">응답의 모든 내용이 제공된 검색 컨텍스트에 직접 근거함.</div>
+            <div class="j-reason">모든 내용이 제공된 검색된 context에서 직접 확인 가능한 정보로 환각이 없습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Context Relevance <span class="j-label-ko">검색관련성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">검색된 컨텍스트가 질문에 완벽히 관련되어 답변에 필요한 정보를 모두 포함함.</div>
+            <div class="j-reason">검색된 context는 질문에 완벽히 관련되어 있으며 답변에 필요한 정보를 충분히 포함하고 있습니다.</div>
           </div>
         </div>
       </div>
@@ -342,7 +342,7 @@
           <span><strong>검색된 문서:</strong> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">data_list.csv</code> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">한국연구재단_2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선.hwp</code> </span>
         </div>
         <div class="meta-row latency-row">
-          <span><strong>지연시간:</strong> analyze=0.0s | retrieve=0.00s | generate=0.0s</span>
+          <span><strong>지연시간:</strong> analyze=5.1s | retrieve=0.00s | generate=0.0s</span>
         </div>
         <div class="answer-grid">
           <div class="answer-box expected">
@@ -360,28 +360,28 @@
               <span class="j-label">Correctness <span class="j-label-ko">정확성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">입찰 시작일과 마감 시간이 기대 답변과 정확히 일치합니다.</div>
+            <div class="j-reason">생성된 답변이 기대 답변의 시작일(2024-10-14 오전 10시)과 마감일(2024-10-16 오후 2시)을 정확히 일치시켰습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Answer Coverage <span class="j-label-ko">커버리지</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">시작일(날짜 및 시간)과 마감일(날짜 및 시간)을 포함해 기대된 모든 핵심 정보를 빠짐없이 제공했습니다.</div>
+            <div class="j-reason">시작일과 마감시간을 포함하여 기대 답변의 모든 핵심 정보를 빠짐없이 제시했습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Faithfulness <span class="j-label-ko">충실성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">답변의 모든 내용이 제공된 검색된 context(start_date, end_date)에 직접적으로 근거하고 있습니다.</div>
+            <div class="j-reason">제시된 날짜와 시간이 검색된 context에 그대로 존재하여 모든 내용이 context에 근거합니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Context Relevance <span class="j-label-ko">검색관련성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">검색된 context가 질문과 완벽히 관련되어 있고 답변에 필요한 정보를 충분히 포함하고 있습니다.</div>
+            <div class="j-reason">검색된 context(start_date 및 end_date)는 질문에 정확히 관련된 입찰 일정 정보를 포함합니다.</div>
           </div>
         </div>
       </div>
@@ -414,7 +414,7 @@
           <span><strong>검색된 문서:</strong> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">data_list.csv</code> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">국가과학기술지식정보서비스_통합정보시스템 고도화 용역.hwp</code> </span>
         </div>
         <div class="meta-row latency-row">
-          <span><strong>지연시간:</strong> analyze=0.0s | retrieve=0.00s | generate=0.0s</span>
+          <span><strong>지연시간:</strong> analyze=6.0s | retrieve=0.00s | generate=0.0s</span>
         </div>
         <div class="answer-grid">
           <div class="answer-box expected">
@@ -435,28 +435,28 @@
               <span class="j-label">Correctness <span class="j-label-ko">정확성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">예산·입찰일정·사업 범위 등 기대 답변의 핵심 정보를 정확히 포함함.</div>
+            <div class="j-reason">생성된 답변은 예산(140,000,000원), 입찰 기간(2024-05-30~2024-06-11) 및 사업 범위의 핵심 항목들을 정확히 기술하고 있습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Answer Coverage <span class="j-label-ko">커버리지</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">예상 사업비, 입찰기간 및 요청된 주요 사업 범위를 누락 없이 모두 포함함.</div>
+            <div class="j-reason">기대 답변에 명시된 예산·일정·기관생명윤리·동물실험윤리·연구비 사용기준 준수·연구계획 관리·전자결재 연동·연구노트 개선 등 모든 핵심 포인트를 포함하고 있습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Faithfulness <span class="j-label-ko">충실성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">모든 진술이 제공된 검색 context에 직접 근거하고 있어 환각이 없음.</div>
+            <div class="j-reason">답변의 모든 내용이 제공된 검색된 컨텍스트에서 직접 확인 가능한 정보로 구성되어 있어 환각이 없습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Context Relevance <span class="j-label-ko">검색관련성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">검색된 context는 입찰일정·예산·사업 범위 등 질문에 필요한 정보를 직접 제공하여 관련성이 매우 높음.</div>
+            <div class="j-reason">검색된 컨텍스트는 질문에 직접 관련된 통합정보시스템 고도화 사업의 예산·일정·범위를 명확히 포함하고 있습니다.</div>
           </div>
         </div>
       </div>
@@ -489,7 +489,7 @@
           <span><strong>검색된 문서:</strong> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">사단법인 보험개발원_실손보험 청구 전산화 시스템 구축 사업</code> </span>
         </div>
         <div class="meta-row latency-row">
-          <span><strong>지연시간:</strong> analyze=6.5s | retrieve=0.00s | generate=0.0s</span>
+          <span><strong>지연시간:</strong> analyze=11.4s | retrieve=0.00s | generate=0.0s</span>
         </div>
         <div class="answer-grid">
           <div class="answer-box expected">
@@ -507,28 +507,28 @@
               <span class="j-label">Correctness <span class="j-label-ko">정확성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">생성 답변은 기대 답변과 정확히 일치하여 CPU 모델, 클럭(2 x 2.90GHz Intel Xeon Gold5415+) 및 코어 수(8Core 이상)를 정확히 제시함.</div>
+            <div class="j-reason">생성답변이 기대 답변과 정확히 일치하여 CPU 모델·클럭·코어 수를 올바르게 제시함.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Answer Coverage <span class="j-label-ko">커버리지</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">요청된 CPU 최소 사양에 대한 핵심 항목을 빠짐없이 포함하고 있어 기대 답변의 모든 정보를 제공함.</div>
+            <div class="j-reason">필요한 핵심 정보(2 x 2.90GHz Intel Xeon Gold5415+, 8Core 이상)를 모두 포함함.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Faithfulness <span class="j-label-ko">충실성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">답변의 모든 내용이 제공된 검색 컨텍스트(납품확인서, 제품설명서)에 직접 명시되어 있어 근거 없는 추론이나 환각이 없음.</div>
+            <div class="j-reason">답변 내용은 제공된 검색 컨텍스트의 HCI-Type-1 항목에 직접 기재된 정보와 일치하여 환각이 없음.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Context Relevance <span class="j-label-ko">검색관련성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">검색된 컨텍스트는 HCI-Type-1의 명세를 그대로 포함하고 있어 질문에 대해 매우 관련성이 높음.</div>
+            <div class="j-reason">검색된 컨텍스트는 HCI-Type-1의 사양을 정확히 담고 있어 질문에 완전히 관련됨.</div>
           </div>
         </div>
       </div>
@@ -542,7 +542,7 @@
         <span class="query-scores">
           <span class="score-pill s1" title="Correctness">C:1</span>
           <span class="score-pill s1" title="Answer Coverage">AC:1</span>
-          <span class="score-pill s4" title="Faithfulness">F:4</span>
+          <span class="score-pill s5" title="Faithfulness">F:5</span>
           <span class="score-pill s5" title="Context Relevance">CR:5</span>
           <span class="hit-badge hit-yes">Hit@1</span>
         </span>
@@ -561,7 +561,7 @@
           <span><strong>검색된 문서:</strong> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">고려대학교_차세대 포털·학사 정보시스템 구축사업</code> </span>
         </div>
         <div class="meta-row latency-row">
-          <span><strong>지연시간:</strong> analyze=0.0s | retrieve=1.33s | generate=0.0s</span>
+          <span><strong>지연시간:</strong> analyze=5.2s | retrieve=1.43s | generate=0.0s</span>
         </div>
         <div class="answer-grid">
           <div class="answer-box expected">
@@ -580,28 +580,28 @@
               <span class="j-label">Correctness <span class="j-label-ko">정확성</span></span>
               <span class="score-pill s1">1/5</span>
             </div>
-            <div class="j-reason">생성 답변은 비용 부담 주체를 &#x27;제안사&#x27;로 명시해 기대 답변의 &#x27;주사업자 부담&#x27;과 반대여서 기대 답변과 의미상 일치하지 않습니다.</div>
+            <div class="j-reason">기대 답변은 비용을 주사업자가 부담해야 한다고 명시했으나 생성 답변은 제안사가 부담한다고 반대되는 내용을 제시하고 있어 의미적으로 일치하지 않습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Answer Coverage <span class="j-label-ko">커버리지</span></span>
               <span class="score-pill s1">1/5</span>
             </div>
-            <div class="j-reason">기대 답변의 &#x27;저작권에 문제가 없어야 한다&#x27;는 조건을 누락했고 비용 부담 주체도 기대 답변과 달라 핵심 정보를 거의 포함하지 않습니다.</div>
+            <div class="j-reason">기대 답변의 &#x27;저작권 문제가 없어야 함&#x27;과 &#x27;주사업자 부담&#x27;을 포함하지 않고 제안사 부담 및 협의 조정만 언급해 핵심 포인트를 빠뜨렸습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Faithfulness <span class="j-label-ko">충실성</span></span>
-              <span class="score-pill s4">4/5</span>
+              <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">답변의 &#x27;제안사가 부담&#x27;이라는 주장은 제공된 컨텍스트의 문구(&#x27;제안사가 부담하되...&#x27;)와 직접 일치하나 &#x27;사업자(제안사/주사업자)&#x27;라는 표현은 컨텍스트에서 직접 확인되지 않아 일부 추론이 포함됩니다.</div>
+            <div class="j-reason">생성 답변의 내용은 검색된 컨텍스트에 있는 &#x27;제안사가 부담하되 사업금액의 일정 비율 이상을 차지하는 변경이 발생하는 경우 협의&#x27;라는 문구와 직접적으로 일치합니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Context Relevance <span class="j-label-ko">검색관련성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">검색된 컨텍스트는 비용 부담 주체 관련 문구(&#x27;제안사가 부담하되...&#x27;)를 포함하고 있어 질문에 매우 관련성이 높습니다.</div>
+            <div class="j-reason">검색된 컨텍스트는 해당 사업의 비용 분담 및 책임 소재에 관한 문구를 포함해 질문과 직접적으로 관련성이 높습니다.</div>
           </div>
         </div>
       </div>
@@ -613,8 +613,8 @@
         <span class="query-q">사업장 사회보험료 지원 고시 개정에 따른 정보시스템 보완 개발사업에서 사업기간은 얼마입니까?</span>
         <span style='font-size:0.75rem;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;flex-shrink:0' title='단일 문서 내 사업기간 추출, 계약체결 기준 추가 명시, 180일 이내를 6개월로 정규화'>💬 단일 문서 내 사업기간 추출, 계약체결 기준 추가 명시, 180일 이내를 6개월로 정규화</span>
         <span class="query-scores">
-          <span class="score-pill s4" title="Correctness">C:4</span>
-          <span class="score-pill s4" title="Answer Coverage">AC:4</span>
+          <span class="score-pill s5" title="Correctness">C:5</span>
+          <span class="score-pill s5" title="Answer Coverage">AC:5</span>
           <span class="score-pill s2" title="Faithfulness">F:2</span>
           <span class="score-pill s4" title="Context Relevance">CR:4</span>
           <span class="hit-badge hit-yes">Hit@1</span>
@@ -634,7 +634,7 @@
           <span><strong>검색된 문서:</strong> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">국민연금공단_사업장 사회보험료 지원 고시 개정에 따른 정보시스템 보</code> </span>
         </div>
         <div class="meta-row latency-row">
-          <span><strong>지연시간:</strong> analyze=0.0s | retrieve=0.23s | generate=0.0s</span>
+          <span><strong>지연시간:</strong> analyze=3.4s | retrieve=0.68s | generate=0.0s</span>
         </div>
         <div class="answer-grid">
           <div class="answer-box expected">
@@ -650,30 +650,30 @@
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Correctness <span class="j-label-ko">정확성</span></span>
-              <span class="score-pill s4">4/5</span>
+              <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">사업기간을 180일로 정확히 제시했으나 &#x27;계약체결일로부터&#x27;라는 기간 기준을 명시하지 않아 전체 문구가 누락되었습니다.</div>
+            <div class="j-reason">생성된 답변은 기대답변인 &#x27;계약체결일로부터 180일(6개월) 이내&#x27;와 일치합니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Answer Coverage <span class="j-label-ko">커버리지</span></span>
-              <span class="score-pill s4">4/5</span>
+              <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">핵심인 180일(6개월)을 제시했으나 &#x27;계약체결일로부터&#x27;라는 기준일 문구와 &#x27;6개월&#x27; 병기 중 하나가 빠졌습니다.</div>
+            <div class="j-reason">사업기간(180일)이 기대 답변의 핵심 정보를 빠짐없이 포함하고 있습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Faithfulness <span class="j-label-ko">충실성</span></span>
               <span class="score-pill s2">2/5</span>
             </div>
-            <div class="j-reason">검색된 context에는 사업기간(180일)에 관한 근거가 없어 답변 내용이 context에서 확인되지 않고 외부 지식에 의존한 것으로 보입니다.</div>
+            <div class="j-reason">제공된 검색 컨텍스트에는 사업기간(180일)에 대한 명시적 근거가 없어 답변이 컨텍스트에 의해 직접 확인되지 않습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Context Relevance <span class="j-label-ko">검색관련성</span></span>
               <span class="score-pill s4">4/5</span>
             </div>
-            <div class="j-reason">제공된 문서는 사업장 사회보험료 지원 고시 개정에 따른 정보시스템 구축 관련으로 질문과 주제가 대체로 일치하지만 사업기간 정보는 포함하고 있지 않습니다.</div>
+            <div class="j-reason">검색된 컨텍스트는 정보시스템 구축 관련으로 질문과 관련은 있으나 사업기간에 대한 구체적 정보는 포함하고 있지 않습니다.</div>
           </div>
         </div>
       </div>
@@ -687,8 +687,8 @@
         <span class="query-scores">
           <span class="score-pill s5" title="Correctness">C:5</span>
           <span class="score-pill s5" title="Answer Coverage">AC:5</span>
-          <span class="score-pill s2" title="Faithfulness">F:2</span>
-          <span class="score-pill s2" title="Context Relevance">CR:2</span>
+          <span class="score-pill s1" title="Faithfulness">F:1</span>
+          <span class="score-pill s3" title="Context Relevance">CR:3</span>
           <span class="hit-badge hit-yes">Hit@1</span>
         </span>
         <span class="query-chevron">▶</span>
@@ -706,7 +706,7 @@
           <span><strong>검색된 문서:</strong> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">국민연금공단_2024년 이러닝시스템 운영 용역</code> </span>
         </div>
         <div class="meta-row latency-row">
-          <span><strong>지연시간:</strong> analyze=0.0s | retrieve=1.50s | generate=0.0s</span>
+          <span><strong>지연시간:</strong> analyze=4.8s | retrieve=0.73s | generate=0.0s</span>
         </div>
         <div class="answer-grid">
           <div class="answer-box expected">
@@ -724,28 +724,28 @@
               <span class="j-label">Correctness <span class="j-label-ko">정확성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">생성된 답변이 기대 답변인 &#x27;11,000명&#x27;과 정확히 일치합니다.</div>
+            <div class="j-reason">답변이 기대 답변과 일치하여 &#x27;11,000명&#x27;을 정확히 제시합니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Answer Coverage <span class="j-label-ko">커버리지</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">질문이 요구한 핵심 정보인 제공 대상 인원수(11,000명)를 빠짐없이 제시했습니다.</div>
+            <div class="j-reason">핵심 정보인 제공 대상 인원 &#x27;11,000명&#x27;을 빠짐없이 제시합니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Faithfulness <span class="j-label-ko">충실성</span></span>
-              <span class="score-pill s2">2/5</span>
+              <span class="score-pill s1">1/5</span>
             </div>
-            <div class="j-reason">제공된 검색 컨텍스트에는 인원수 정보가 없어 답변의 내용이 컨텍스트에서 직접 확인되지 않습니다.</div>
+            <div class="j-reason">제공된 검색 컨텍스트에는 해당 숫자가 포함되어 있지 않아 답변의 근거가 제시되지 않습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Context Relevance <span class="j-label-ko">검색관련성</span></span>
-              <span class="score-pill s2">2/5</span>
+              <span class="score-pill s3">3/5</span>
             </div>
-            <div class="j-reason">검색된 컨텍스트는 동일 문서의 일부로 보이나 &#x27;직무교육&#x27; 인원수와 직접 관련된 정보는 포함하고 있지 않습니다.</div>
+            <div class="j-reason">검색 문서는 이러닝 시스템 제안서로 질문과 관련은 있으나 제시된 발췌문에는 인원수 정보가 없어 핵심 정보는 부족합니다.</div>
           </div>
         </div>
       </div>
@@ -778,7 +778,7 @@
           <span><strong>검색된 문서:</strong> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">을지대학교_을지대학교 비교과시스템 개발</code> </span>
         </div>
         <div class="meta-row latency-row">
-          <span><strong>지연시간:</strong> analyze=0.0s | retrieve=0.26s | generate=0.0s</span>
+          <span><strong>지연시간:</strong> analyze=3.8s | retrieve=1.13s | generate=0.0s</span>
         </div>
         <div class="answer-grid">
           <div class="answer-box expected">
@@ -796,28 +796,28 @@
               <span class="j-label">Correctness <span class="j-label-ko">정확성</span></span>
               <span class="score-pill s1">1/5</span>
             </div>
-            <div class="j-reason">생성 답변은 구체적 제출서류(완료보고서, 납품 및 검사조서)를 전혀 명시하지 않아 기대 답변과 일치하지 않습니다.</div>
+            <div class="j-reason">생성된 답변은 요구된 구체적 제출서류(완료보고서, 납품 및 검사조서)를 제시하지 않고 불완전하다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Answer Coverage <span class="j-label-ko">커버리지</span></span>
               <span class="score-pill s1">1/5</span>
             </div>
-            <div class="j-reason">핵심 정보인 완료보고서·납품 및 검사조서 제출 및 감독관 승인 절차가 누락되어 커버리지가 거의 없습니다.</div>
+            <div class="j-reason">핵심 정보가 전혀 포함되지 않아 기대 답변의 주요 항목들이 누락되었다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Faithfulness <span class="j-label-ko">충실성</span></span>
               <span class="score-pill s2">2/5</span>
             </div>
-            <div class="j-reason">검색된 문서에서 확인 가능한 제출 관련 내용이 있음에도 생성 답변은 문맥에서 확인할 수 있는 구체적 근거를 제시하지 않아 충실성이 낮습니다.</div>
+            <div class="j-reason">제시된 내용이 맥락과 관련성이 낮고 구체적 근거 없이 일반적 문구만 있어 문서 내용에 충실하지 못하다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Context Relevance <span class="j-label-ko">검색관련성</span></span>
               <span class="score-pill s4">4/5</span>
             </div>
-            <div class="j-reason">검색된 컨텍스트는 완료 시 제출물 및 승인 절차에 대한 정보를 포함하고 있어 질문과 대체로 관련성이 높습니다.</div>
+            <div class="j-reason">검색된 문서는 최종 결과물 제출과 승인에 관해 일부 언급하고 있어 질문과 대부분 관련성이 있다.</div>
           </div>
         </div>
       </div>
@@ -850,7 +850,7 @@
           <span><strong>검색된 문서:</strong> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">국가과학기술지식정보서비스_통합정보시스템 고도화 용역</code> </span>
         </div>
         <div class="meta-row latency-row">
-          <span><strong>지연시간:</strong> analyze=10.3s | retrieve=0.00s | generate=0.0s</span>
+          <span><strong>지연시간:</strong> analyze=10.1s | retrieve=0.00s | generate=0.0s</span>
         </div>
         <div class="answer-grid">
           <div class="answer-box expected">
@@ -868,28 +868,28 @@
               <span class="j-label">Correctness <span class="j-label-ko">정확성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">생성 답변이 기대 답변의 핵심인 &#x27;기술능력 평가분야 배점한도의 85% 이상&#x27;을 정확히 제시하고 있다.</div>
+            <div class="j-reason">생성된 답변은 기대 답변과 의미적으로 일치하며 핵심 기준을 정확히 제시하고 있습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Answer Coverage <span class="j-label-ko">커버리지</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">핵심 기준인 &#x27;배점한도의 85% 이상&#x27;을 누락 없이 담고 있어 기대 답변의 모든 핵심 포인트를 포함한다.</div>
+            <div class="j-reason">기대 답변의 핵심인 &#x27;기술능력 평가분야 배점한도의 85% 이상&#x27;을 누락 없이 포함하고 있습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Faithfulness <span class="j-label-ko">충실성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">답변 내용이 검색된 컨텍스트의 문장(기술능력평가점수가 배점한도의 85% 이상인 제안사를 협상적격자로 선정)에 직접 근거하고 있다.</div>
+            <div class="j-reason">답변 내용은 제공된 검색 문서에서 직접 확인 가능한 문구에 근거하고 있습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Context Relevance <span class="j-label-ko">검색관련성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">검색된 문서는 협상적격자 선정 기준을 직접 다루고 있어 질문에 완벽히 관련된다.</div>
+            <div class="j-reason">검색된 문서는 협상적격자 선정 기준을 명시하고 있어 질문에 완벽히 관련되어 있습니다.</div>
           </div>
         </div>
       </div>
@@ -922,7 +922,7 @@
           <span><strong>검색된 문서:</strong> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">BioIN_의료기기산업 종합정보시스템(정보관리기관) 기능개선 사업(2차)</code> </span>
         </div>
         <div class="meta-row latency-row">
-          <span><strong>지연시간:</strong> analyze=0.0s | retrieve=1.10s | generate=0.0s</span>
+          <span><strong>지연시간:</strong> analyze=3.7s | retrieve=1.27s | generate=0.0s</span>
         </div>
         <div class="answer-grid">
           <div class="answer-box expected">
@@ -940,28 +940,28 @@
               <span class="j-label">Correctness <span class="j-label-ko">정확성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">응답이 기대 답변과 의미상 일치하며 웹페이지 용량(3MB 제한)과 예외 조건을 정확히 제시함.</div>
+            <div class="j-reason">웹페이지 용량을 3MB 이내로 개발해야 하고 홍보 등 특성에 따라 3MB를 초과할 수 있다는 핵심 정보를 정확히 포함하고 있습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Answer Coverage <span class="j-label-ko">커버리지</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">기대 답변의 핵심 포인트인 &#x27;3MB 이내&#x27;와 &#x27;홍보 등 특성으로 초과 가능&#x27;을 모두 포함함.</div>
+            <div class="j-reason">요구사항의 주요 조건(3MB 이내)과 예외사항(홍보 등으로 초과 가능)을 빠짐없이 포함하고 있습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Faithfulness <span class="j-label-ko">충실성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">응답 내용은 제공된 문서(PER-002)에 직접 근거하고 있어 환각이 없음.</div>
+            <div class="j-reason">답변의 모든 내용이 제공된 문서의 PER-002 항목에 직접 근거하고 있어 환각이 없습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Context Relevance <span class="j-label-ko">검색관련성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">검색된 컨텍스트는 질문과 정확히 관련된 요구사항(PER-002)을 포함하고 있음.</div>
+            <div class="j-reason">검색된 컨텍스트는 PER-002의 웹사이트 최적화 요구사항을 포함하여 질문에 완전히 관련되어 있습니다.</div>
           </div>
         </div>
       </div>
@@ -994,7 +994,7 @@
           <span><strong>검색된 문서:</strong> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">한국농수산식품유통공사_농산물가격안정기금 정부예산회계연계시스템</code> </span>
         </div>
         <div class="meta-row latency-row">
-          <span><strong>지연시간:</strong> analyze=0.5s | retrieve=0.00s | generate=0.0s</span>
+          <span><strong>지연시간:</strong> analyze=4.5s | retrieve=0.00s | generate=0.0s</span>
         </div>
         <div class="answer-grid">
           <div class="answer-box expected">
@@ -1012,28 +1012,28 @@
               <span class="j-label">Correctness <span class="j-label-ko">정확성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">생성된 답변은 장애 시 데이터 복구 기한을 &#x27;12시간 이내&#x27;로 정확히 명시하여 기대 답변과 일치합니다.</div>
+            <div class="j-reason">답변이 기대 답변과 정확히 일치하여 장애 발생 시 데이터 복구 기한을 12시간 이내로 정확히 제시함.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Answer Coverage <span class="j-label-ko">커버리지</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">기대 답변의 핵심인 &#x27;12시간 이내&#x27; 문구를 포함해 필요한 정보를 빠짐없이 전달했습니다.</div>
+            <div class="j-reason">기대 답변의 핵심 정보인 &#x27;12시간 이내&#x27;를 누락 없이 포함하고 있음.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Faithfulness <span class="j-label-ko">충실성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">답변 내용은 검색된 컨텍스트에 직접 명시된 문구(&#x27;시스템은 장애가 발생하면 12시간 이내에 데이터를 복구해야함&#x27;)에 근거합니다.</div>
+            <div class="j-reason">답변 내용은 검색된 컨텍스트 문장에서 직접 확인 가능한 정보에 근거함.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Context Relevance <span class="j-label-ko">검색관련성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">검색된 컨텍스트에는 시스템 장애 시 복구 기한 조항이 명확히 포함되어 있어 질문과 직접 관련됩니다.</div>
+            <div class="j-reason">검색된 컨텍스트에 장애 발생 시 12시간 이내 복구해야 한다는 문구가 명시되어 있어 질문과 완벽히 관련됨.</div>
           </div>
         </div>
       </div>
@@ -1066,7 +1066,7 @@
           <span><strong>검색된 문서:</strong> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">한국수자원조사기술원_수문자료정보관리시스템(HDIMS) 재구축 용역(3단계.hwp</code> </span>
         </div>
         <div class="meta-row latency-row">
-          <span><strong>지연시간:</strong> analyze=0.0s | retrieve=0.00s | generate=0.0s</span>
+          <span><strong>지연시간:</strong> analyze=4.7s | retrieve=0.00s | generate=0.0s</span>
         </div>
         <div class="answer-grid">
           <div class="answer-box expected">
@@ -1087,28 +1087,28 @@
               <span class="j-label">Correctness <span class="j-label-ko">정확성</span></span>
               <span class="score-pill s3">3/5</span>
             </div>
-            <div class="j-reason">핵심 목표 중 &#x27;표준화된 자료 생산 및 가공 및 수문자료 분석·활용 기능 강화&#x27;만 정확히 언급하고 2번째 목표(이용 불편 개선 및 품질관리 고도화 등)를 누락했음.</div>
+            <div class="j-reason">응답은 &#x27;표준화된 자료 생산 및 가공&#x27;과 &#x27;수문자료 분석 및 활용 기능 강화&#x27;를 정확히 제시했으나, 이용 불편 개선 및 품질관리 고도화와 같은 두 번째 세부 목표는 누락되어 핵심 정보가 일부 빠져 있음.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Answer Coverage <span class="j-label-ko">커버리지</span></span>
               <span class="score-pill s3">3/5</span>
             </div>
-            <div class="j-reason">기대 답변의 두 가지 주요 추진목표 중 첫 번째만 포함되어 있어 핵심 포인트 절반만 커버함.</div>
+            <div class="j-reason">기대 답변의 두 가지 주요 추진목표 중 첫 번째만 포함되어 있어 핵심 포인트의 절반 정도만 커버하고 있음.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Faithfulness <span class="j-label-ko">충실성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">답변 내용은 검색된 context에 직접적으로 기재된 &#x27;표준화된 자료 생산 및 가공, 수문자료 분석 및 활용 기능 강화&#x27;와 일치하므로 충실함.</div>
+            <div class="j-reason">생성된 답변의 내용은 검색된 컨텍스트 문구와 직접 일치하며 추가 추론이나 환각이 없음.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Context Relevance <span class="j-label-ko">검색관련성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">검색된 context는 질문에 완전히 관련된 추진목표 내용을 포함하고 있어 매우 관련성이 높음.</div>
+            <div class="j-reason">검색된 컨텍스트는 질문의 추진목표와 직접적으로 관련된 정보를 제공하여 매우 적절함.</div>
           </div>
         </div>
       </div>
@@ -1123,7 +1123,7 @@
           <span class="score-pill s5" title="Correctness">C:5</span>
           <span class="score-pill s5" title="Answer Coverage">AC:5</span>
           <span class="score-pill s4" title="Faithfulness">F:4</span>
-          <span class="score-pill s5" title="Context Relevance">CR:5</span>
+          <span class="score-pill s4" title="Context Relevance">CR:4</span>
           <span class="hit-badge hit-yes">Hit@1</span>
         </span>
         <span class="query-chevron">▶</span>
@@ -1141,7 +1141,7 @@
           <span><strong>검색된 문서:</strong> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">한국수출입은행_(긴급) 모잠비크 마푸토 지능형교통시스템(ITS) 구축사업</code> </span>
         </div>
         <div class="meta-row latency-row">
-          <span><strong>지연시간:</strong> analyze=4.5s | retrieve=0.86s | generate=0.0s</span>
+          <span><strong>지연시간:</strong> analyze=12.0s | retrieve=1.10s | generate=0.0s</span>
         </div>
         <div class="answer-grid">
           <div class="answer-box expected">
@@ -1159,28 +1159,28 @@
               <span class="j-label">Correctness <span class="j-label-ko">정확성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">생성 답변은 기대 답변의 두 가지 가이드(ADB 및 European Commission)를 정확히 제시하고 있습니다.</div>
+            <div class="j-reason">생성된 답변이 기대 답변의 두 가이드를 정확히 제시하고 있습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Answer Coverage <span class="j-label-ko">커버리지</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">기대 답변의 핵심 가이드 두 가지를 모두 빠짐없이 포함하고 있습니다.</div>
+            <div class="j-reason">기대 답변의 핵심 가이드인 ADB와 European Commission 두 항목을 모두 포함하고 있습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Faithfulness <span class="j-label-ko">충실성</span></span>
               <span class="score-pill s4">4/5</span>
             </div>
-            <div class="j-reason">답변은 컨텍스트에 명시된 ADB 가이드를 반영하나 European Commission 가이드는 검색된 컨텍스트에 나타나지 않아 추가로 포함되었습니다.</div>
+            <div class="j-reason">컨텍스트에 ADB 가이드는 명시되어 있으나 European Commission 가이드는 컨텍스트에서 확인되지 않아 일부 추론이 포함되어 있습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Context Relevance <span class="j-label-ko">검색관련성</span></span>
-              <span class="score-pill s5">5/5</span>
+              <span class="score-pill s4">4/5</span>
             </div>
-            <div class="j-reason">검색된 문서는 경제적 타당성 분석 지침을 직접 언급하고 있어 질문과 매우 관련성이 높습니다.</div>
+            <div class="j-reason">컨텍스트가 ADB 가이드와 관련 세부사항을 포함해 대부분 관련 있으나 기대 답변의 다른 가이드는 컨텍스트에 없어서 완전하진 않습니다.</div>
           </div>
         </div>
       </div>
@@ -1213,7 +1213,7 @@
           <span><strong>검색된 문서:</strong> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">남서울대학교_[혁신-국고] 남서울대학교 스마트 정보시스템 활성화(학사</code> </span>
         </div>
         <div class="meta-row latency-row">
-          <span><strong>지연시간:</strong> analyze=0.2s | retrieve=0.00s | generate=0.0s</span>
+          <span><strong>지연시간:</strong> analyze=4.3s | retrieve=0.00s | generate=0.0s</span>
         </div>
         <div class="answer-grid">
           <div class="answer-box expected">
@@ -1231,28 +1231,28 @@
               <span class="j-label">Correctness <span class="j-label-ko">정확성</span></span>
               <span class="score-pill s4">4/5</span>
             </div>
-            <div class="j-reason">생성 답변은 교육 주기인 &#x27;월 1회&#x27;를 정확히 제시했으나 교육 결과의 발주기관 확인 필요성은 언급하지 않아 일부 정보가 누락됨.</div>
+            <div class="j-reason">주기인 &#x27;월 1회&#x27;는 정확히 답했으나 교육결과를 발주기관이 확인해야 한다는 내용은 언급하지 않아 완전하지 않습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Answer Coverage <span class="j-label-ko">커버리지</span></span>
               <span class="score-pill s4">4/5</span>
             </div>
-            <div class="j-reason">주기(월 1회)는 포함했으나 교육결과를 발주기관이 확인해야 한다는 핵심 항목이 빠져 있어 일부 항목이 누락됨.</div>
+            <div class="j-reason">월 1회 교육이라는 핵심은 포함했으나 교육결과의 발주기관 확인 필요성이라는 중요한 항목이 누락되어 있습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Faithfulness <span class="j-label-ko">충실성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">월 1회 실시라는 내용은 제공된 검색 문서에 직접 명시되어 있어 답변 내용이 문서에 근거하고 있음.</div>
+            <div class="j-reason">월 1회라는 내용은 제공된 검색 문서에 직접 명시되어 있어 답변이 문서에 근거하고 있습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Context Relevance <span class="j-label-ko">검색관련성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">검색된 문서는 참여인원의 정보보안교육 및 교육결과 관련 규정을 포함하고 있어 질문과 직접적으로 관련됨.</div>
+            <div class="j-reason">검색된 문서는 참여인원의 정보보안교육 및 관련 절차를 직접 다루고 있어 질문에 매우 관련성이 높습니다.</div>
           </div>
         </div>
       </div>
@@ -1264,7 +1264,7 @@
         <span class="query-q">세종테크노파크 인사정보 전산시스템 구축 사업에서 관련 소프트웨어 현황 및 개선사항을 정리해줘</span>
         <span style='font-size:0.75rem;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;flex-shrink:0' title='계층 구조 및 내용이 긴 텍스트 추출, 문서 내 거리는 가까우나 비공개 내용(할루시네이션 검증), 계층 구조 유지 여부 함께 추출'>💬 계층 구조 및 내용이 긴 텍스트 추출, 문서 내 거리는 가까우나 비공개 내용(할루시네이션 검증), 계층 구조 유지 여부 함께 추출</span>
         <span class="query-scores">
-          <span class="score-pill s2" title="Correctness">C:2</span>
+          <span class="score-pill s3" title="Correctness">C:3</span>
           <span class="score-pill s2" title="Answer Coverage">AC:2</span>
           <span class="score-pill s5" title="Faithfulness">F:5</span>
           <span class="score-pill s5" title="Context Relevance">CR:5</span>
@@ -1285,7 +1285,7 @@
           <span><strong>검색된 문서:</strong> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">세종테크노파크_세종테크노파크 인사정보 전산시스템 구축 용역 입찰공</code> </span>
         </div>
         <div class="meta-row latency-row">
-          <span><strong>지연시간:</strong> analyze=5.4s | retrieve=0.59s | generate=73.7s</span>
+          <span><strong>지연시간:</strong> analyze=11.2s | retrieve=6.17s | generate=45.9s</span>
         </div>
         <div class="answer-grid">
           <div class="answer-box expected">
@@ -1320,30 +1320,30 @@
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Correctness <span class="j-label-ko">정확성</span></span>
-              <span class="score-pill s2">2/5</span>
+              <span class="score-pill s3">3/5</span>
             </div>
-            <div class="j-reason">생성된 답변은 문서의 세 가지 목표 문구를 정확히 옮겼으나 소프트웨어 현황의 상세 내용과 개선사항 등 기대 답변의 핵심 정보를 대부분 누락하여 정확성이 낮음.</div>
+            <div class="j-reason">생성된 답변은 문서의 세 가지 추진목표를 정확히 인용했으나 기대 답변에 포함된 소프트웨어 현황(버전·운영상태 등) 및 개선사항을 누락했습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Answer Coverage <span class="j-label-ko">커버리지</span></span>
               <span class="score-pill s2">2/5</span>
             </div>
-            <div class="j-reason">기대 답변에 포함된 시스템 구성 비공개 안내, 소프트웨어 버전·유지관리·연계 현황 및 구체적 문제점·개선방안(기능 분산 해소, 데이터 통합, 사용자 편의성, 보안 강화) 등이 빠져 있어 커버리지가 부족함.</div>
+            <div class="j-reason">질문에 대한 핵심 포인트 중 일부(통합 ERP 구축 관련 목표)는 제시했으나 시스템·네트워크 비공개 조치, S/W 세부현황 및 구체적 개선방안 대부분이 빠져 있습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Faithfulness <span class="j-label-ko">충실성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">답변에 포함된 문구는 검색된 컨텍스트에 직접적으로 존재하는 항목을 인용하고 있어 컨텍스트에 충실하며 환각이 없음.</div>
+            <div class="j-reason">제시된 문구는 검색된 컨텍스트에서 직접 확인 가능한 내용만을 반복하여 환각 없이 충실하게 근거에 기반하고 있습니다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Context Relevance <span class="j-label-ko">검색관련성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">검색된 컨텍스트는 인사/급여(ERP) 기반 통합, 데이터 연계 및 모니터링 등 질문에 필요한 정보를 포함하고 있어 매우 관련성이 높음.</div>
+            <div class="j-reason">인사/급여(ERP) 기반 시스템 통합 및 데이터 연계·모니터링 관련 문구를 인용하여 질문 주제와 직접적으로 관련된 정보를 사용했습니다.</div>
           </div>
         </div>
       </div>
@@ -1376,7 +1376,7 @@
           <span><strong>검색된 문서:</strong> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">KOICA 전자조달_[긴급] [지문] [국제] 우즈베키스탄 열린 의정활동 상하원</code> </span>
         </div>
         <div class="meta-row latency-row">
-          <span><strong>지연시간:</strong> analyze=7.9s | retrieve=0.83s | generate=0.0s</span>
+          <span><strong>지연시간:</strong> analyze=16.0s | retrieve=1.23s | generate=0.0s</span>
         </div>
         <div class="answer-grid">
           <div class="answer-box expected">
@@ -1394,28 +1394,28 @@
               <span class="j-label">Correctness <span class="j-label-ko">정확성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">생성 답변이 기대 답변의 모든 핵심 수치(최소 10,000mm: 4,000 / 2,000(문) / 4,000 및 최대 20,000mm: 8,000 / 2,000(문) / 10,000)를 정확히 일치시킵니다.</div>
+            <div class="j-reason">생성된 답변이 기대 답변의 핵심 치수(최소 10,000mm: 4,000/2,000/4,000 및 최대 20,000mm: 8,000/2,000/10,000)를 정확히 제시하고 있음.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Answer Coverage <span class="j-label-ko">커버리지</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">총 가로 길이와 세부 분할 치수(가운데 문의 폭 포함)를 빠짐없이 포함하고 있습니다.</div>
+            <div class="j-reason">총 길이와 세부 분할 치수 및 단위(mm) 등 기대 답변의 모든 핵심 포인트를 빠짐없이 포함하고 있음.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Faithfulness <span class="j-label-ko">충실성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">답변의 모든 수치가 제공된 도면 치수 추출(검색된 context)에서 직접 확인 가능합니다.</div>
+            <div class="j-reason">제시된 수치들이 검색된 도면 및 표기된 치수에서 직접 확인되므로 컨텍스트에 근거하고 있음.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Context Relevance <span class="j-label-ko">검색관련성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">검색된 도면 치수 표와 이미지 추출이 질문에 필요한 정보를 완전히 제공하여 매우 관련성이 높습니다.</div>
+            <div class="j-reason">검색된 도면 치수 표가 질문의 &#x27;가로(가운데 문 포함) 세부 치수&#x27;를 정확히 포함하고 있어 관련성이 완전함.</div>
           </div>
         </div>
       </div>
@@ -1429,7 +1429,7 @@
         <span class="query-scores">
           <span class="score-pill s3" title="Correctness">C:3</span>
           <span class="score-pill s2" title="Answer Coverage">AC:2</span>
-          <span class="score-pill s3" title="Faithfulness">F:3</span>
+          <span class="score-pill s5" title="Faithfulness">F:5</span>
           <span class="score-pill s5" title="Context Relevance">CR:5</span>
           <span class="hit-badge hit-yes">Hit@1</span>
         </span>
@@ -1448,7 +1448,7 @@
           <span><strong>검색된 문서:</strong> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">사단법인아시아물위원회사무국_우즈벡-키르기즈스탄 기후변화대응 스</code> </span>
         </div>
         <div class="meta-row latency-row">
-          <span><strong>지연시간:</strong> analyze=8.4s | retrieve=0.00s | generate=0.0s</span>
+          <span><strong>지연시간:</strong> analyze=15.5s | retrieve=0.00s | generate=0.0s</span>
         </div>
         <div class="answer-grid">
           <div class="answer-box expected">
@@ -1483,28 +1483,28 @@
               <span class="j-label">Correctness <span class="j-label-ko">정확성</span></span>
               <span class="score-pill s3">3/5</span>
             </div>
-            <div class="j-reason">참여율(직접 100%, 감독/사업관리 80%)과 학위별 경력(석사 2년, 박사 5년)을 정확히 제시했으나 PM 지정 요건, 경력 합산의 세부(기능사·산업기사·기술사 등), 증빙서류 항목 및 해외·국내 점수(2점·2점) 등 주요 항목을 누락했음.</div>
+            <div class="j-reason">요약된 내용은 참여율(직접 100%/감독·관리 80%), 석사·박사 경력 합산(석사 2년·박사 5년), 실적 불인정 항목 등을 정확히 포함하였으나 PM 지정 규정, 기술사·기능사 등 자격별 경력 합산 수치, 증빙서류의 상세요건 및 해외·국내 점수의 구체 배점(해외 2점·국내 2점) 등이 누락되어 완전한 정확성을 담보하지 못함.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Answer Coverage <span class="j-label-ko">커버리지</span></span>
               <span class="score-pill s2">2/5</span>
             </div>
-            <div class="j-reason">참여율 및 학위 합산 등 일부 항목만 포함되어 주요 포인트(제안사 소속 PM 지정, joint bidding 규정, 실적 인정 범위의 세부, 증빙서류 목록 및 명시적 해외·국내 점수 배점)가 대부분 빠져 있음.</div>
+            <div class="j-reason">생성답변은 참여율·학위 경력·실적 불인정 등 일부 핵심만 다루고 PM의 지정 방식, 자격증별 경력 합산 규칙, 증빙서류(학위증명서·자격증·경력증명서·4대 보험 등)와 모든 경력증빙 원본 요건, 해외·국내 점수의 구체 수치 등 주요 항목들을 빠뜨려 정보 커버리지가 부족함.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Faithfulness <span class="j-label-ko">충실성</span></span>
-              <span class="score-pill s3">3/5</span>
+              <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">참여율과 학위 연차는 검색된 컨텍스트에 근거하나 연수·평가·연구·타당성조사 불인정 및 점수배점 등 일부 주장은 제공된 컨텍스트에서 명확히 확인되지 않아 일부 비근거적 내용이 포함됨.</div>
+            <div class="j-reason">생성된 진술들은 검색된 컨텍스트에서 직접 확인 가능한 내용에 근거하고 있어 컨텍스트와의 불일치나 환각이 없음.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Context Relevance <span class="j-label-ko">검색관련성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">검색된 컨텍스트는 참여기간의 인정비율과 학위별 경력 합산 규정 등 질문에서 요구한 핵심 규정과 직접적으로 관련된 정보를 포함하고 있어 매우 적절함.</div>
+            <div class="j-reason">검색된 컨텍스트는 참여율, 학위별 경력 합산 등 질문에서 요구한 PM 산정 기준과 관련된 정보를 직접 포함하고 있어 매우 관련성이 높음.</div>
           </div>
         </div>
       </div>
@@ -1537,7 +1537,7 @@
           <span><strong>검색된 문서:</strong> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">축산물품질평가원_축산물이력관리시스템 개선(정보화 사업).hwp</code> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">축산물품질평가원_꿀 품질평가 전산시스템 기능개선 사업.hwp</code> </span>
         </div>
         <div class="meta-row latency-row">
-          <span><strong>지연시간:</strong> analyze=4.7s | retrieve=0.00s | generate=0.0s</span>
+          <span><strong>지연시간:</strong> analyze=12.9s | retrieve=0.00s | generate=0.0s</span>
         </div>
         <div class="answer-grid">
           <div class="answer-box expected">
@@ -1572,28 +1572,28 @@
               <span class="j-label">Correctness <span class="j-label-ko">정확성</span></span>
               <span class="score-pill s4">4/5</span>
             </div>
-            <div class="j-reason">주요 내용은 정확히 기술했으나 꿀 품질평가 사업의 법령 개정일(2023-12-27)과 참여자 의견 반영 등 세부 목적이 빠져 있어 완전하진 않음.</div>
+            <div class="j-reason">두 사업의 핵심 배경과 목적을 전반적으로 정확히 반영하고 있으나 꿀 품질평가 전산시스템 사업의 세부 목적(예: 사용자별 기능 추가 및 운영 안정성 강화 등)이 누락되어 사소한 불완전성이 있음.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Answer Coverage <span class="j-label-ko">커버리지</span></span>
               <span class="score-pill s4">4/5</span>
             </div>
-            <div class="j-reason">핵심 사업과 배경·목적을 포함했지만 이력제 시행 연도(2008, 2014, 2020)와 꿀 사업의 세부 목적(사용자별 기능 개발·운영 안정성 등)이 누락됨.</div>
+            <div class="j-reason">첫 번째 사업의 구성요소와 배경은 포함되었으나 꿀 시스템 개선 사업의 구체적 추진목적과 개정일자 반영 등 몇 가지 세부 항목이 빠져 있음.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Faithfulness <span class="j-label-ko">충실성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">제공된 검색 컨텍스트의 내용을 직접 요약하여 환각 없이 기술함.</div>
+            <div class="j-reason">생성된 답변의 내용은 제공된 검색된 context에 직접 기초하고 있어 환각 없이 충실함.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Context Relevance <span class="j-label-ko">검색관련성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">검색된 컨텍스트는 질문에 직접 관련된 사업 개요와 추진배경을 포함하고 있어 매우 적절함.</div>
+            <div class="j-reason">검색된 context는 질문에 필요한 두 사업의 배경과 목적 정보를 충분히 포함하고 있어 매우 관련성이 높음.</div>
           </div>
         </div>
       </div>
@@ -1626,7 +1626,7 @@
           <span><strong>검색된 문서:</strong> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">한국연구재단_2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선.hwp</code> <code style="font-size:0.76rem;background:rgba(239,68,68,0.08);color:#fca5a5;padding:0.1rem 0.4rem;border-radius:3px">한국연구재단_2024년 기초학문자료센터 시스템 운영 및 연구성과물 DB구.hwp</code> </span>
         </div>
         <div class="meta-row latency-row">
-          <span><strong>지연시간:</strong> analyze=0.0s | retrieve=0.00s | generate=0.0s</span>
+          <span><strong>지연시간:</strong> analyze=4.5s | retrieve=0.00s | generate=0.0s</span>
         </div>
         <div class="answer-grid">
           <div class="answer-box expected">
@@ -1660,28 +1660,28 @@
               <span class="j-label">Correctness <span class="j-label-ko">정확성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">생성 답변은 기대 답변과 동일한 사업(2024년 대학 산학협력활동 실태조사 시스템(UICC) 기능개선)을 정확히 식별하고 기능개선 성격과 더 짧은 사업기간을 근거로 제시했습니다.</div>
+            <div class="j-reason">UICC 기능개선 사업을 정확히 식별하고 &#x27;기능개선&#x27; 성격과 더 짧은 기간(3일 vs 5일)을 근거로 제시하여 핵심 정보가 정확하다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Answer Coverage <span class="j-label-ko">커버리지</span></span>
               <span class="score-pill s4">4/5</span>
             </div>
-            <div class="j-reason">핵심 식별 및 두 가지 근거(단축된 기간·기능개선)를 제시했으나 비교 대상 사업의 구체적 성격(연구성과물 DB 구축 및 e-R&amp;D 연계) 설명은 누락되었습니다.</div>
+            <div class="j-reason">대상 사업과 짧은 기간 및 기능개선 성격을 제시했으나 비교 대상 사업의 구체적 성격(연구성과물 DB 구축·시스템 연계 등)을 명시하지 않아 일부 항목이 누락되었다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Faithfulness <span class="j-label-ko">충실성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">답변의 내용(사업명·‘기능개선’ 성격·기간 비교)은 제공된 검색 context에서 직접 확인 가능합니다.</div>
+            <div class="j-reason">사업명, &#x27;기능개선&#x27; 표기 및 각 사업의 기간(3일·5일) 등 답변 내용이 제공된 검색 문맥에서 직접 확인 가능하다.</div>
           </div>
           <div class="judge-item">
             <div class="j-header">
               <span class="j-label">Context Relevance <span class="j-label-ko">검색관련성</span></span>
               <span class="score-pill s5">5/5</span>
             </div>
-            <div class="j-reason">검색된 context에 평가 대상 두 사업의 제목과 기간 정보가 포함되어 있어 질문에 완벽히 관련됩니다.</div>
+            <div class="j-reason">제공된 두 문서(UICC 기능개선, 기초학문자료센터 운영·DB구축)는 질문의 비교 기준(기간·사업 성격)에 직접 관련된 정보를 포함하고 있다.</div>
           </div>
         </div>
       </div>
@@ -1689,14 +1689,14 @@
   </div>
 
   <div class="footer">
-    BiddingMate RAG Evaluation &mdash; Generated 2026-02-10 &mdash; LLM-as-Judge (gpt-5-mini) &mdash; 소요 시간: 404.7초
+    BiddingMate RAG Evaluation &mdash; Generated 2026-02-10 &mdash; LLM-as-Judge (gpt-5-mini) &mdash; 소요 시간: 458.8초
   </div>
 
 </div>
 
 <script>
-const SUMMARY = {"num_queries": 20, "num_evaluated": 20, "top_k": 5, "avg_correctness": 4.1, "avg_answer_coverage": 4.0, "avg_faithfulness": 4.35, "avg_context_relevance": 4.75, "recall_at_k_source": 1.0, "recall_at_k_chunk": 0.4667, "num_chunk_labeled_queries": 15, "mrr_source": 0.95};
-const PQ = [{"id": "eval_001", "question": "강릉어선안전조업국 상황관제시스템 구축 사업의 총 사업 예산(부가가치세 포함)은 얼마입니까?", "query_type": "csv_match", "memo": "단순 금액 노출", "expected_answer": "사업 금액은 210,000,000원(금 이억일천만원, VAT 포함)입니다.", "generated_answer": "사업비는 `약 2.1억 원 (210,000,000원) (부가가치세 포함)`입니다.", "correctness": {"score": 5, "reason": "생성된 답변이 기대 답변과 정확히 일치하여 올바른 금액을 제시함."}, "answer_coverage": {"score": 5, "reason": "금액(210,000,000원)과 VAT 포함 여부 등 핵심 정보를 빠짐없이 포함하고 있음."}, "faithfulness": {"score": 5, "reason": "답변의 내용이 제공된 검색된 context에 직접 근거하고 있음."}, "context_relevance": {"score": 5, "reason": "검색된 context가 질문에 정확히 관련된 사업비 금액 정보를 포함하고 있음."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": null, "num_retrieved": 1, "csv_short_circuit": true, "source_type": "csv", "ground_truth_sources": ["data_list.csv"], "retrieved_sources": ["data_list.csv", "수협중앙회_강릉어선안전조업국 상황관제시스템 구축.hwp"], "latencies": {"analyze_query": 0.026, "retrieve": 0.0, "extract_evidence": 0.0, "generate": 0.0}}, {"id": "eval_002", "question": "한국수자원공사에서 진행하는 사업은 총 몇 개이며, 각각의 사업명은 무엇입니까?", "query_type": "csv_match", "memo": "단일 기관 기준 다수 사업명 노출", "expected_answer": "총 3개의 사업이 진행 중이며, 사업명은 다음과 같습니다. 1.수도사업장 통합 사고분석솔루션 시범구축 용역, 2.용인 첨단 시스템반도체 국가산단 용수공급사업 타당성조사 및 기본계획 수립 용역, 3.건설통합시스템(CMS) 고도화", "generated_answer": "한국수자원공사에서 진행 중인 사업은 총 3개입니다.\n- 1. 건설통합시스템(CMS) 고도화입니다.\n- 2. 용인 첨단 시스템반도체 국가산단 용수공급사업 타당성조사 및 기본계획 수립 용역입니다.\n- 3. 수도사업장 통합 사고분석솔루션 시범구축 용역입니다.", "correctness": {"score": 5, "reason": "제시된 3개 사업명과 총 사업 수를 정확히 포함하고 있음."}, "answer_coverage": {"score": 5, "reason": "기대 답변의 모든 핵심 사업명 세 개를 빠짐없이 포함함."}, "faithfulness": {"score": 5, "reason": "응답의 모든 내용이 제공된 검색 컨텍스트에 직접 근거함."}, "context_relevance": {"score": 5, "reason": "검색된 컨텍스트가 질문에 완벽히 관련되어 답변에 필요한 정보를 모두 포함함."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": null, "num_retrieved": 3, "csv_short_circuit": true, "source_type": "csv", "ground_truth_sources": ["data_list.csv"], "retrieved_sources": ["data_list.csv", "한국수자원공사_건설통합시스템(CMS) 고도화.hwp", "한국수자원공사_용인 첨단 시스템반도체 국가산단 용수공급사업 타당성.hwp", "한국수자원공사_수도사업장 통합 사고분석솔루션 시범구축 용역.hwp"], "latencies": {"analyze_query": 0.0093, "retrieve": 0.0, "extract_evidence": 0.0, "generate": 0.0}}, {"id": "eval_003", "question": "2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선 사업의 입찰 참여 시작일과 마감 시간은 각각 언제입니까?", "query_type": "csv_match", "memo": "단일 사업 기준 날짜 정보 노출", "expected_answer": "입찰 참여 시작일은 2024년 10월 14일 오전 10시이며, 마감일은 2024년 10월 16일 오후 2시입니다.", "generated_answer": "한국연구재단 입찰 참여 시작일은 `2024-10-14 오전 10시`이고, 마감일은 `2024-10-16 오후 2시`입니다.", "correctness": {"score": 5, "reason": "입찰 시작일과 마감 시간이 기대 답변과 정확히 일치합니다."}, "answer_coverage": {"score": 5, "reason": "시작일(날짜 및 시간)과 마감일(날짜 및 시간)을 포함해 기대된 모든 핵심 정보를 빠짐없이 제공했습니다."}, "faithfulness": {"score": 5, "reason": "답변의 모든 내용이 제공된 검색된 context(start_date, end_date)에 직접적으로 근거하고 있습니다."}, "context_relevance": {"score": 5, "reason": "검색된 context가 질문과 완벽히 관련되어 있고 답변에 필요한 정보를 충분히 포함하고 있습니다."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": null, "num_retrieved": 1, "csv_short_circuit": true, "source_type": "csv", "ground_truth_sources": ["data_list.csv"], "retrieved_sources": ["data_list.csv", "한국연구재단_2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선.hwp"], "latencies": {"analyze_query": 0.012, "retrieve": 0.0, "extract_evidence": 0.0, "generate": 0.0}}, {"id": "eval_004", "question": "국가과학기술지식정보서비스(NTIS)에서 실시하는 통합정보시스템 고도화 용역의 예산, 입찰 일정 및 주요 사업 범위를 요약해 주세요.", "query_type": "csv_match", "memo": "단일 질의를 통한 CSV 내 다중 컬럼(금액, 날짜, 요약) 추출 및 내용 요약 능력 검증", "expected_answer": "본 사업의 추정 사업비는 140,000,000원이며, 입찰 참여는 2024년 5월 30일부터 2024년 6월 11일까지 가능합니다. 사업의 주요 범위는 기관생명윤리 및 동물실험윤리 관리, 국가연구개발사업 연구비 사용기준 준수, 연구계획 관리, 전자결재서식 연동, 그리고 연구노트 관리 기능개선을 포함합니다.", "generated_answer": "국가과학기술지식정보서비스 요약입니다.\n- 예산: `약 1.4억 원 (140,000,000원) (부가가치세 포함)`.\n- 입찰 일정: `2024-05-30` ~ `2024-06-11`.\n- 주요 사업 범위: 사업 개요: 통합정보시스템 고도화 용역 사업기간 5개월 이내 추정가격 140 000 000원 이내 협상에 의한 계약 - 사업추진 방안: 기존 시스템과의 연계를 고려한 신규 시스템 설계 자료 표준화 체계화 사용자 편의성 고려한 UI UX 시스템 구현 기존 시스템 인프라 활용한 운영환경 구성 - 사업 범위: 기관생명윤리 동물실험윤리 국가연구개발사업 연구비 사용기준 준수 연구계획 관리 전자결재서식 연동 기능개선(...", "correctness": {"score": 5, "reason": "예산·입찰일정·사업 범위 등 기대 답변의 핵심 정보를 정확히 포함함."}, "answer_coverage": {"score": 5, "reason": "예상 사업비, 입찰기간 및 요청된 주요 사업 범위를 누락 없이 모두 포함함."}, "faithfulness": {"score": 5, "reason": "모든 진술이 제공된 검색 context에 직접 근거하고 있어 환각이 없음."}, "context_relevance": {"score": 5, "reason": "검색된 context는 입찰일정·예산·사업 범위 등 질문에 필요한 정보를 직접 제공하여 관련성이 매우 높음."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": null, "num_retrieved": 1, "csv_short_circuit": true, "source_type": "csv", "ground_truth_sources": ["data_list.csv"], "retrieved_sources": ["data_list.csv", "국가과학기술지식정보서비스_통합정보시스템 고도화 용역.hwp"], "latencies": {"analyze_query": 0.0162, "retrieve": 0.0, "extract_evidence": 0.0, "generate": 0.0}}, {"id": "eval_005", "question": "사단법인 보험개발원 '실손보험 청구 전산화 시스템 구축 사업' RFP 기준으로 HCI-Type-1 서버의 최소 CPU 사양은 무엇입니까?", "query_type": "single_doc", "memo": "단일 문서 내 특정 요구사항(QUR)의 세부 사양(CPU) 추출, 정규화 소실 발생 유무 등 파악", "expected_answer": "CPU는 2 x 2.90GHz Intel Xeon Gold5415+이며 8Core 이상이어야 합니다.", "generated_answer": "사단법인 보험개발원 CPU 최소 사양은 `2 x 2.90GHz Intel Xeon Gold5415+, 8Core 이상`입니다.", "correctness": {"score": 5, "reason": "생성 답변은 기대 답변과 정확히 일치하여 CPU 모델, 클럭(2 x 2.90GHz Intel Xeon Gold5415+) 및 코어 수(8Core 이상)를 정확히 제시함."}, "answer_coverage": {"score": 5, "reason": "요청된 CPU 최소 사양에 대한 핵심 항목을 빠짐없이 포함하고 있어 기대 답변의 모든 정보를 제공함."}, "faithfulness": {"score": 5, "reason": "답변의 모든 내용이 제공된 검색 컨텍스트(납품확인서, 제품설명서)에 직접 명시되어 있어 근거 없는 추론이나 환각이 없음."}, "context_relevance": {"score": 5, "reason": "검색된 컨텍스트는 HCI-Type-1의 명세를 그대로 포함하고 있어 질문에 대해 매우 관련성이 높음."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 0.0, "num_retrieved": 40, "csv_short_circuit": false, "source_type": "hwp", "ground_truth_sources": ["사단법인 보험개발원_실손보험 청구 전산화 시스템 구축 사업.pdf"], "retrieved_sources": ["사단법인 보험개발원_실손보험 청구 전산화 시스템 구축 사업"], "latencies": {"analyze_query": 6.5226, "retrieve": 0.0, "extract_evidence": 0.0, "generate": 0.0}}, {"id": "eval_006", "question": "고려대학교 차세대 포털·학사 정보시스템 구축사업에서 개발에 사용된 이미지·글꼴 등 인프라의 저작권 비용은 누가 부담해야 합니까?", "query_type": "single_doc", "memo": "pdf 원본 문서의 텍스트 추출 검증", "expected_answer": "저작권에 문제가 없어야 하며, 비용이 발생할 경우 주사업자가 부담해야 합니다.", "generated_answer": "고려대학교 책임 주체는 `사업자(제안사/주사업자)`로 확인됩니다.\n제안사가 부담하되, 사업금액의 일정 비율 이상을 차지하는 변경이 발생하는 경우에는 상호간에 협의에 의해 조정합니다.", "correctness": {"score": 1, "reason": "생성 답변은 비용 부담 주체를 '제안사'로 명시해 기대 답변의 '주사업자 부담'과 반대여서 기대 답변과 의미상 일치하지 않습니다."}, "answer_coverage": {"score": 1, "reason": "기대 답변의 '저작권에 문제가 없어야 한다'는 조건을 누락했고 비용 부담 주체도 기대 답변과 달라 핵심 정보를 거의 포함하지 않습니다."}, "faithfulness": {"score": 4, "reason": "답변의 '제안사가 부담'이라는 주장은 제공된 컨텍스트의 문구('제안사가 부담하되...')와 직접 일치하나 '사업자(제안사/주사업자)'라는 표현은 컨텍스트에서 직접 확인되지 않아 일부 추론이 포함됩니다."}, "context_relevance": {"score": 5, "reason": "검색된 컨텍스트는 비용 부담 주체 관련 문구('제안사가 부담하되...')를 포함하고 있어 질문에 매우 관련성이 높습니다."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 0.0, "num_retrieved": 3, "csv_short_circuit": false, "source_type": "pdf", "ground_truth_sources": ["고려대학교_차세대 포털·학사 정보시스템 구축사업.pdf"], "retrieved_sources": ["고려대학교_차세대 포털·학사 정보시스템 구축사업"], "latencies": {"analyze_query": 0.0082, "retrieve": 1.3284, "extract_evidence": 0.4456, "generate": 0.0}}, {"id": "eval_007", "question": "사업장 사회보험료 지원 고시 개정에 따른 정보시스템 보완 개발사업에서 사업기간은 얼마입니까?", "query_type": "single_doc", "memo": "단일 문서 내 사업기간 추출, 계약체결 기준 추가 명시, 180일 이내를 6개월로 정규화", "expected_answer": "계약체결일로부터 180일 이내 (6개월)입니다.", "generated_answer": "사업기간은 `사업기간은 180일`입니다.", "correctness": {"score": 4, "reason": "사업기간을 180일로 정확히 제시했으나 '계약체결일로부터'라는 기간 기준을 명시하지 않아 전체 문구가 누락되었습니다."}, "answer_coverage": {"score": 4, "reason": "핵심인 180일(6개월)을 제시했으나 '계약체결일로부터'라는 기준일 문구와 '6개월' 병기 중 하나가 빠졌습니다."}, "faithfulness": {"score": 2, "reason": "검색된 context에는 사업기간(180일)에 관한 근거가 없어 답변 내용이 context에서 확인되지 않고 외부 지식에 의존한 것으로 보입니다."}, "context_relevance": {"score": 4, "reason": "제공된 문서는 사업장 사회보험료 지원 고시 개정에 따른 정보시스템 구축 관련으로 질문과 주제가 대체로 일치하지만 사업기간 정보는 포함하고 있지 않습니다."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 0.0, "num_retrieved": 22, "csv_short_circuit": false, "source_type": "hwp", "ground_truth_sources": ["국민연금공단_사업장 사회보험료 지원 고시 개정에 따른 정보시스템 보.pdf"], "retrieved_sources": ["국민연금공단_사업장 사회보험료 지원 고시 개정에 따른 정보시스템 보"], "latencies": {"analyze_query": 0.0085, "retrieve": 0.2281, "extract_evidence": 0.1406, "generate": 0.0}}, {"id": "eval_008", "question": "국민연금공단_2024년 이러닝시스템 운영 용역 세부산출내역서에 따르면 '직무교육'은 몇명에게 제공되는가?", "query_type": "single_doc", "memo": "표 내부 텍스트 유실 검증, 구체적 키워드로 질문 시 매칭되는 숫자 추출 검증", "expected_answer": "11,000명에게 제공됩니다.", "generated_answer": "직무교육 대상 인원은 `11,000명`입니다.", "correctness": {"score": 5, "reason": "생성된 답변이 기대 답변인 '11,000명'과 정확히 일치합니다."}, "answer_coverage": {"score": 5, "reason": "질문이 요구한 핵심 정보인 제공 대상 인원수(11,000명)를 빠짐없이 제시했습니다."}, "faithfulness": {"score": 2, "reason": "제공된 검색 컨텍스트에는 인원수 정보가 없어 답변의 내용이 컨텍스트에서 직접 확인되지 않습니다."}, "context_relevance": {"score": 2, "reason": "검색된 컨텍스트는 동일 문서의 일부로 보이나 '직무교육' 인원수와 직접 관련된 정보는 포함하고 있지 않습니다."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 0.0, "num_retrieved": 22, "csv_short_circuit": false, "source_type": "hwp", "ground_truth_sources": ["국민연금공단_2024년 이러닝시스템 운영 용역.pdf"], "retrieved_sources": ["국민연금공단_2024년 이러닝시스템 운영 용역"], "latencies": {"analyze_query": 0.0122, "retrieve": 1.5003, "extract_evidence": 0.2754, "generate": 0.0}}, {"id": "eval_009", "question": "을지대학교 비교과시스템 개발 사업에서 계약상대자는 사업 완료 후 검사 승인을 받기 위해 어떤 서류를 을지대학교에 제출해야 합니까?", "query_type": "single_doc", "memo": "단일 문서 내 텍스트 검색 검증", "expected_answer": "완료보고서, 납품 및 검사조서를 제출하여 감독관에게 검사 승인을 받아야 한다.", "generated_answer": "을지대학교 주요 제출서류/준수사항은 다음 4개 항목입니다.", "correctness": {"score": 1, "reason": "생성 답변은 구체적 제출서류(완료보고서, 납품 및 검사조서)를 전혀 명시하지 않아 기대 답변과 일치하지 않습니다."}, "answer_coverage": {"score": 1, "reason": "핵심 정보인 완료보고서·납품 및 검사조서 제출 및 감독관 승인 절차가 누락되어 커버리지가 거의 없습니다."}, "faithfulness": {"score": 2, "reason": "검색된 문서에서 확인 가능한 제출 관련 내용이 있음에도 생성 답변은 문맥에서 확인할 수 있는 구체적 근거를 제시하지 않아 충실성이 낮습니다."}, "context_relevance": {"score": 4, "reason": "검색된 컨텍스트는 완료 시 제출물 및 승인 절차에 대한 정보를 포함하고 있어 질문과 대체로 관련성이 높습니다."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 1.0, "num_retrieved": 1, "csv_short_circuit": false, "source_type": "hwp", "ground_truth_sources": ["을지대학교_을지대학교 비교과시스템 개발.pdf"], "retrieved_sources": ["을지대학교_을지대학교 비교과시스템 개발"], "latencies": {"analyze_query": 0.0115, "retrieve": 0.2587, "extract_evidence": 0.2971, "generate": 0.0}}, {"id": "eval_010", "question": "국가과학기술지식정보서비스 통합정보시스템 고도화 용역에서 기술능력 평가점수로 협상적격자를 선정할 때 기준은 무엇인가요?", "query_type": "single_doc", "memo": "단일 문서 내 텍스트 검색 검증", "expected_answer": "기술능력 평가분야 배점한도의 85% 이상인 제안사를 협상적격자로 선정합니다.", "generated_answer": "국가과학기술지식정보서비스 협상적격자 선정 기준은 `기술능력 평가점수 배점한도의 85% 이상`입니다.", "correctness": {"score": 5, "reason": "생성 답변이 기대 답변의 핵심인 '기술능력 평가분야 배점한도의 85% 이상'을 정확히 제시하고 있다."}, "answer_coverage": {"score": 5, "reason": "핵심 기준인 '배점한도의 85% 이상'을 누락 없이 담고 있어 기대 답변의 모든 핵심 포인트를 포함한다."}, "faithfulness": {"score": 5, "reason": "답변 내용이 검색된 컨텍스트의 문장(기술능력평가점수가 배점한도의 85% 이상인 제안사를 협상적격자로 선정)에 직접 근거하고 있다."}, "context_relevance": {"score": 5, "reason": "검색된 문서는 협상적격자 선정 기준을 직접 다루고 있어 질문에 완벽히 관련된다."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 1.0, "num_retrieved": 40, "csv_short_circuit": false, "source_type": "hwp", "ground_truth_sources": ["국가과학기술지식정보서비스_통합정보시스템 고도화 용역.pdf"], "retrieved_sources": ["국가과학기술지식정보서비스_통합정보시스템 고도화 용역"], "latencies": {"analyze_query": 10.3089, "retrieve": 0.0, "extract_evidence": 0.0, "generate": 0.0}}, {"id": "eval_011", "question": "BioIN_의료기기산업 종합정보시스템(정보관리기관) 기능개선 사업(2차)에서 웹페이지의 용량은 얼마 이내로 개발해야 하나요?", "query_type": "single_doc", "memo": "단일 문서, 표 내부의 요구사항 텍스트 추출 검증", "expected_answer": "웹페이지의 용량은 3MB 이내로 개발해야 하며 단, 홍보 등 특성에 따라 3MB를 초과할 수 있습니다.", "generated_answer": "문서 기준 용량은 `3MB` 이내이며, 단 홍보등특성에따라3MB 를초과할 수 있습니다.", "correctness": {"score": 5, "reason": "응답이 기대 답변과 의미상 일치하며 웹페이지 용량(3MB 제한)과 예외 조건을 정확히 제시함."}, "answer_coverage": {"score": 5, "reason": "기대 답변의 핵심 포인트인 '3MB 이내'와 '홍보 등 특성으로 초과 가능'을 모두 포함함."}, "faithfulness": {"score": 5, "reason": "응답 내용은 제공된 문서(PER-002)에 직접 근거하고 있어 환각이 없음."}, "context_relevance": {"score": 5, "reason": "검색된 컨텍스트는 질문과 정확히 관련된 요구사항(PER-002)을 포함하고 있음."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 1.0, "num_retrieved": 3, "csv_short_circuit": false, "source_type": "hwp", "ground_truth_sources": ["BioIN_의료기기산업 종합정보시스템(정보관리기관) 기능개선 사업(2차).pdf"], "retrieved_sources": ["BioIN_의료기기산업 종합정보시스템(정보관리기관) 기능개선 사업(2차)"], "latencies": {"analyze_query": 0.0094, "retrieve": 1.1023, "extract_evidence": 0.4245, "generate": 0.0}}, {"id": "eval_012", "question": "한국농수산식품유통공사 농산물가격안정기금 정부예산회계연계시스템에서 시스템 장애 발생 시 데이터 복구 기한은 무엇인가요?", "query_type": "single_doc", "memo": "단일 문서 내 텍스트 검색 검증, 조건 재약 및 숫자 추출", "expected_answer": "시스템은 장애가 발생하면 12시간 이내에 데이터를 복구해야 합니다.", "generated_answer": "기한은 `기한은 12시간이내`입니다.", "correctness": {"score": 5, "reason": "생성된 답변은 장애 시 데이터 복구 기한을 '12시간 이내'로 정확히 명시하여 기대 답변과 일치합니다."}, "answer_coverage": {"score": 5, "reason": "기대 답변의 핵심인 '12시간 이내' 문구를 포함해 필요한 정보를 빠짐없이 전달했습니다."}, "faithfulness": {"score": 5, "reason": "답변 내용은 검색된 컨텍스트에 직접 명시된 문구('시스템은 장애가 발생하면 12시간 이내에 데이터를 복구해야함')에 근거합니다."}, "context_relevance": {"score": 5, "reason": "검색된 컨텍스트에는 시스템 장애 시 복구 기한 조항이 명확히 포함되어 있어 질문과 직접 관련됩니다."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 1.0, "num_retrieved": 40, "csv_short_circuit": false, "source_type": "hwp", "ground_truth_sources": ["한국농수산식품유통공사_농산물가격안정기금 정부예산회계연계시스템 .pdf"], "retrieved_sources": ["한국농수산식품유통공사_농산물가격안정기금 정부예산회계연계시스템"], "latencies": {"analyze_query": 0.5125, "retrieve": 0.0, "extract_evidence": 0.0, "generate": 0.0}}, {"id": "eval_013", "question": "수문자료정보관리시스템(HDIMS) 재구축사업(3단계)의 추진 목표는 무엇입니까?", "query_type": "single_doc", "memo": "단일 문서 내 추진목표 계층 구조 및 다항목 추출 검증", "expected_answer": "수문자료정보관리시스템(HDIMS) 재구축사업(3단계)의 추진 목표는 다음과 같습니다.\n1) 데이터구조 재설계를 통해 표준화된 자료 생산·가공·유통 체계를 구축하고, 기술원 내 수문자료 분석 및 활용 기능을 강화한다.\n2) 1단계 전자야장시스템 신설 및 2단계 수문자료정보관리시스템 재구축에 따른 이용 불편 사항을 개선하고, 수자원조사 자료의 품질관리 기능을 고도화한다. \n   이를 위해 현장 조사 업무에 대한 일원화된 자료 연계를 통해 원시자료, DB, 분석 전반에 대한 체계적 품질관리와 사용자·관리자 기능을 강화한다.\n", "generated_answer": "한국수자원조사기술원 추진목표: `표준화된 자료 생산 및 가공, 수문자료 분석 및 활용 기능 강화`.", "correctness": {"score": 3, "reason": "핵심 목표 중 '표준화된 자료 생산 및 가공 및 수문자료 분석·활용 기능 강화'만 정확히 언급하고 2번째 목표(이용 불편 개선 및 품질관리 고도화 등)를 누락했음."}, "answer_coverage": {"score": 3, "reason": "기대 답변의 두 가지 주요 추진목표 중 첫 번째만 포함되어 있어 핵심 포인트 절반만 커버함."}, "faithfulness": {"score": 5, "reason": "답변 내용은 검색된 context에 직접적으로 기재된 '표준화된 자료 생산 및 가공, 수문자료 분석 및 활용 기능 강화'와 일치하므로 충실함."}, "context_relevance": {"score": 5, "reason": "검색된 context는 질문에 완전히 관련된 추진목표 내용을 포함하고 있어 매우 관련성이 높음."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 0.0, "num_retrieved": 1, "csv_short_circuit": true, "source_type": "csv", "ground_truth_sources": ["한국수자원조사기술원_수문자료정보관리시스템(HDIMS) 재구축 용역(3단계.pdf"], "retrieved_sources": ["한국수자원조사기술원_수문자료정보관리시스템(HDIMS) 재구축 용역(3단계.hwp"], "latencies": {"analyze_query": 0.0155, "retrieve": 0.0, "extract_evidence": 0.0, "generate": 0.0}}, {"id": "eval_014", "question": "한국수출입은행의 모잠비크 마푸토 지능형교통시스템(ITS) 구축사업 RFP 텍스트에 따르면 경제적 타당성 분석 시 참고해야 할 가이드는 무엇인가?", "query_type": "single_doc", "memo": "영어 텍스트 추출 검증", "expected_answer": "Guidelines for the Economic Analysis of Projects(ADB) 및 Guide to Cost-Benefit Analysis of Investment Project(European Commission).", "generated_answer": "한국수출입은행 참고 가이드는 `Guidelines for the Economic Analysis of Projects (ADB) 및 Guide to Cost-Benefit Analysis of Investment Project (European Commission)`입니다.", "correctness": {"score": 5, "reason": "생성 답변은 기대 답변의 두 가지 가이드(ADB 및 European Commission)를 정확히 제시하고 있습니다."}, "answer_coverage": {"score": 5, "reason": "기대 답변의 핵심 가이드 두 가지를 모두 빠짐없이 포함하고 있습니다."}, "faithfulness": {"score": 4, "reason": "답변은 컨텍스트에 명시된 ADB 가이드를 반영하나 European Commission 가이드는 검색된 컨텍스트에 나타나지 않아 추가로 포함되었습니다."}, "context_relevance": {"score": 5, "reason": "검색된 문서는 경제적 타당성 분석 지침을 직접 언급하고 있어 질문과 매우 관련성이 높습니다."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 1.0, "num_retrieved": 5, "csv_short_circuit": false, "source_type": "hwp", "ground_truth_sources": ["한국수출입은행_(긴급) 모잠비크 마푸토 지능형교통시스템(ITS) 구축사업.pdf"], "retrieved_sources": ["한국수출입은행_(긴급) 모잠비크 마푸토 지능형교통시스템(ITS) 구축사업"], "latencies": {"analyze_query": 4.507, "retrieve": 0.8598, "extract_evidence": 0.0464, "generate": 0.0}}, {"id": "eval_015", "question": "남서울대학교 스마트 정보시스템 활성화(학사) 사업 수행 시 참여인원에 대한 정보보안교육은 얼마나 자주 실시해야 합니까?", "query_type": "single_doc", "memo": "표 내부에 유사 오답이 존재함, 단순 텍스트 변환으로 계층구조 없을 시 착각할 수 있음", "expected_answer": "참여인원에 대해 월 1회 정보보안교육을 수행하고, 교육결과는 발주기관의 확인을 받아야 합니다.", "generated_answer": "정보보안교육 실시 주기는 `월1회`입니다.", "correctness": {"score": 4, "reason": "생성 답변은 교육 주기인 '월 1회'를 정확히 제시했으나 교육 결과의 발주기관 확인 필요성은 언급하지 않아 일부 정보가 누락됨."}, "answer_coverage": {"score": 4, "reason": "주기(월 1회)는 포함했으나 교육결과를 발주기관이 확인해야 한다는 핵심 항목이 빠져 있어 일부 항목이 누락됨."}, "faithfulness": {"score": 5, "reason": "월 1회 실시라는 내용은 제공된 검색 문서에 직접 명시되어 있어 답변 내용이 문서에 근거하고 있음."}, "context_relevance": {"score": 5, "reason": "검색된 문서는 참여인원의 정보보안교육 및 교육결과 관련 규정을 포함하고 있어 질문과 직접적으로 관련됨."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 1.0, "num_retrieved": 40, "csv_short_circuit": false, "source_type": "hwp", "ground_truth_sources": ["남서울대학교_[혁신-국고] 남서울대학교 스마트 정보시스템 활성화(학사.pdf"], "retrieved_sources": ["남서울대학교_[혁신-국고] 남서울대학교 스마트 정보시스템 활성화(학사"], "latencies": {"analyze_query": 0.1991, "retrieve": 0.0, "extract_evidence": 0.0, "generate": 0.0}}, {"id": "eval_016", "question": "세종테크노파크 인사정보 전산시스템 구축 사업에서 관련 소프트웨어 현황 및 개선사항을 정리해줘", "query_type": "single_doc", "memo": "계층 구조 및 내용이 긴 텍스트 추출, 문서 내 거리는 가까우나 비공개 내용(할루시네이션 검증), 계층 구조 유지 여부 함께 추출", "expected_answer": "세종테크노파크 인사정보 전산시스템 구축 사업의 관련 소프트웨어 현황 및 개선사항은 다음과 같다.\n\n1. 정보시스템 현황\n가. 시스템 및 네트워크 구성 현황\n- 행정기관 및 공공기관 정보시스템 구축·운영 지침(행정안전부 고시 제2019-69호) 제17조에 따라 상세 전산자원 구성은 보안상 비공개이다.\n- 입찰참가 업체가 필요할 경우 발주기관을 방문하여 보안각서를 제출한 후 열람 가능하다.\n\n나. 관련 소프트웨어(S/W) 현황\n- 기존 인사정보 전산시스템에서 사용 중인 주요 소프트웨어 구성과 운영 환경을 기준으로 현황을 제시하고 있다.\n- 인사관리, 급여관리, 근태관리 등 인사행정 관련 기능을 지원하는 시스템 구조로 구성되어 있다.\n- 운영 중인 소프트웨어의 버전, 유지관리 상태 및 시스템 연계 현황이 포함된다.\n\n2. 문제점 및 개선방안\n- 기존 시스템의 기능 분산 및 관리 비효율 문제를 개선할 필요가 있다.\n- 데이터 연계 및 통합 관리 체계 고도화가 요구된다.\n- 사용자 편의성 및 업무 효율성 향상을 위한 시스템 개선이 필요하다.\n- 보안 및 접근통제 체계를 강화하고 안정적인 운영 환경을 구축해야 한다.\n", "generated_answer": "세종테크노파크 문서에서 질문 관련 조항을 확인했습니다.\n- 나. 분산된인사업무처리시스템을인사/급여(ERP)으로통합구축하여입니다.\n- 다. 연계기관및재단내부정보시스템과데이터연계및모니터링이가능하도록입니다.\n- 가. 인사/급여(ERP) 프로그램기반인사정보시스템구축입니다.", "correctness": {"score": 2, "reason": "생성된 답변은 문서의 세 가지 목표 문구를 정확히 옮겼으나 소프트웨어 현황의 상세 내용과 개선사항 등 기대 답변의 핵심 정보를 대부분 누락하여 정확성이 낮음."}, "answer_coverage": {"score": 2, "reason": "기대 답변에 포함된 시스템 구성 비공개 안내, 소프트웨어 버전·유지관리·연계 현황 및 구체적 문제점·개선방안(기능 분산 해소, 데이터 통합, 사용자 편의성, 보안 강화) 등이 빠져 있어 커버리지가 부족함."}, "faithfulness": {"score": 5, "reason": "답변에 포함된 문구는 검색된 컨텍스트에 직접적으로 존재하는 항목을 인용하고 있어 컨텍스트에 충실하며 환각이 없음."}, "context_relevance": {"score": 5, "reason": "검색된 컨텍스트는 인사/급여(ERP) 기반 통합, 데이터 연계 및 모니터링 등 질문에 필요한 정보를 포함하고 있어 매우 관련성이 높음."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 0.0, "num_retrieved": 1, "csv_short_circuit": false, "source_type": "hwp", "ground_truth_sources": ["세종테크노파크_세종테크노파크 인사정보 전산시스템 구축 용역 입찰공.pdf"], "retrieved_sources": ["세종테크노파크_세종테크노파크 인사정보 전산시스템 구축 용역 입찰공"], "latencies": {"analyze_query": 5.3922, "retrieve": 0.5882, "extract_evidence": 0.088, "generate": 73.6568}}, {"id": "eval_017", "question": "우즈베키스탄 열린 의정활동 상하원 사업의 '지역의회 회의실' 도면 예시에서  최소규격과 최대규격의 가로(가운데 문 포함) 세부 치수는 각각 어떻게 됩니까?", "query_type": "single_doc", "memo": "도면 이미지 내 최소/최대 규격별 가로 세부 치수 확인, 국내외 설계 도면의 기본 단위(mm) 및 도면의 문 위치 파악 능력 검증", "expected_answer": "최소규격의 가로 총 길이는 10,000mm이며, 세부 분할 치수는 4,000 / 2,000(문) / 4,000입니다.  최대규격의 가로 총 길이는 20,000mm이며, 세부 분할 치수는 8,000 / 2,000(문) / 10,000입니다.  (단위: mm)", "generated_answer": "KOICA 전자조달 지역의회 회의실 도면 가로 치수는 `최소규격 10,000mm (4,000mm / 2,000mm(가운데 문) / 4,000mm), 최대규격 20,000mm (8,000mm / 2,000mm(가운데 문) / 10,000mm)`입니다.", "correctness": {"score": 5, "reason": "생성 답변이 기대 답변의 모든 핵심 수치(최소 10,000mm: 4,000 / 2,000(문) / 4,000 및 최대 20,000mm: 8,000 / 2,000(문) / 10,000)를 정확히 일치시킵니다."}, "answer_coverage": {"score": 5, "reason": "총 가로 길이와 세부 분할 치수(가운데 문의 폭 포함)를 빠짐없이 포함하고 있습니다."}, "faithfulness": {"score": 5, "reason": "답변의 모든 수치가 제공된 도면 치수 추출(검색된 context)에서 직접 확인 가능합니다."}, "context_relevance": {"score": 5, "reason": "검색된 도면 치수 표와 이미지 추출이 질문에 필요한 정보를 완전히 제공하여 매우 관련성이 높습니다."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": null, "num_retrieved": 5, "csv_short_circuit": false, "source_type": "hwp", "ground_truth_sources": ["KOICA 전자조달_[긴급] [지문] [국제] 우즈베키스탄 열린 의정활동 상하원 .pdf"], "retrieved_sources": ["KOICA 전자조달_[긴급] [지문] [국제] 우즈베키스탄 열린 의정활동 상하원"], "latencies": {"analyze_query": 7.9494, "retrieve": 0.831, "extract_evidence": 0.1743, "generate": 0.0}}, {"id": "eval_018", "question": "사단법인 아시아물위원회 사무국의 ‘우즈벡-키르기즈스탄 기후변화대응 사업’ 제안요청서에 따르면 사업책임자(PM)의 유사사업 수행실적 및 투입인력 자격 산정 기준은 어떻게 적용되나요? 특히 참여율 적용 방식, 경력 합산 규칙, 실적 인정 범위, 증빙요건, 해외·국내 점수 배점 구조를 포함하여 설명하세요.", "query_type": "single_doc", "memo": "단순 키워드 추출이 아니라 규칙 체계 이해 능력 검증, 100% / 80% 참여율 구분 → 모델이 숫자 조건을 정확히 읽는지 확인, 위·자격 경력 합산 규칙 → 수치 기반 정확성 검증", "expected_answer": "본 사업의 사업책임자(PM)는 제안사 소속 1명(공동도급 시 대표사 소속)으로 지정해야 한다.\n\n1. 유사사업 수행실적 인정 기준\n- 기한 제한은 없으며, 수자원개발 관련 사업에 PM 또는 관리·감독으로 직접 참여한 수행기간을 인정한다.\n- 단, 연수사업, 평가용역, 연구용역, 타당성조사는 실적으로 인정되지 않는다.\n- 참여 유형에 따라 참여율을 차등 적용한다:\n  1. 사업수행기관 소속으로 직접 참여한 경우 참여기간의 100% 인정\n  2. 감독 또는 사업관리자로 참여한 경우 참여기간의 80% 인정\n- 점수 배점은 해외 수행기간 2점, 국내 수행기간 2점으로 구분한다.\n\n2. 투입인력 자격 및 경력 합산 규칙\n- 석사 학위는 2년, 박사 학위는 5년을 경력으로 합산한다.\n- 관련 기능사·산업기사·기사는 2년, 관련 기술사는 5년을 경력으로 합산한다.\n- 실적인정 범위는 참여 분야 종사기간, 학위, 자격 등을 증빙자료로 입증해야 한다.\n\n3. 증빙요건\n- 관련 분야 학위증명서, 자격증, 경력증명서, 연금납부서 또는 의료보험가입확인서(4대 사회보험 사업장 가입자 명부)를 첨부해야 하며, 미첨부 시 인정되지 않는다.\n- 모든 경력증빙 자료는 날짜 또는 기간이 명시된 원본 또는 원문대조필 문서여야 한다.\n", "generated_answer": "사단법인아시아물위원회사무국 PM 산정 기준은 `참여율은 직접 참여 100%, 감독/사업관리 80%로 적용; 학위 경력은 석사 2년, 박사 5년 합산; 연수·평가·연구·타당성조사 성격 사업은 실적으로 불인정; 해외·국내 수행실적을 구분해 배점`입니다.", "correctness": {"score": 3, "reason": "참여율(직접 100%, 감독/사업관리 80%)과 학위별 경력(석사 2년, 박사 5년)을 정확히 제시했으나 PM 지정 요건, 경력 합산의 세부(기능사·산업기사·기술사 등), 증빙서류 항목 및 해외·국내 점수(2점·2점) 등 주요 항목을 누락했음."}, "answer_coverage": {"score": 2, "reason": "참여율 및 학위 합산 등 일부 항목만 포함되어 주요 포인트(제안사 소속 PM 지정, joint bidding 규정, 실적 인정 범위의 세부, 증빙서류 목록 및 명시적 해외·국내 점수 배점)가 대부분 빠져 있음."}, "faithfulness": {"score": 3, "reason": "참여율과 학위 연차는 검색된 컨텍스트에 근거하나 연수·평가·연구·타당성조사 불인정 및 점수배점 등 일부 주장은 제공된 컨텍스트에서 명확히 확인되지 않아 일부 비근거적 내용이 포함됨."}, "context_relevance": {"score": 5, "reason": "검색된 컨텍스트는 참여기간의 인정비율과 학위별 경력 합산 규정 등 질문에서 요구한 핵심 규정과 직접적으로 관련된 정보를 포함하고 있어 매우 적절함."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 1.0, "num_retrieved": 40, "csv_short_circuit": false, "source_type": "hwp", "ground_truth_sources": ["사단법인아시아물위원회사무국_우즈벡-키르기즈스탄 기후변화대응 스.pdf"], "retrieved_sources": ["사단법인아시아물위원회사무국_우즈벡-키르기즈스탄 기후변화대응 스"], "latencies": {"analyze_query": 8.4441, "retrieve": 0.0, "extract_evidence": 0.0, "generate": 0.0}}, {"id": "eval_019", "question": "축산물품질평가원에서 주관하는 사업들과 각 사업의 추진 배경과 목적을 알려줘", "query_type": "multi_doc", "memo": "기관명 기준 여러 문서의 정보를 종합해야 하는 질문, 한쪽에는 추진배경 및 목적, 다른 쪽에는 추진배경 및 필요성으로 다르게 적혀있는 맥락 파악도 필요", "expected_answer": "축산물품질평가원에서 주관하는 주요 사업과 각 사업의 추진 배경 및 목적은 다음과 같다.\n\n1. 축산물이력관리시스템 개선(정보화 사업)\n- 추진 배경:\n  쇠고기 이력제(2008년), 돼지(2014년), 닭·오리·계란(2020년) 이력제가 단계적으로 시행되면서 제도 운영을 지원하기 위한 전산시스템이 구축·운영되어 왔다.\n  해당 전산시스템에는 이력제 누리집, 이력관리시스템(PC), 이력번호 조회 앱, 이력제 모바일 웹 등이 포함된다.\n- 추진 목적:\n  누리집 및 시스템의 사용자 편의성 향상을 위해 디자인, 메뉴, 기능 개선 등 전산시스템 고도화를 추진한다.\n\n2. 꿀 품질평가 전산시스템 기능개선 사업\n- 추진 배경 및 필요성:\n  2023년 12월 27일 관련 법령 및 시행 지침 개정에 따른 변경사항을 시스템에 반영할 필요가 있으며,\n  제도 참여자의 개선 의견을 수렴하여 업무 효율성과 사용자 편의성을 제고할 필요가 있다.\n- 추진 목적:\n  기존 구축 시스템에 사용자별 추가 기능을 개발하거나 개선하고,\n  전산시스템의 기능 보완을 통해 업무 효율성과 운영 안정성을 향상시키는 것을 목표로 한다.\n", "generated_answer": "축산물품질평가원 주요 사업의 추진 배경/목적 요약입니다.\n- 1. 축산물이력관리시스템 개선(정보화 사업): 사업개요: 축산물이력관리시스템 개선을 통해 이력제 누리집, 이력관리시스템, 이력번호 조회 앱, 이력제 모바일 웹을 개선하고 사용자 편의성을 향상시킴 / 추진배경: 쇠고기, 돼지, 닭-오리-계란 이력제의 시행으로 전산시스템이 개발되어 제도 운영에 활용되고 있으며, 이를 개선하여 사용자 편의성을 높이고자 합니다.\n- 2. 꿀 품질평가 전산시스템 기능개선 사업: 사업개요: 꿀 품질평가 전산시스템 기능개선 사업 / 추진배경: 법령 개정 및 업무 효율화 필요입니다.", "correctness": {"score": 4, "reason": "주요 내용은 정확히 기술했으나 꿀 품질평가 사업의 법령 개정일(2023-12-27)과 참여자 의견 반영 등 세부 목적이 빠져 있어 완전하진 않음."}, "answer_coverage": {"score": 4, "reason": "핵심 사업과 배경·목적을 포함했지만 이력제 시행 연도(2008, 2014, 2020)와 꿀 사업의 세부 목적(사용자별 기능 개발·운영 안정성 등)이 누락됨."}, "faithfulness": {"score": 5, "reason": "제공된 검색 컨텍스트의 내용을 직접 요약하여 환각 없이 기술함."}, "context_relevance": {"score": 5, "reason": "검색된 컨텍스트는 질문에 직접 관련된 사업 개요와 추진배경을 포함하고 있어 매우 적절함."}, "hit_position": 2, "recall_at_k": 1.0, "recall_at_k_chunk": 0.0, "num_retrieved": 2, "csv_short_circuit": true, "source_type": "csv", "ground_truth_sources": ["축산물품질평가원_축산물이력관리시스템 개선(정보화 사업).pdf", "축산물품질평가원_꿀 품질평가 전산시스템 기능개선 사업.pdf"], "retrieved_sources": ["축산물품질평가원_축산물이력관리시스템 개선(정보화 사업).hwp", "축산물품질평가원_꿀 품질평가 전산시스템 기능개선 사업.hwp"], "latencies": {"analyze_query": 4.7248, "retrieve": 0.0, "extract_evidence": 0.0, "generate": 0.0}}, {"id": "eval_020", "question": "한국연구재단이 추진하는 사업 중, 사업기간이 상대적으로 짧고 신규 구축이 아닌 기존 시스템 기능개선을 목적으로 하는 사업을 식별하고 그 근거를 설명하시오.", "query_type": "multi_doc", "memo": "조건 기반 선택형, 질문자의 상황에 더 적합한 사업을 추천해주고 관련 내용을 표기해야함.", "expected_answer": "조건에 부합하는 사업은 '2024년 대학 산학협력활동 실태조사 시스템(UICC) 기능개선 사업'입니다.\n\n1) 사업기간 비교\n- UICC 기능개선 사업: 계약일로부터 210일\n- 기초학문자료센터 시스템 운영 및 연구성과물 DB구축 사업: 계약일로부터 365일\n→ UICC 기능개선 사업의 사업기간이 더 짧다.\n\n2) 사업 성격 비교\n- UICC 사업은 기존 시스템의 기능개선 및 관리자 활용도 제고, 시스템 운영 지원이 주된 내용으로,\n  신규 시스템을 맨바닥부터 구축하는 사업이 아니다.\n- 반면 기초학문자료센터 사업은 연구성과물 DB 구축 및 e-R&D 시스템 연계 등\n  데이터 구축 및 시스템 확장 성격이 포함되어 있다.\n\n따라서 사업기간이 더 짧고, 기존 시스템의 기능개선을 수행하는 사업은\n「2024년 대학 산학협력활동 실태조사 시스템(UICC) 기능개선 사업」이다.\n", "generated_answer": "조건에 부합하는 사업은 `2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선`입니다.\n- 선택 근거: 기능개선 성격 + 상대적으로 짧은 사업기간(`3일`).\n- 비교 근거: `2024년 기초학문자료센터 시스템 운영 및 연구성과물 DB구축 사업`는 약 `5일`로 더 긴 편입니다.", "correctness": {"score": 5, "reason": "생성 답변은 기대 답변과 동일한 사업(2024년 대학 산학협력활동 실태조사 시스템(UICC) 기능개선)을 정확히 식별하고 기능개선 성격과 더 짧은 사업기간을 근거로 제시했습니다."}, "answer_coverage": {"score": 4, "reason": "핵심 식별 및 두 가지 근거(단축된 기간·기능개선)를 제시했으나 비교 대상 사업의 구체적 성격(연구성과물 DB 구축 및 e-R&D 연계) 설명은 누락되었습니다."}, "faithfulness": {"score": 5, "reason": "답변의 내용(사업명·‘기능개선’ 성격·기간 비교)은 제공된 검색 context에서 직접 확인 가능합니다."}, "context_relevance": {"score": 5, "reason": "검색된 context에 평가 대상 두 사업의 제목과 기간 정보가 포함되어 있어 질문에 완벽히 관련됩니다."}, "hit_position": 2, "recall_at_k": 1.0, "recall_at_k_chunk": 0.0, "num_retrieved": 2, "csv_short_circuit": true, "source_type": "csv", "ground_truth_sources": ["한국연구재단_2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선.pdf", "한국연구재단_2024년 기초학문자료센터 시스템 운영 및 연구성과물 DB구.pdf"], "retrieved_sources": ["한국연구재단_2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선.hwp", "한국연구재단_2024년 기초학문자료센터 시스템 운영 및 연구성과물 DB구.hwp"], "latencies": {"analyze_query": 0.0133, "retrieve": 0.0, "extract_evidence": 0.0, "generate": 0.0}}];
+const SUMMARY = {"num_queries": 20, "num_evaluated": 20, "top_k": 5, "avg_correctness": 4.2, "avg_answer_coverage": 4.05, "avg_faithfulness": 4.45, "avg_context_relevance": 4.75, "recall_at_k_source": 1.0, "recall_at_k_chunk": 0.4667, "num_chunk_labeled_queries": 15, "mrr_source": 0.95};
+const PQ = [{"id": "eval_001", "question": "강릉어선안전조업국 상황관제시스템 구축 사업의 총 사업 예산(부가가치세 포함)은 얼마입니까?", "query_type": "csv_match", "memo": "단순 금액 노출", "expected_answer": "사업 금액은 210,000,000원(금 이억일천만원, VAT 포함)입니다.", "generated_answer": "사업비는 `약 2.1억 원 (210,000,000원) (부가가치세 포함)`입니다.", "correctness": {"score": 5, "reason": "답변이 기대 답변과 동일한 금액(210,000,000원, VAT 포함)을 정확히 제시하고 있습니다."}, "answer_coverage": {"score": 5, "reason": "총사업비 금액(210,000,000원)과 부가가치세 포함 여부 등 기대 답변의 핵심 정보를 빠짐없이 포함하고 있습니다."}, "faithfulness": {"score": 5, "reason": "검색된 컨텍스트에 동일한 금액이 명시되어 있어 답변 내용이 전적으로 컨텍스트에 근거하고 있습니다."}, "context_relevance": {"score": 5, "reason": "제공된 컨텍스트가 질문에 직접 관련된 총사업비 수치(210,000,000원)를 명확히 포함하고 있습니다."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": null, "num_retrieved": 1, "csv_short_circuit": true, "source_type": "csv", "ground_truth_sources": ["data_list.csv"], "retrieved_sources": ["data_list.csv", "수협중앙회_강릉어선안전조업국 상황관제시스템 구축.hwp"], "latencies": {"analyze_query": 6.9579, "retrieve": 0.0, "extract_evidence": 0.0, "generate": 0.0}}, {"id": "eval_002", "question": "한국수자원공사에서 진행하는 사업은 총 몇 개이며, 각각의 사업명은 무엇입니까?", "query_type": "csv_match", "memo": "단일 기관 기준 다수 사업명 노출", "expected_answer": "총 3개의 사업이 진행 중이며, 사업명은 다음과 같습니다. 1.수도사업장 통합 사고분석솔루션 시범구축 용역, 2.용인 첨단 시스템반도체 국가산단 용수공급사업 타당성조사 및 기본계획 수립 용역, 3.건설통합시스템(CMS) 고도화", "generated_answer": "한국수자원공사에서 진행 중인 사업은 총 3개입니다.\n- 1. 건설통합시스템(CMS) 고도화입니다.\n- 2. 용인 첨단 시스템반도체 국가산단 용수공급사업 타당성조사 및 기본계획 수립 용역입니다.\n- 3. 수도사업장 통합 사고분석솔루션 시범구축 용역입니다.", "correctness": {"score": 5, "reason": "생성 답변은 총 3개라는 사실과 세 사업명을 기대답변 및 검색된 context와 정확히 일치하게 제시하고 있습니다."}, "answer_coverage": {"score": 5, "reason": "기대 답변의 모든 핵심 포인트(사업 수와 세 사업명)를 빠짐없이 포함하고 있습니다."}, "faithfulness": {"score": 5, "reason": "모든 내용이 제공된 검색된 context에서 직접 확인 가능한 정보로 환각이 없습니다."}, "context_relevance": {"score": 5, "reason": "검색된 context는 질문에 완벽히 관련되어 있으며 답변에 필요한 정보를 충분히 포함하고 있습니다."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": null, "num_retrieved": 3, "csv_short_circuit": true, "source_type": "csv", "ground_truth_sources": ["data_list.csv"], "retrieved_sources": ["data_list.csv", "한국수자원공사_건설통합시스템(CMS) 고도화.hwp", "한국수자원공사_용인 첨단 시스템반도체 국가산단 용수공급사업 타당성.hwp", "한국수자원공사_수도사업장 통합 사고분석솔루션 시범구축 용역.hwp"], "latencies": {"analyze_query": 5.5287, "retrieve": 0.0, "extract_evidence": 0.0, "generate": 0.0}}, {"id": "eval_003", "question": "2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선 사업의 입찰 참여 시작일과 마감 시간은 각각 언제입니까?", "query_type": "csv_match", "memo": "단일 사업 기준 날짜 정보 노출", "expected_answer": "입찰 참여 시작일은 2024년 10월 14일 오전 10시이며, 마감일은 2024년 10월 16일 오후 2시입니다.", "generated_answer": "한국연구재단 입찰 참여 시작일은 `2024-10-14 오전 10시`이고, 마감일은 `2024-10-16 오후 2시`입니다.", "correctness": {"score": 5, "reason": "생성된 답변이 기대 답변의 시작일(2024-10-14 오전 10시)과 마감일(2024-10-16 오후 2시)을 정확히 일치시켰습니다."}, "answer_coverage": {"score": 5, "reason": "시작일과 마감시간을 포함하여 기대 답변의 모든 핵심 정보를 빠짐없이 제시했습니다."}, "faithfulness": {"score": 5, "reason": "제시된 날짜와 시간이 검색된 context에 그대로 존재하여 모든 내용이 context에 근거합니다."}, "context_relevance": {"score": 5, "reason": "검색된 context(start_date 및 end_date)는 질문에 정확히 관련된 입찰 일정 정보를 포함합니다."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": null, "num_retrieved": 1, "csv_short_circuit": true, "source_type": "csv", "ground_truth_sources": ["data_list.csv"], "retrieved_sources": ["data_list.csv", "한국연구재단_2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선.hwp"], "latencies": {"analyze_query": 5.0539, "retrieve": 0.0, "extract_evidence": 0.0, "generate": 0.0}}, {"id": "eval_004", "question": "국가과학기술지식정보서비스(NTIS)에서 실시하는 통합정보시스템 고도화 용역의 예산, 입찰 일정 및 주요 사업 범위를 요약해 주세요.", "query_type": "csv_match", "memo": "단일 질의를 통한 CSV 내 다중 컬럼(금액, 날짜, 요약) 추출 및 내용 요약 능력 검증", "expected_answer": "본 사업의 추정 사업비는 140,000,000원이며, 입찰 참여는 2024년 5월 30일부터 2024년 6월 11일까지 가능합니다. 사업의 주요 범위는 기관생명윤리 및 동물실험윤리 관리, 국가연구개발사업 연구비 사용기준 준수, 연구계획 관리, 전자결재서식 연동, 그리고 연구노트 관리 기능개선을 포함합니다.", "generated_answer": "국가과학기술지식정보서비스 요약입니다.\n- 예산: `약 1.4억 원 (140,000,000원) (부가가치세 포함)`.\n- 입찰 일정: `2024-05-30` ~ `2024-06-11`.\n- 주요 사업 범위: 사업 개요: 통합정보시스템 고도화 용역 사업기간 5개월 이내 추정가격 140 000 000원 이내 협상에 의한 계약 - 사업추진 방안: 기존 시스템과의 연계를 고려한 신규 시스템 설계 자료 표준화 체계화 사용자 편의성 고려한 UI UX 시스템 구현 기존 시스템 인프라 활용한 운영환경 구성 - 사업 범위: 기관생명윤리 동물실험윤리 국가연구개발사업 연구비 사용기준 준수 연구계획 관리 전자결재서식 연동 기능개선(...", "correctness": {"score": 5, "reason": "생성된 답변은 예산(140,000,000원), 입찰 기간(2024-05-30~2024-06-11) 및 사업 범위의 핵심 항목들을 정확히 기술하고 있습니다."}, "answer_coverage": {"score": 5, "reason": "기대 답변에 명시된 예산·일정·기관생명윤리·동물실험윤리·연구비 사용기준 준수·연구계획 관리·전자결재 연동·연구노트 개선 등 모든 핵심 포인트를 포함하고 있습니다."}, "faithfulness": {"score": 5, "reason": "답변의 모든 내용이 제공된 검색된 컨텍스트에서 직접 확인 가능한 정보로 구성되어 있어 환각이 없습니다."}, "context_relevance": {"score": 5, "reason": "검색된 컨텍스트는 질문에 직접 관련된 통합정보시스템 고도화 사업의 예산·일정·범위를 명확히 포함하고 있습니다."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": null, "num_retrieved": 1, "csv_short_circuit": true, "source_type": "csv", "ground_truth_sources": ["data_list.csv"], "retrieved_sources": ["data_list.csv", "국가과학기술지식정보서비스_통합정보시스템 고도화 용역.hwp"], "latencies": {"analyze_query": 5.9995, "retrieve": 0.0, "extract_evidence": 0.0, "generate": 0.0}}, {"id": "eval_005", "question": "사단법인 보험개발원 '실손보험 청구 전산화 시스템 구축 사업' RFP 기준으로 HCI-Type-1 서버의 최소 CPU 사양은 무엇입니까?", "query_type": "single_doc", "memo": "단일 문서 내 특정 요구사항(QUR)의 세부 사양(CPU) 추출, 정규화 소실 발생 유무 등 파악", "expected_answer": "CPU는 2 x 2.90GHz Intel Xeon Gold5415+이며 8Core 이상이어야 합니다.", "generated_answer": "사단법인 보험개발원 CPU 최소 사양은 `2 x 2.90GHz Intel Xeon Gold5415+, 8Core 이상`입니다.", "correctness": {"score": 5, "reason": "생성답변이 기대 답변과 정확히 일치하여 CPU 모델·클럭·코어 수를 올바르게 제시함."}, "answer_coverage": {"score": 5, "reason": "필요한 핵심 정보(2 x 2.90GHz Intel Xeon Gold5415+, 8Core 이상)를 모두 포함함."}, "faithfulness": {"score": 5, "reason": "답변 내용은 제공된 검색 컨텍스트의 HCI-Type-1 항목에 직접 기재된 정보와 일치하여 환각이 없음."}, "context_relevance": {"score": 5, "reason": "검색된 컨텍스트는 HCI-Type-1의 사양을 정확히 담고 있어 질문에 완전히 관련됨."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 0.0, "num_retrieved": 40, "csv_short_circuit": false, "source_type": "hwp", "ground_truth_sources": ["사단법인 보험개발원_실손보험 청구 전산화 시스템 구축 사업.pdf"], "retrieved_sources": ["사단법인 보험개발원_실손보험 청구 전산화 시스템 구축 사업"], "latencies": {"analyze_query": 11.3557, "retrieve": 0.0, "extract_evidence": 0.0, "generate": 0.0}}, {"id": "eval_006", "question": "고려대학교 차세대 포털·학사 정보시스템 구축사업에서 개발에 사용된 이미지·글꼴 등 인프라의 저작권 비용은 누가 부담해야 합니까?", "query_type": "single_doc", "memo": "pdf 원본 문서의 텍스트 추출 검증", "expected_answer": "저작권에 문제가 없어야 하며, 비용이 발생할 경우 주사업자가 부담해야 합니다.", "generated_answer": "고려대학교 책임 주체는 `사업자(제안사/주사업자)`로 확인됩니다.\n제안사가 부담하되, 사업금액의 일정 비율 이상을 차지하는 변경이 발생하는 경우에는 상호간에 협의에 의해 조정합니다.", "correctness": {"score": 1, "reason": "기대 답변은 비용을 주사업자가 부담해야 한다고 명시했으나 생성 답변은 제안사가 부담한다고 반대되는 내용을 제시하고 있어 의미적으로 일치하지 않습니다."}, "answer_coverage": {"score": 1, "reason": "기대 답변의 '저작권 문제가 없어야 함'과 '주사업자 부담'을 포함하지 않고 제안사 부담 및 협의 조정만 언급해 핵심 포인트를 빠뜨렸습니다."}, "faithfulness": {"score": 5, "reason": "생성 답변의 내용은 검색된 컨텍스트에 있는 '제안사가 부담하되 사업금액의 일정 비율 이상을 차지하는 변경이 발생하는 경우 협의'라는 문구와 직접적으로 일치합니다."}, "context_relevance": {"score": 5, "reason": "검색된 컨텍스트는 해당 사업의 비용 분담 및 책임 소재에 관한 문구를 포함해 질문과 직접적으로 관련성이 높습니다."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 0.0, "num_retrieved": 3, "csv_short_circuit": false, "source_type": "pdf", "ground_truth_sources": ["고려대학교_차세대 포털·학사 정보시스템 구축사업.pdf"], "retrieved_sources": ["고려대학교_차세대 포털·학사 정보시스템 구축사업"], "latencies": {"analyze_query": 5.1895, "retrieve": 1.4343, "extract_evidence": 0.5484, "generate": 0.0}}, {"id": "eval_007", "question": "사업장 사회보험료 지원 고시 개정에 따른 정보시스템 보완 개발사업에서 사업기간은 얼마입니까?", "query_type": "single_doc", "memo": "단일 문서 내 사업기간 추출, 계약체결 기준 추가 명시, 180일 이내를 6개월로 정규화", "expected_answer": "계약체결일로부터 180일 이내 (6개월)입니다.", "generated_answer": "사업기간은 `사업기간은 180일`입니다.", "correctness": {"score": 5, "reason": "생성된 답변은 기대답변인 '계약체결일로부터 180일(6개월) 이내'와 일치합니다."}, "answer_coverage": {"score": 5, "reason": "사업기간(180일)이 기대 답변의 핵심 정보를 빠짐없이 포함하고 있습니다."}, "faithfulness": {"score": 2, "reason": "제공된 검색 컨텍스트에는 사업기간(180일)에 대한 명시적 근거가 없어 답변이 컨텍스트에 의해 직접 확인되지 않습니다."}, "context_relevance": {"score": 4, "reason": "검색된 컨텍스트는 정보시스템 구축 관련으로 질문과 관련은 있으나 사업기간에 대한 구체적 정보는 포함하고 있지 않습니다."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 0.0, "num_retrieved": 22, "csv_short_circuit": false, "source_type": "hwp", "ground_truth_sources": ["국민연금공단_사업장 사회보험료 지원 고시 개정에 따른 정보시스템 보.pdf"], "retrieved_sources": ["국민연금공단_사업장 사회보험료 지원 고시 개정에 따른 정보시스템 보"], "latencies": {"analyze_query": 3.3781, "retrieve": 0.6837, "extract_evidence": 0.1648, "generate": 0.0}}, {"id": "eval_008", "question": "국민연금공단_2024년 이러닝시스템 운영 용역 세부산출내역서에 따르면 '직무교육'은 몇명에게 제공되는가?", "query_type": "single_doc", "memo": "표 내부 텍스트 유실 검증, 구체적 키워드로 질문 시 매칭되는 숫자 추출 검증", "expected_answer": "11,000명에게 제공됩니다.", "generated_answer": "직무교육 대상 인원은 `11,000명`입니다.", "correctness": {"score": 5, "reason": "답변이 기대 답변과 일치하여 '11,000명'을 정확히 제시합니다."}, "answer_coverage": {"score": 5, "reason": "핵심 정보인 제공 대상 인원 '11,000명'을 빠짐없이 제시합니다."}, "faithfulness": {"score": 1, "reason": "제공된 검색 컨텍스트에는 해당 숫자가 포함되어 있지 않아 답변의 근거가 제시되지 않습니다."}, "context_relevance": {"score": 3, "reason": "검색 문서는 이러닝 시스템 제안서로 질문과 관련은 있으나 제시된 발췌문에는 인원수 정보가 없어 핵심 정보는 부족합니다."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 0.0, "num_retrieved": 22, "csv_short_circuit": false, "source_type": "hwp", "ground_truth_sources": ["국민연금공단_2024년 이러닝시스템 운영 용역.pdf"], "retrieved_sources": ["국민연금공단_2024년 이러닝시스템 운영 용역"], "latencies": {"analyze_query": 4.7754, "retrieve": 0.7301, "extract_evidence": 0.3297, "generate": 0.0}}, {"id": "eval_009", "question": "을지대학교 비교과시스템 개발 사업에서 계약상대자는 사업 완료 후 검사 승인을 받기 위해 어떤 서류를 을지대학교에 제출해야 합니까?", "query_type": "single_doc", "memo": "단일 문서 내 텍스트 검색 검증", "expected_answer": "완료보고서, 납품 및 검사조서를 제출하여 감독관에게 검사 승인을 받아야 한다.", "generated_answer": "을지대학교 주요 제출서류/준수사항은 다음 4개 항목입니다.", "correctness": {"score": 1, "reason": "생성된 답변은 요구된 구체적 제출서류(완료보고서, 납품 및 검사조서)를 제시하지 않고 불완전하다."}, "answer_coverage": {"score": 1, "reason": "핵심 정보가 전혀 포함되지 않아 기대 답변의 주요 항목들이 누락되었다."}, "faithfulness": {"score": 2, "reason": "제시된 내용이 맥락과 관련성이 낮고 구체적 근거 없이 일반적 문구만 있어 문서 내용에 충실하지 못하다."}, "context_relevance": {"score": 4, "reason": "검색된 문서는 최종 결과물 제출과 승인에 관해 일부 언급하고 있어 질문과 대부분 관련성이 있다."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 1.0, "num_retrieved": 1, "csv_short_circuit": false, "source_type": "hwp", "ground_truth_sources": ["을지대학교_을지대학교 비교과시스템 개발.pdf"], "retrieved_sources": ["을지대학교_을지대학교 비교과시스템 개발"], "latencies": {"analyze_query": 3.8318, "retrieve": 1.1288, "extract_evidence": 0.3916, "generate": 0.0}}, {"id": "eval_010", "question": "국가과학기술지식정보서비스 통합정보시스템 고도화 용역에서 기술능력 평가점수로 협상적격자를 선정할 때 기준은 무엇인가요?", "query_type": "single_doc", "memo": "단일 문서 내 텍스트 검색 검증", "expected_answer": "기술능력 평가분야 배점한도의 85% 이상인 제안사를 협상적격자로 선정합니다.", "generated_answer": "국가과학기술지식정보서비스 협상적격자 선정 기준은 `기술능력 평가점수 배점한도의 85% 이상`입니다.", "correctness": {"score": 5, "reason": "생성된 답변은 기대 답변과 의미적으로 일치하며 핵심 기준을 정확히 제시하고 있습니다."}, "answer_coverage": {"score": 5, "reason": "기대 답변의 핵심인 '기술능력 평가분야 배점한도의 85% 이상'을 누락 없이 포함하고 있습니다."}, "faithfulness": {"score": 5, "reason": "답변 내용은 제공된 검색 문서에서 직접 확인 가능한 문구에 근거하고 있습니다."}, "context_relevance": {"score": 5, "reason": "검색된 문서는 협상적격자 선정 기준을 명시하고 있어 질문에 완벽히 관련되어 있습니다."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 1.0, "num_retrieved": 40, "csv_short_circuit": false, "source_type": "hwp", "ground_truth_sources": ["국가과학기술지식정보서비스_통합정보시스템 고도화 용역.pdf"], "retrieved_sources": ["국가과학기술지식정보서비스_통합정보시스템 고도화 용역"], "latencies": {"analyze_query": 10.0941, "retrieve": 0.0, "extract_evidence": 0.0, "generate": 0.0}}, {"id": "eval_011", "question": "BioIN_의료기기산업 종합정보시스템(정보관리기관) 기능개선 사업(2차)에서 웹페이지의 용량은 얼마 이내로 개발해야 하나요?", "query_type": "single_doc", "memo": "단일 문서, 표 내부의 요구사항 텍스트 추출 검증", "expected_answer": "웹페이지의 용량은 3MB 이내로 개발해야 하며 단, 홍보 등 특성에 따라 3MB를 초과할 수 있습니다.", "generated_answer": "문서 기준 용량은 `3MB` 이내이며, 단 홍보등특성에따라3MB 를초과할 수 있습니다.", "correctness": {"score": 5, "reason": "웹페이지 용량을 3MB 이내로 개발해야 하고 홍보 등 특성에 따라 3MB를 초과할 수 있다는 핵심 정보를 정확히 포함하고 있습니다."}, "answer_coverage": {"score": 5, "reason": "요구사항의 주요 조건(3MB 이내)과 예외사항(홍보 등으로 초과 가능)을 빠짐없이 포함하고 있습니다."}, "faithfulness": {"score": 5, "reason": "답변의 모든 내용이 제공된 문서의 PER-002 항목에 직접 근거하고 있어 환각이 없습니다."}, "context_relevance": {"score": 5, "reason": "검색된 컨텍스트는 PER-002의 웹사이트 최적화 요구사항을 포함하여 질문에 완전히 관련되어 있습니다."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 1.0, "num_retrieved": 3, "csv_short_circuit": false, "source_type": "hwp", "ground_truth_sources": ["BioIN_의료기기산업 종합정보시스템(정보관리기관) 기능개선 사업(2차).pdf"], "retrieved_sources": ["BioIN_의료기기산업 종합정보시스템(정보관리기관) 기능개선 사업(2차)"], "latencies": {"analyze_query": 3.6755, "retrieve": 1.2736, "extract_evidence": 0.4395, "generate": 0.0}}, {"id": "eval_012", "question": "한국농수산식품유통공사 농산물가격안정기금 정부예산회계연계시스템에서 시스템 장애 발생 시 데이터 복구 기한은 무엇인가요?", "query_type": "single_doc", "memo": "단일 문서 내 텍스트 검색 검증, 조건 재약 및 숫자 추출", "expected_answer": "시스템은 장애가 발생하면 12시간 이내에 데이터를 복구해야 합니다.", "generated_answer": "기한은 `기한은 12시간이내`입니다.", "correctness": {"score": 5, "reason": "답변이 기대 답변과 정확히 일치하여 장애 발생 시 데이터 복구 기한을 12시간 이내로 정확히 제시함."}, "answer_coverage": {"score": 5, "reason": "기대 답변의 핵심 정보인 '12시간 이내'를 누락 없이 포함하고 있음."}, "faithfulness": {"score": 5, "reason": "답변 내용은 검색된 컨텍스트 문장에서 직접 확인 가능한 정보에 근거함."}, "context_relevance": {"score": 5, "reason": "검색된 컨텍스트에 장애 발생 시 12시간 이내 복구해야 한다는 문구가 명시되어 있어 질문과 완벽히 관련됨."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 1.0, "num_retrieved": 40, "csv_short_circuit": false, "source_type": "hwp", "ground_truth_sources": ["한국농수산식품유통공사_농산물가격안정기금 정부예산회계연계시스템 .pdf"], "retrieved_sources": ["한국농수산식품유통공사_농산물가격안정기금 정부예산회계연계시스템"], "latencies": {"analyze_query": 4.4514, "retrieve": 0.0, "extract_evidence": 0.0, "generate": 0.0}}, {"id": "eval_013", "question": "수문자료정보관리시스템(HDIMS) 재구축사업(3단계)의 추진 목표는 무엇입니까?", "query_type": "single_doc", "memo": "단일 문서 내 추진목표 계층 구조 및 다항목 추출 검증", "expected_answer": "수문자료정보관리시스템(HDIMS) 재구축사업(3단계)의 추진 목표는 다음과 같습니다.\n1) 데이터구조 재설계를 통해 표준화된 자료 생산·가공·유통 체계를 구축하고, 기술원 내 수문자료 분석 및 활용 기능을 강화한다.\n2) 1단계 전자야장시스템 신설 및 2단계 수문자료정보관리시스템 재구축에 따른 이용 불편 사항을 개선하고, 수자원조사 자료의 품질관리 기능을 고도화한다. \n   이를 위해 현장 조사 업무에 대한 일원화된 자료 연계를 통해 원시자료, DB, 분석 전반에 대한 체계적 품질관리와 사용자·관리자 기능을 강화한다.\n", "generated_answer": "한국수자원조사기술원 추진목표: `표준화된 자료 생산 및 가공, 수문자료 분석 및 활용 기능 강화`.", "correctness": {"score": 3, "reason": "응답은 '표준화된 자료 생산 및 가공'과 '수문자료 분석 및 활용 기능 강화'를 정확히 제시했으나, 이용 불편 개선 및 품질관리 고도화와 같은 두 번째 세부 목표는 누락되어 핵심 정보가 일부 빠져 있음."}, "answer_coverage": {"score": 3, "reason": "기대 답변의 두 가지 주요 추진목표 중 첫 번째만 포함되어 있어 핵심 포인트의 절반 정도만 커버하고 있음."}, "faithfulness": {"score": 5, "reason": "생성된 답변의 내용은 검색된 컨텍스트 문구와 직접 일치하며 추가 추론이나 환각이 없음."}, "context_relevance": {"score": 5, "reason": "검색된 컨텍스트는 질문의 추진목표와 직접적으로 관련된 정보를 제공하여 매우 적절함."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 0.0, "num_retrieved": 1, "csv_short_circuit": true, "source_type": "csv", "ground_truth_sources": ["한국수자원조사기술원_수문자료정보관리시스템(HDIMS) 재구축 용역(3단계.pdf"], "retrieved_sources": ["한국수자원조사기술원_수문자료정보관리시스템(HDIMS) 재구축 용역(3단계.hwp"], "latencies": {"analyze_query": 4.6565, "retrieve": 0.0, "extract_evidence": 0.0, "generate": 0.0}}, {"id": "eval_014", "question": "한국수출입은행의 모잠비크 마푸토 지능형교통시스템(ITS) 구축사업 RFP 텍스트에 따르면 경제적 타당성 분석 시 참고해야 할 가이드는 무엇인가?", "query_type": "single_doc", "memo": "영어 텍스트 추출 검증", "expected_answer": "Guidelines for the Economic Analysis of Projects(ADB) 및 Guide to Cost-Benefit Analysis of Investment Project(European Commission).", "generated_answer": "한국수출입은행 참고 가이드는 `Guidelines for the Economic Analysis of Projects (ADB) 및 Guide to Cost-Benefit Analysis of Investment Project (European Commission)`입니다.", "correctness": {"score": 5, "reason": "생성된 답변이 기대 답변의 두 가이드를 정확히 제시하고 있습니다."}, "answer_coverage": {"score": 5, "reason": "기대 답변의 핵심 가이드인 ADB와 European Commission 두 항목을 모두 포함하고 있습니다."}, "faithfulness": {"score": 4, "reason": "컨텍스트에 ADB 가이드는 명시되어 있으나 European Commission 가이드는 컨텍스트에서 확인되지 않아 일부 추론이 포함되어 있습니다."}, "context_relevance": {"score": 4, "reason": "컨텍스트가 ADB 가이드와 관련 세부사항을 포함해 대부분 관련 있으나 기대 답변의 다른 가이드는 컨텍스트에 없어서 완전하진 않습니다."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 1.0, "num_retrieved": 5, "csv_short_circuit": false, "source_type": "hwp", "ground_truth_sources": ["한국수출입은행_(긴급) 모잠비크 마푸토 지능형교통시스템(ITS) 구축사업.pdf"], "retrieved_sources": ["한국수출입은행_(긴급) 모잠비크 마푸토 지능형교통시스템(ITS) 구축사업"], "latencies": {"analyze_query": 12.0173, "retrieve": 1.1005, "extract_evidence": 0.052, "generate": 0.0}}, {"id": "eval_015", "question": "남서울대학교 스마트 정보시스템 활성화(학사) 사업 수행 시 참여인원에 대한 정보보안교육은 얼마나 자주 실시해야 합니까?", "query_type": "single_doc", "memo": "표 내부에 유사 오답이 존재함, 단순 텍스트 변환으로 계층구조 없을 시 착각할 수 있음", "expected_answer": "참여인원에 대해 월 1회 정보보안교육을 수행하고, 교육결과는 발주기관의 확인을 받아야 합니다.", "generated_answer": "정보보안교육 실시 주기는 `월1회`입니다.", "correctness": {"score": 4, "reason": "주기인 '월 1회'는 정확히 답했으나 교육결과를 발주기관이 확인해야 한다는 내용은 언급하지 않아 완전하지 않습니다."}, "answer_coverage": {"score": 4, "reason": "월 1회 교육이라는 핵심은 포함했으나 교육결과의 발주기관 확인 필요성이라는 중요한 항목이 누락되어 있습니다."}, "faithfulness": {"score": 5, "reason": "월 1회라는 내용은 제공된 검색 문서에 직접 명시되어 있어 답변이 문서에 근거하고 있습니다."}, "context_relevance": {"score": 5, "reason": "검색된 문서는 참여인원의 정보보안교육 및 관련 절차를 직접 다루고 있어 질문에 매우 관련성이 높습니다."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 1.0, "num_retrieved": 40, "csv_short_circuit": false, "source_type": "hwp", "ground_truth_sources": ["남서울대학교_[혁신-국고] 남서울대학교 스마트 정보시스템 활성화(학사.pdf"], "retrieved_sources": ["남서울대학교_[혁신-국고] 남서울대학교 스마트 정보시스템 활성화(학사"], "latencies": {"analyze_query": 4.3316, "retrieve": 0.0, "extract_evidence": 0.0, "generate": 0.0}}, {"id": "eval_016", "question": "세종테크노파크 인사정보 전산시스템 구축 사업에서 관련 소프트웨어 현황 및 개선사항을 정리해줘", "query_type": "single_doc", "memo": "계층 구조 및 내용이 긴 텍스트 추출, 문서 내 거리는 가까우나 비공개 내용(할루시네이션 검증), 계층 구조 유지 여부 함께 추출", "expected_answer": "세종테크노파크 인사정보 전산시스템 구축 사업의 관련 소프트웨어 현황 및 개선사항은 다음과 같다.\n\n1. 정보시스템 현황\n가. 시스템 및 네트워크 구성 현황\n- 행정기관 및 공공기관 정보시스템 구축·운영 지침(행정안전부 고시 제2019-69호) 제17조에 따라 상세 전산자원 구성은 보안상 비공개이다.\n- 입찰참가 업체가 필요할 경우 발주기관을 방문하여 보안각서를 제출한 후 열람 가능하다.\n\n나. 관련 소프트웨어(S/W) 현황\n- 기존 인사정보 전산시스템에서 사용 중인 주요 소프트웨어 구성과 운영 환경을 기준으로 현황을 제시하고 있다.\n- 인사관리, 급여관리, 근태관리 등 인사행정 관련 기능을 지원하는 시스템 구조로 구성되어 있다.\n- 운영 중인 소프트웨어의 버전, 유지관리 상태 및 시스템 연계 현황이 포함된다.\n\n2. 문제점 및 개선방안\n- 기존 시스템의 기능 분산 및 관리 비효율 문제를 개선할 필요가 있다.\n- 데이터 연계 및 통합 관리 체계 고도화가 요구된다.\n- 사용자 편의성 및 업무 효율성 향상을 위한 시스템 개선이 필요하다.\n- 보안 및 접근통제 체계를 강화하고 안정적인 운영 환경을 구축해야 한다.\n", "generated_answer": "세종테크노파크 문서에서 질문 관련 조항을 확인했습니다.\n- 나. 분산된인사업무처리시스템을인사/급여(ERP)으로통합구축하여입니다.\n- 다. 연계기관및재단내부정보시스템과데이터연계및모니터링이가능하도록입니다.\n- 가. 인사/급여(ERP) 프로그램기반인사정보시스템구축입니다.", "correctness": {"score": 3, "reason": "생성된 답변은 문서의 세 가지 추진목표를 정확히 인용했으나 기대 답변에 포함된 소프트웨어 현황(버전·운영상태 등) 및 개선사항을 누락했습니다."}, "answer_coverage": {"score": 2, "reason": "질문에 대한 핵심 포인트 중 일부(통합 ERP 구축 관련 목표)는 제시했으나 시스템·네트워크 비공개 조치, S/W 세부현황 및 구체적 개선방안 대부분이 빠져 있습니다."}, "faithfulness": {"score": 5, "reason": "제시된 문구는 검색된 컨텍스트에서 직접 확인 가능한 내용만을 반복하여 환각 없이 충실하게 근거에 기반하고 있습니다."}, "context_relevance": {"score": 5, "reason": "인사/급여(ERP) 기반 시스템 통합 및 데이터 연계·모니터링 관련 문구를 인용하여 질문 주제와 직접적으로 관련된 정보를 사용했습니다."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 0.0, "num_retrieved": 1, "csv_short_circuit": false, "source_type": "hwp", "ground_truth_sources": ["세종테크노파크_세종테크노파크 인사정보 전산시스템 구축 용역 입찰공.pdf"], "retrieved_sources": ["세종테크노파크_세종테크노파크 인사정보 전산시스템 구축 용역 입찰공"], "latencies": {"analyze_query": 11.2418, "retrieve": 6.1707, "extract_evidence": 0.0967, "generate": 45.8536}}, {"id": "eval_017", "question": "우즈베키스탄 열린 의정활동 상하원 사업의 '지역의회 회의실' 도면 예시에서  최소규격과 최대규격의 가로(가운데 문 포함) 세부 치수는 각각 어떻게 됩니까?", "query_type": "single_doc", "memo": "도면 이미지 내 최소/최대 규격별 가로 세부 치수 확인, 국내외 설계 도면의 기본 단위(mm) 및 도면의 문 위치 파악 능력 검증", "expected_answer": "최소규격의 가로 총 길이는 10,000mm이며, 세부 분할 치수는 4,000 / 2,000(문) / 4,000입니다.  최대규격의 가로 총 길이는 20,000mm이며, 세부 분할 치수는 8,000 / 2,000(문) / 10,000입니다.  (단위: mm)", "generated_answer": "KOICA 전자조달 지역의회 회의실 도면 가로 치수는 `최소규격 10,000mm (4,000mm / 2,000mm(가운데 문) / 4,000mm), 최대규격 20,000mm (8,000mm / 2,000mm(가운데 문) / 10,000mm)`입니다.", "correctness": {"score": 5, "reason": "생성된 답변이 기대 답변의 핵심 치수(최소 10,000mm: 4,000/2,000/4,000 및 최대 20,000mm: 8,000/2,000/10,000)를 정확히 제시하고 있음."}, "answer_coverage": {"score": 5, "reason": "총 길이와 세부 분할 치수 및 단위(mm) 등 기대 답변의 모든 핵심 포인트를 빠짐없이 포함하고 있음."}, "faithfulness": {"score": 5, "reason": "제시된 수치들이 검색된 도면 및 표기된 치수에서 직접 확인되므로 컨텍스트에 근거하고 있음."}, "context_relevance": {"score": 5, "reason": "검색된 도면 치수 표가 질문의 '가로(가운데 문 포함) 세부 치수'를 정확히 포함하고 있어 관련성이 완전함."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": null, "num_retrieved": 5, "csv_short_circuit": false, "source_type": "hwp", "ground_truth_sources": ["KOICA 전자조달_[긴급] [지문] [국제] 우즈베키스탄 열린 의정활동 상하원 .pdf"], "retrieved_sources": ["KOICA 전자조달_[긴급] [지문] [국제] 우즈베키스탄 열린 의정활동 상하원"], "latencies": {"analyze_query": 15.9857, "retrieve": 1.2296, "extract_evidence": 0.1811, "generate": 0.0}}, {"id": "eval_018", "question": "사단법인 아시아물위원회 사무국의 ‘우즈벡-키르기즈스탄 기후변화대응 사업’ 제안요청서에 따르면 사업책임자(PM)의 유사사업 수행실적 및 투입인력 자격 산정 기준은 어떻게 적용되나요? 특히 참여율 적용 방식, 경력 합산 규칙, 실적 인정 범위, 증빙요건, 해외·국내 점수 배점 구조를 포함하여 설명하세요.", "query_type": "single_doc", "memo": "단순 키워드 추출이 아니라 규칙 체계 이해 능력 검증, 100% / 80% 참여율 구분 → 모델이 숫자 조건을 정확히 읽는지 확인, 위·자격 경력 합산 규칙 → 수치 기반 정확성 검증", "expected_answer": "본 사업의 사업책임자(PM)는 제안사 소속 1명(공동도급 시 대표사 소속)으로 지정해야 한다.\n\n1. 유사사업 수행실적 인정 기준\n- 기한 제한은 없으며, 수자원개발 관련 사업에 PM 또는 관리·감독으로 직접 참여한 수행기간을 인정한다.\n- 단, 연수사업, 평가용역, 연구용역, 타당성조사는 실적으로 인정되지 않는다.\n- 참여 유형에 따라 참여율을 차등 적용한다:\n  1. 사업수행기관 소속으로 직접 참여한 경우 참여기간의 100% 인정\n  2. 감독 또는 사업관리자로 참여한 경우 참여기간의 80% 인정\n- 점수 배점은 해외 수행기간 2점, 국내 수행기간 2점으로 구분한다.\n\n2. 투입인력 자격 및 경력 합산 규칙\n- 석사 학위는 2년, 박사 학위는 5년을 경력으로 합산한다.\n- 관련 기능사·산업기사·기사는 2년, 관련 기술사는 5년을 경력으로 합산한다.\n- 실적인정 범위는 참여 분야 종사기간, 학위, 자격 등을 증빙자료로 입증해야 한다.\n\n3. 증빙요건\n- 관련 분야 학위증명서, 자격증, 경력증명서, 연금납부서 또는 의료보험가입확인서(4대 사회보험 사업장 가입자 명부)를 첨부해야 하며, 미첨부 시 인정되지 않는다.\n- 모든 경력증빙 자료는 날짜 또는 기간이 명시된 원본 또는 원문대조필 문서여야 한다.\n", "generated_answer": "사단법인아시아물위원회사무국 PM 산정 기준은 `참여율은 직접 참여 100%, 감독/사업관리 80%로 적용; 학위 경력은 석사 2년, 박사 5년 합산; 연수·평가·연구·타당성조사 성격 사업은 실적으로 불인정; 해외·국내 수행실적을 구분해 배점`입니다.", "correctness": {"score": 3, "reason": "요약된 내용은 참여율(직접 100%/감독·관리 80%), 석사·박사 경력 합산(석사 2년·박사 5년), 실적 불인정 항목 등을 정확히 포함하였으나 PM 지정 규정, 기술사·기능사 등 자격별 경력 합산 수치, 증빙서류의 상세요건 및 해외·국내 점수의 구체 배점(해외 2점·국내 2점) 등이 누락되어 완전한 정확성을 담보하지 못함."}, "answer_coverage": {"score": 2, "reason": "생성답변은 참여율·학위 경력·실적 불인정 등 일부 핵심만 다루고 PM의 지정 방식, 자격증별 경력 합산 규칙, 증빙서류(학위증명서·자격증·경력증명서·4대 보험 등)와 모든 경력증빙 원본 요건, 해외·국내 점수의 구체 수치 등 주요 항목들을 빠뜨려 정보 커버리지가 부족함."}, "faithfulness": {"score": 5, "reason": "생성된 진술들은 검색된 컨텍스트에서 직접 확인 가능한 내용에 근거하고 있어 컨텍스트와의 불일치나 환각이 없음."}, "context_relevance": {"score": 5, "reason": "검색된 컨텍스트는 참여율, 학위별 경력 합산 등 질문에서 요구한 PM 산정 기준과 관련된 정보를 직접 포함하고 있어 매우 관련성이 높음."}, "hit_position": 1, "recall_at_k": 1.0, "recall_at_k_chunk": 1.0, "num_retrieved": 40, "csv_short_circuit": false, "source_type": "hwp", "ground_truth_sources": ["사단법인아시아물위원회사무국_우즈벡-키르기즈스탄 기후변화대응 스.pdf"], "retrieved_sources": ["사단법인아시아물위원회사무국_우즈벡-키르기즈스탄 기후변화대응 스"], "latencies": {"analyze_query": 15.5348, "retrieve": 0.0, "extract_evidence": 0.0, "generate": 0.0}}, {"id": "eval_019", "question": "축산물품질평가원에서 주관하는 사업들과 각 사업의 추진 배경과 목적을 알려줘", "query_type": "multi_doc", "memo": "기관명 기준 여러 문서의 정보를 종합해야 하는 질문, 한쪽에는 추진배경 및 목적, 다른 쪽에는 추진배경 및 필요성으로 다르게 적혀있는 맥락 파악도 필요", "expected_answer": "축산물품질평가원에서 주관하는 주요 사업과 각 사업의 추진 배경 및 목적은 다음과 같다.\n\n1. 축산물이력관리시스템 개선(정보화 사업)\n- 추진 배경:\n  쇠고기 이력제(2008년), 돼지(2014년), 닭·오리·계란(2020년) 이력제가 단계적으로 시행되면서 제도 운영을 지원하기 위한 전산시스템이 구축·운영되어 왔다.\n  해당 전산시스템에는 이력제 누리집, 이력관리시스템(PC), 이력번호 조회 앱, 이력제 모바일 웹 등이 포함된다.\n- 추진 목적:\n  누리집 및 시스템의 사용자 편의성 향상을 위해 디자인, 메뉴, 기능 개선 등 전산시스템 고도화를 추진한다.\n\n2. 꿀 품질평가 전산시스템 기능개선 사업\n- 추진 배경 및 필요성:\n  2023년 12월 27일 관련 법령 및 시행 지침 개정에 따른 변경사항을 시스템에 반영할 필요가 있으며,\n  제도 참여자의 개선 의견을 수렴하여 업무 효율성과 사용자 편의성을 제고할 필요가 있다.\n- 추진 목적:\n  기존 구축 시스템에 사용자별 추가 기능을 개발하거나 개선하고,\n  전산시스템의 기능 보완을 통해 업무 효율성과 운영 안정성을 향상시키는 것을 목표로 한다.\n", "generated_answer": "축산물품질평가원 주요 사업의 추진 배경/목적 요약입니다.\n- 1. 축산물이력관리시스템 개선(정보화 사업): 사업개요: 축산물이력관리시스템 개선을 통해 이력제 누리집, 이력관리시스템, 이력번호 조회 앱, 이력제 모바일 웹을 개선하고 사용자 편의성을 향상시킴 / 추진배경: 쇠고기, 돼지, 닭-오리-계란 이력제의 시행으로 전산시스템이 개발되어 제도 운영에 활용되고 있으며, 이를 개선하여 사용자 편의성을 높이고자 합니다.\n- 2. 꿀 품질평가 전산시스템 기능개선 사업: 사업개요: 꿀 품질평가 전산시스템 기능개선 사업 / 추진배경: 법령 개정 및 업무 효율화 필요입니다.", "correctness": {"score": 4, "reason": "두 사업의 핵심 배경과 목적을 전반적으로 정확히 반영하고 있으나 꿀 품질평가 전산시스템 사업의 세부 목적(예: 사용자별 기능 추가 및 운영 안정성 강화 등)이 누락되어 사소한 불완전성이 있음."}, "answer_coverage": {"score": 4, "reason": "첫 번째 사업의 구성요소와 배경은 포함되었으나 꿀 시스템 개선 사업의 구체적 추진목적과 개정일자 반영 등 몇 가지 세부 항목이 빠져 있음."}, "faithfulness": {"score": 5, "reason": "생성된 답변의 내용은 제공된 검색된 context에 직접 기초하고 있어 환각 없이 충실함."}, "context_relevance": {"score": 5, "reason": "검색된 context는 질문에 필요한 두 사업의 배경과 목적 정보를 충분히 포함하고 있어 매우 관련성이 높음."}, "hit_position": 2, "recall_at_k": 1.0, "recall_at_k_chunk": 0.0, "num_retrieved": 2, "csv_short_circuit": true, "source_type": "csv", "ground_truth_sources": ["축산물품질평가원_축산물이력관리시스템 개선(정보화 사업).pdf", "축산물품질평가원_꿀 품질평가 전산시스템 기능개선 사업.pdf"], "retrieved_sources": ["축산물품질평가원_축산물이력관리시스템 개선(정보화 사업).hwp", "축산물품질평가원_꿀 품질평가 전산시스템 기능개선 사업.hwp"], "latencies": {"analyze_query": 12.8802, "retrieve": 0.0, "extract_evidence": 0.0, "generate": 0.0}}, {"id": "eval_020", "question": "한국연구재단이 추진하는 사업 중, 사업기간이 상대적으로 짧고 신규 구축이 아닌 기존 시스템 기능개선을 목적으로 하는 사업을 식별하고 그 근거를 설명하시오.", "query_type": "multi_doc", "memo": "조건 기반 선택형, 질문자의 상황에 더 적합한 사업을 추천해주고 관련 내용을 표기해야함.", "expected_answer": "조건에 부합하는 사업은 '2024년 대학 산학협력활동 실태조사 시스템(UICC) 기능개선 사업'입니다.\n\n1) 사업기간 비교\n- UICC 기능개선 사업: 계약일로부터 210일\n- 기초학문자료센터 시스템 운영 및 연구성과물 DB구축 사업: 계약일로부터 365일\n→ UICC 기능개선 사업의 사업기간이 더 짧다.\n\n2) 사업 성격 비교\n- UICC 사업은 기존 시스템의 기능개선 및 관리자 활용도 제고, 시스템 운영 지원이 주된 내용으로,\n  신규 시스템을 맨바닥부터 구축하는 사업이 아니다.\n- 반면 기초학문자료센터 사업은 연구성과물 DB 구축 및 e-R&D 시스템 연계 등\n  데이터 구축 및 시스템 확장 성격이 포함되어 있다.\n\n따라서 사업기간이 더 짧고, 기존 시스템의 기능개선을 수행하는 사업은\n「2024년 대학 산학협력활동 실태조사 시스템(UICC) 기능개선 사업」이다.\n", "generated_answer": "조건에 부합하는 사업은 `2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선`입니다.\n- 선택 근거: 기능개선 성격 + 상대적으로 짧은 사업기간(`3일`).\n- 비교 근거: `2024년 기초학문자료센터 시스템 운영 및 연구성과물 DB구축 사업`는 약 `5일`로 더 긴 편입니다.", "correctness": {"score": 5, "reason": "UICC 기능개선 사업을 정확히 식별하고 '기능개선' 성격과 더 짧은 기간(3일 vs 5일)을 근거로 제시하여 핵심 정보가 정확하다."}, "answer_coverage": {"score": 4, "reason": "대상 사업과 짧은 기간 및 기능개선 성격을 제시했으나 비교 대상 사업의 구체적 성격(연구성과물 DB 구축·시스템 연계 등)을 명시하지 않아 일부 항목이 누락되었다."}, "faithfulness": {"score": 5, "reason": "사업명, '기능개선' 표기 및 각 사업의 기간(3일·5일) 등 답변 내용이 제공된 검색 문맥에서 직접 확인 가능하다."}, "context_relevance": {"score": 5, "reason": "제공된 두 문서(UICC 기능개선, 기초학문자료센터 운영·DB구축)는 질문의 비교 기준(기간·사업 성격)에 직접 관련된 정보를 포함하고 있다."}, "hit_position": 2, "recall_at_k": 1.0, "recall_at_k_chunk": 0.0, "num_retrieved": 2, "csv_short_circuit": true, "source_type": "csv", "ground_truth_sources": ["한국연구재단_2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선.pdf", "한국연구재단_2024년 기초학문자료센터 시스템 운영 및 연구성과물 DB구.pdf"], "retrieved_sources": ["한국연구재단_2024년 대학산학협력활동 실태조사 시스템(UICC) 기능개선.hwp", "한국연구재단_2024년 기초학문자료센터 시스템 운영 및 연구성과물 DB구.hwp"], "latencies": {"analyze_query": 4.5476, "retrieve": 0.0, "extract_evidence": 0.0, "generate": 0.0}}];
 
 // --- Summary Cards ---
 const S = SUMMARY;
@@ -1775,8 +1775,8 @@ const cardDefs = [
       <div class="tt-kv"><strong>범위:</strong> 0.0 ~ 1.0</div>
       <div class="tt-kv"><strong>매칭:</strong> 파일명(source)만 일치하면 hit</div>
       <span class="tt-formula">mean(1/rank) — 정답 없으면 0</span>`},
-  {label:'Avg Latency',ko:'평균 응답시간',value:'6.5s',max:'',color:'var(--cyan)',
-    tooltip:`<div class="tt-title">평균 레이턴시 · 단계별 분해</div><div class="tt-desc">전체 파이프라인 평균 소요 시간 (20개 질문 기준)</div><table class="tt-table"><tr><th>단계</th><th>평균</th><th>비중</th></tr><tr><td style="color:#d1d5db">질의분석 (analyze)</td><td style="font-weight:700;color:#f3f4f6">2.44s</td><td style="color:#6b7280">38%<span style="display:inline-block;width:45px;height:6px;border-radius:3px;background:#3b82f6;opacity:0.7;vertical-align:middle;margin-left:6px"></span></td></tr><tr><td style="color:#d1d5db">문서검색 (retrieve)</td><td style="font-weight:700;color:#f3f4f6">0.33s</td><td style="color:#6b7280">5%<span style="display:inline-block;width:6px;height:6px;border-radius:3px;background:#06b6d4;opacity:0.7;vertical-align:middle;margin-left:6px"></span></td></tr><tr><td style="color:#d1d5db">답변생성 (generate)</td><td style="font-weight:700;color:#f3f4f6">3.68s</td><td style="color:#6b7280">57%<span style="display:inline-block;width:68px;height:6px;border-radius:3px;background:#22c55e;opacity:0.7;vertical-align:middle;margin-left:6px"></span></td></tr></table><div style="margin-top:0.5rem;font-size:0.74rem;color:#6b7280">합계: <strong style="color:#f3f4f6">6.5s</strong></div>`},
+  {label:'Avg Latency',ko:'평균 응답시간',value:'10.6s',max:'',color:'var(--cyan)',
+    tooltip:`<div class="tt-title">평균 레이턴시 · 단계별 분해</div><div class="tt-desc">전체 파이프라인 평균 소요 시간 (20개 질문 기준)</div><table class="tt-table"><tr><th>단계</th><th>평균</th><th>비중</th></tr><tr><td style="color:#d1d5db">질의분석 (analyze)</td><td style="font-weight:700;color:#f3f4f6">7.57s</td><td style="color:#6b7280">72%<span style="display:inline-block;width:86px;height:6px;border-radius:3px;background:#3b82f6;opacity:0.7;vertical-align:middle;margin-left:6px"></span></td></tr><tr><td style="color:#d1d5db">문서검색 (retrieve)</td><td style="font-weight:700;color:#f3f4f6">0.69s</td><td style="color:#6b7280">7%<span style="display:inline-block;width:8px;height:6px;border-radius:3px;background:#06b6d4;opacity:0.7;vertical-align:middle;margin-left:6px"></span></td></tr><tr><td style="color:#d1d5db">답변생성 (generate)</td><td style="font-weight:700;color:#f3f4f6">2.29s</td><td style="color:#6b7280">22%<span style="display:inline-block;width:26px;height:6px;border-radius:3px;background:#22c55e;opacity:0.7;vertical-align:middle;margin-left:6px"></span></td></tr></table><div style="margin-top:0.5rem;font-size:0.74rem;color:#6b7280">합계: <strong style="color:#f3f4f6">10.6s</strong></div>`},
   {label:'평가 건수',ko:'',value:S.num_evaluated+'/'+S.num_queries,max:'',color:'var(--text)',tooltip:null},
 ];
 cardsEl.innerHTML = cardDefs.map(c=>`
