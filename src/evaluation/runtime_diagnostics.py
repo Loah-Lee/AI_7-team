@@ -129,6 +129,12 @@ def should_fallback_to_extractive_draft(
         return False
     if not generated_lines:
         return True
+    # 요약 질의에서 생성 답변이 단문 1줄로 수렴하면 정보 누락 가능성이 커서
+    # 다중 라인 draft(항목형)로 복구한다.
+    if len(draft_lines) >= 3 and len(generated_lines) <= 1:
+        return True
+    if len(draft_lines) >= 4 and len(generated_lines) < max(2, len(draft_lines) // 2):
+        return True
 
     stop_tokens = {
         "문서",

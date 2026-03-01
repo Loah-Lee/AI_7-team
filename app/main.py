@@ -107,6 +107,8 @@ def build_chatbot_cache_key() -> str:
         Path(_PROJECT_ROOT) / "src" / "graph" / "workflow.py",
         Path(_PROJECT_ROOT) / "src" / "graph" / "nodes.py",
         Path(_PROJECT_ROOT) / "src" / "prompts" / "templates.py",
+        Path(_PROJECT_ROOT) / "src" / "prompts" / "answer_postprocess.py",
+        Path(_PROJECT_ROOT) / "src" / "evaluation" / "runtime_diagnostics.py",
         Path(_PROJECT_ROOT) / "src" / "utils" / "config.py",
     ]
     parts = [str(get_data_dir()), str(resolve_runtime_db_path())]

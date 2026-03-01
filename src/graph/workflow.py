@@ -4004,7 +4004,7 @@ class RAGChatbotV17:
                                     polished_final = f"{lines[0]} {lines[1]}".strip()
                                 else:
                                     polished_final = lines[0]
-                    if "\n" in polished_final:
+                    if "\n" in polished_final and self._is_single_value_query(query):
                         lines = [ln.strip() for ln in polished_final.splitlines() if ln.strip()]
                         if len(lines) >= 2:
                             norm0 = re.sub(r"[^0-9a-zA-Z가-힣]+", "", unicodedata.normalize("NFKC", lines[0].lower()))
@@ -4748,18 +4748,25 @@ class RAGChatbotV17:
         # 추출 초안이 확보되면 LLM 재생성을 건너뛰고 그대로 정리해서 반환한다.
         # (생성 모델은 "보기 좋게 정리" 용도로만 제한)
         if extractive_draft and not is_summary_focus_query:
-            self.conversation.add_exchange(query, extractive_draft, intent)
-            slot_fill_rate = self._estimate_slot_fill_rate(question_plan, extractive_draft, evidence_spans)
-            confidence = self._estimate_confidence(slot_fill_rate, evidence_spans, answer_mode="extractive")
-            return _attach_retrieved_docs(self._build_answer_payload(
-                answer=extractive_draft,
-                found=True,
-                source_type=source_type,
-                answer_mode="extractive",
-                slot_fill_rate=slot_fill_rate,
-                confidence=confidence,
-                evidence_spans=evidence_spans,
-            ))
+            keep_extractive = True
+            if self._is_single_value_query(query):
+                draft_value = self._extract_single_value_from_fact_answer(extractive_draft, query=query)
+                if not draft_value:
+                    # 단일값 질의에서 값을 특정하지 못한 초안은 생성 단계로 넘겨 보강한다.
+                    keep_extractive = False
+            if keep_extractive:
+                self.conversation.add_exchange(query, extractive_draft, intent)
+                slot_fill_rate = self._estimate_slot_fill_rate(question_plan, extractive_draft, evidence_spans)
+                confidence = self._estimate_confidence(slot_fill_rate, evidence_spans, answer_mode="extractive")
+                return _attach_retrieved_docs(self._build_answer_payload(
+                    answer=extractive_draft,
+                    found=True,
+                    source_type=source_type,
+                    answer_mode="extractive",
+                    slot_fill_rate=slot_fill_rate,
+                    confidence=confidence,
+                    evidence_spans=evidence_spans,
+                ))
 
         if not self.llm:
             # LLM이 없으면 규칙 기반 응답 후 요약 fallback
@@ -5234,6 +5241,22 @@ class RAGChatbotV17:
             return False
         if RAGChatbotV17._is_comparison_query(normalized):
             return False
+        top_match = re.search(r"\btop\s*(\d{1,3})\b", normalized, flags=re.IGNORECASE)
+        if top_match:
+            try:
+                if int(top_match.group(1)) > 1:
+                    return False
+            except (TypeError, ValueError):
+                pass
+        rank_match = re.search(r"(상위|하위)\s*(\d{1,3})", normalized)
+        if rank_match:
+            try:
+                if int(rank_match.group(2)) > 1:
+                    return False
+            except (TypeError, ValueError):
+                pass
+        if any(marker in normalized for marker in ["순위", "랭킹", "top", "상위", "하위"]):
+            return False
         list_or_explain_markers = [
             "목록",
             "정리",
@@ -5306,6 +5329,19 @@ class RAGChatbotV17:
         """단일 값을 질문 문맥에 맞춘 존댓말 문장으로 변환합니다."""
         q_norm = unicodedata.normalize("NFKC", str(query or "").lower())
         raw_value = unicodedata.normalize("NFKC", str(value or "")).strip()
+        if not raw_value:
+            return ""
+        quoted_match = re.search(r"`([^`\n]{1,120})`", raw_value)
+        if quoted_match:
+            raw_value = quoted_match.group(1).strip()
+        wrapper_match = re.search(
+            r"(?:요청하신\s*값|문서\s*기준\s*값|규격|기한|사업비|값|번호|코드|아이디)\s*(?:은|는|이|가|:)?\s*([A-Za-z0-9가-힣][^.\n]{0,120})",
+            raw_value,
+            flags=re.IGNORECASE,
+        )
+        if wrapper_match:
+            raw_value = wrapper_match.group(1).strip()
+        raw_value = re.sub(r"(?:입니다|합니다)\.?$", "", raw_value).strip(" `\"'")
         if not raw_value:
             return ""
 
@@ -5916,6 +5952,22 @@ class RAGChatbotV17:
         llm = self.intent_llm or self.llm
         result = regex_guess
         confidence = 0.0
+        strong_visual_anchor = any(
+            marker in normalized_query
+            for marker in [
+                "표에서",
+                "표의",
+                "표 기준",
+                "도면",
+                "평면도",
+                "치수표",
+                "이미지",
+                "사진",
+                "그림",
+                "로고",
+                "캡션",
+            ]
+        )
 
         if llm is not None:
             prompt = (
@@ -5949,7 +6001,10 @@ class RAGChatbotV17:
                     except (TypeError, ValueError):
                         confidence = 0.0
                     confidence = max(0.0, min(1.0, confidence))
-                    if confidence >= 0.58:
+                    if regex_guess and strong_visual_anchor and not llm_guess:
+                        # 표/도면 앵커가 명시된 경우에는 sidecar 검색 경로를 유지한다.
+                        result = True
+                    elif confidence >= 0.58:
                         result = llm_guess
                     elif confidence >= 0.45:
                         result = bool(llm_guess or regex_guess)
@@ -5990,6 +6045,35 @@ class RAGChatbotV17:
             "캡처",
             "파일",
         ]
+        explicit_presence = any(marker in normalized_query for marker in presence_markers)
+        value_markers = [
+            "번호",
+            "요청번호",
+            "확정요청번호",
+            "공고번호",
+            "코드",
+            "id",
+            "아이디",
+            "값",
+            "수량",
+            "단위",
+            "금액",
+            "사업비",
+            "예산",
+            "얼마",
+            "몇",
+            "치수",
+            "가로",
+            "세로",
+            "길이",
+        ]
+        is_value_extraction_query = self._is_single_value_query(query) or any(
+            marker in normalized_query for marker in value_markers
+        )
+        if is_value_extraction_query and not explicit_presence:
+            self._visual_presence_intent_cache[cache_key] = (False, 1.0)
+            return False
+
         analysis_markers = [
             "치수",
             "규격",
@@ -6008,10 +6092,23 @@ class RAGChatbotV17:
             "분석",
             "의미",
             "내용",
+            "번호",
+            "요청번호",
+            "확정요청번호",
+            "공고번호",
+            "코드",
+            "id",
+            "아이디",
+            "수량",
+            "단위",
+            "금액",
+            "사업비",
+            "예산",
+            "값",
         ]
         regex_guess = (
             self._is_visual_intent_query(query)
-            and any(marker in normalized_query for marker in presence_markers)
+            and explicit_presence
             and not any(marker in normalized_query for marker in analysis_markers)
         )
 
@@ -6049,7 +6146,9 @@ class RAGChatbotV17:
                     except (TypeError, ValueError):
                         confidence = 0.0
                     confidence = max(0.0, min(1.0, confidence))
-                    if confidence >= 0.58:
+                    if llm_guess and is_value_extraction_query and not explicit_presence:
+                        result = False
+                    elif confidence >= 0.58:
                         result = llm_guess
                     elif confidence >= 0.45:
                         result = bool(llm_guess or regex_guess)
@@ -7530,6 +7629,102 @@ class RAGChatbotV17:
                 break
         return focus
 
+    @staticmethod
+    def _build_query_slot_hints(query: str, max_hints: int = 10) -> list[str]:
+        """질의에서 구조화 key-value 매칭용 슬롯 힌트를 추출합니다."""
+        raw = unicodedata.normalize("NFKC", str(query or "").lower())
+        if not raw:
+            return []
+        tokens = re.findall(r"[0-9a-zA-Z가-힣]{2,}", raw)
+        stopwords = {
+            "문서", "기준", "표", "라인", "행", "열", "값", "무엇", "얼마", "몇",
+            "알려줘", "알려주세요", "해주세요", "질문", "에서", "관련", "정보",
+            "사업", "공고", "기관", "문항", "항목",
+        }
+        hints: list[str] = []
+        seen: set[str] = set()
+        for token in tokens:
+            if token in stopwords or token.isdigit():
+                continue
+            norm = util_normalize_text_for_match(token)
+            if not norm or norm in seen:
+                continue
+            seen.add(norm)
+            hints.append(token)
+            if len(hints) >= max_hints:
+                break
+        return hints
+
+    @staticmethod
+    def _extract_structured_key_values(text: str, max_pairs: int = 24) -> list[tuple[str, str]]:
+        """JSON/표/콜론 형식 라인에서 (key, value) 쌍을 추출합니다."""
+        raw = unicodedata.normalize("NFKC", str(text or "")).strip()
+        if not raw:
+            return []
+        pairs: list[tuple[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+
+        def _append_pair(key: str, value: str) -> None:
+            if len(pairs) >= max_pairs:
+                return
+            k = unicodedata.normalize("NFKC", key).strip(" -|\"'[]{}")
+            v = unicodedata.normalize("NFKC", value).strip(" -|\"'[]{}")
+            if len(k) < 2 or len(v) < 1:
+                return
+            packed = (k, v)
+            if packed in seen:
+                return
+            seen.add(packed)
+            pairs.append(packed)
+
+        for key, value in re.findall(r"\[\s*\"([^\"]{1,80})\"\s*,\s*\"([^\"]{1,200})\"\s*\]", raw):
+            _append_pair(key, value)
+
+        if raw.count("|") >= 2:
+            cells = [cell.strip() for cell in raw.strip("|").split("|")]
+            non_empty = [c for c in cells if c]
+            if len(non_empty) >= 2:
+                _append_pair(non_empty[0], non_empty[1])
+
+        for key, value in re.findall(r"([가-힣A-Za-z0-9()/_\-\s]{2,50})\s*[:：]\s*([^\n|]{1,200})", raw):
+            _append_pair(key, value)
+
+        return pairs
+
+    @staticmethod
+    def _score_structured_key_match(query_hints: list[str], key: str) -> float:
+        """질의 힌트와 구조화 key의 의미 유사도를 느슨하게 점수화합니다."""
+        key_norm = util_normalize_text_for_match(key)
+        if not key_norm:
+            return 0.0
+        key_tokens = {
+            tok
+            for tok in re.findall(r"[0-9a-zA-Z가-힣]{2,}", unicodedata.normalize("NFKC", key.lower()))
+            if tok and not tok.isdigit()
+        }
+        best = 0.0
+        for hint in query_hints:
+            hint_norm = util_normalize_text_for_match(hint)
+            if not hint_norm:
+                continue
+            score = 0.0
+            if hint_norm == key_norm:
+                score += 4.0
+            elif hint_norm in key_norm or key_norm in hint_norm:
+                score += 2.6
+            hint_tokens = {
+                tok
+                for tok in re.findall(r"[0-9a-zA-Z가-힣]{2,}", unicodedata.normalize("NFKC", hint.lower()))
+                if tok and not tok.isdigit()
+            }
+            if key_tokens and hint_tokens:
+                overlap = len(key_tokens & hint_tokens)
+                if overlap:
+                    score += 0.8 + (overlap * 0.55)
+            if score > best:
+                best = score
+        return best
+
     def _extract_direct_fact_from_results(
         self,
         query: str,
@@ -7679,6 +7874,7 @@ class RAGChatbotV17:
             r"([A-Za-z0-9]{2,}(?:[-/][A-Za-z0-9]{1,})+|[A-Za-z]?\d{3,})",
             re.IGNORECASE,
         )
+        identifier_query_hints = self._build_query_slot_hints(query) if wants_identifier else []
         charset_pattern = re.compile(r"(UTF[-\s]?8|EUC[-\s]?KR|CP949|UTF[-\s]?16|ASCII)", re.IGNORECASE)
         owner_subject_pattern = re.compile(
             r"([가-힣A-Za-z0-9()/_\-\s]{2,30})\s*(?:이|가|은|는)?\s*(?:책임|부담|귀속|소유권)",
@@ -7720,8 +7916,18 @@ class RAGChatbotV17:
             source_line = f"{source} p.{page}" if page is not None else str(source)
 
             for raw_line in text.split("\n"):
+                raw_norm = unicodedata.normalize("NFKC", str(raw_line or "")).strip()
+                structured_pairs_raw = self._extract_structured_key_values(raw_norm) if wants_identifier else []
+                identifier_hint_line = bool(
+                    wants_identifier
+                    and any(
+                        self._score_structured_key_match(identifier_query_hints, key) >= 1.2
+                        and identifier_value_pattern.search(value or "")
+                        for key, value in structured_pairs_raw
+                    )
+                )
                 line = self._clean_extracted_line(raw_line)
-                if len(line) < 6 or self._is_noise_line(line):
+                if len(line) < 6 or (self._is_noise_line(line) and not identifier_hint_line):
                     continue
                 clipped = _clip_line_preserving_tail(line)
                 fallback_lines.append((clipped, source_line))
@@ -8724,12 +8930,66 @@ class RAGChatbotV17:
                     ),
                     "",
                 )
+            dynamic_best_line = ""
+            dynamic_best_value = ""
+            dynamic_best_score = 0.0
+            for line, _src in [*ranked, *fallback_lines]:
+                pairs = self._extract_structured_key_values(line)
+                if not pairs:
+                    continue
+                for key, candidate_value in pairs:
+                    value_text = unicodedata.normalize("NFKC", str(candidate_value or "")).strip()
+                    if not value_text or not identifier_value_pattern.search(value_text):
+                        continue
+                    key_lower = unicodedata.normalize("NFKC", key.lower())
+                    key_score = self._score_structured_key_match(identifier_query_hints, key)
+                    if target_markers and any(marker in key_lower for marker in target_markers):
+                        key_score = max(key_score, 2.4)
+                    if key_score <= 0:
+                        continue
+                    quality = 0.0
+                    if re.search(r"[-/]", value_text):
+                        quality += 1.2
+                    if re.search(r"[A-Za-z]", value_text):
+                        quality += 0.6
+                    if re.search(r"\d{3,}", value_text):
+                        quality += 0.5
+                    total = key_score + quality
+                    if total > dynamic_best_score:
+                        dynamic_best_score = total
+                        dynamic_best_line = line
+                        dynamic_best_value = value_text
+            if dynamic_best_line:
+                identifier_line = dynamic_best_line
             if not identifier_line:
                 return None
-            id_match = identifier_value_pattern.search(identifier_line)
-            if not id_match:
+            value = ""
+            if dynamic_best_value:
+                value = dynamic_best_value
+            labeled_id_pattern = re.compile(
+                r"(?:확정요청번호|요청번호|공고번호|번호|코드|아이디|id)\s*[:：]?\s*"
+                r"([A-Za-z0-9]{2,}(?:[-/][A-Za-z0-9]{1,})+|[A-Za-z]?\d{3,})",
+                re.IGNORECASE,
+            )
+            labeled_match = labeled_id_pattern.search(identifier_line)
+            if labeled_match:
+                value = labeled_match.group(1).strip()
+            if not value:
+                table_row_match = re.search(
+                    r"(?:확정요청번호|요청번호|공고번호)\"\s*,\s*\"([A-Za-z0-9]{2,}(?:[-/][A-Za-z0-9]{1,})+)\"",
+                    identifier_line,
+                    re.IGNORECASE,
+                )
+                if table_row_match:
+                    value = table_row_match.group(1).strip()
+            if not value:
+                id_candidates = [cand.strip() for cand in identifier_value_pattern.findall(identifier_line) if cand.strip()]
+                if id_candidates:
+                    hyphenated = [cand for cand in id_candidates if "-" in cand or "/" in cand]
+                    pool = hyphenated if hyphenated else id_candidates
+                    value = max(pool, key=len)
+            if not value:
                 return None
-            value = id_match.group(1).strip()
             answer = f"문서 기준 값은 `{value}`입니다."
             return (answer, [identifier_line], best_source)
 
