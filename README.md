@@ -98,3 +98,13 @@ python scripts/build_eval_report.py \
 - CSV 직접응답 실패: `data_index/data/data_list.csv` 경로 확인
 - DB 품질 급락: DB/CSV 세트가 기존 실험과 동일한지 먼저 확인
 - 평가 점수 소폭 변동: LLM Judge 호출 특성상 재실행 변동이 일부 발생할 수 있음
+
+## 6) 보고서
+
+
+## 7) 개인 협업일지
+- 김경태 : 
+- 김재혁 :
+- 문진우 :
+- 신유철 :
+- 이소윤 : https://www.notion.so/a6bfe536d3cf832783f0811f0276c5c0
