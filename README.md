@@ -100,7 +100,7 @@ python scripts/build_eval_report.py \
 - 평가 점수 소폭 변동: LLM Judge 호출 특성상 재실행 변동이 일부 발생할 수 있음
 
 ## 6) 보고서
-
+[AI_7team_발표PPT.pdf](https://github.com/user-attachments/files/25686019/AI_7team_.PPT.pdf)
 
 ## 7) 개인 협업일지
 - 김경태 : https://www.notion.so/2fd8dd9ffeba80f59e03f68178656069?v=2fd8dd9ffeba80f0b023000ce1ea1652&source=copy_link
